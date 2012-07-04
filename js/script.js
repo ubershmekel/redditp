@@ -312,30 +312,36 @@ $(function () {
             });
         };
 
+    var decodeUrl = function(url) {
+        return decodeURIComponent(url.replace(/\+/g, " "))
+    }
     var getRestOfUrl = function () {
-            var regexS = "(/r/[^&#]*)";
+            var regexS = "(/r/[^&#?]*)[?]?(.*)";
             var regex = new RegExp(regexS);
             var results = regex.exec(window.location.href);
+            console.log(results);
             if (results == null) {
-                return "";
+                return ["", ""];
             } else {
-                return decodeURIComponent(results[1].replace(/\+/g, " "));
+                return [decodeUrl(results[1]), decodeUrl(results[2])];
             }
         }
 
     var redditBaseUrl = "http://www.reddit.com";
-    var subredditUrl = getRestOfUrl();
+    var urlData = getRestOfUrl();
+    var subredditUrl = urlData[0]
+    var getVars = urlData[1]
     if (subredditUrl === "") {
         var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
         subredditUrl = options[Math.floor(Math.random() * options.length)];
     }
 
-    $('#subredditUrl').html("<a href='" + redditBaseUrl + subredditUrl + "'>" + subredditUrl + "</a>");
+    $('#subredditUrl').html("<a href='" + redditBaseUrl + subredditUrl + getVars + "'>" + subredditUrl + getVars + "</a>");
     var after = "";
     var redditData = null;
 
     var getNextImages = function () {
-            url = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after;
+            url = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + getVars;
             $.getJSON(url, function (data) {
                 redditData = data
                 after = "&after=" + data.data.after;

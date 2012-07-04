@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html;charset=utf-8"/>
+    <title>RedditP</title>
+    <meta name="description" content="A fullscreen presentation or slide show of reddit. RedditP" />
+    <link rel="shortcut icon" href="/images/favicon.png" />
+    <link rel="stylesheet" type="text/css" href="/css/style.css"/>
+    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.6/jquery.min.js"></script>
+    <script type="text/javascript" src="/js/jquery.touchwipe.js"></script>
+    <script type="text/javascript" src="/js/script.js"></script>
+</head>
+<body>
+    <div id="navigationBoxes">
+        <div class='navbox clouds'>
+            <div class="collapser arrowLeft" openstate="open"></div>
+            <h2 id='navboxTitle'>Loading Reddit Slideshow</h2>
+        </div>
+        <div class='navbox clouds'>
+            <div class="collapser arrowLeft" openstate="open"></div>
+            <!--p id='navboxText'></p-->
+            <div id="navboxContents">
+                <table class="nbmenu">
+                    <tr>
+                        <td id="subredditUrl" colspan="2">Loading Reddit Slideshow</td>
+                        <td><a href="http://uberpython.wordpress.com/" title="who made this" name="who made this">?</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <input class="checkbox" type="checkbox" name="autoNextSlide" id="autoNextSlide" value="Auto" checked=""/><label class="checkbox" for="autoNextSlide"> Auto-next</label>
+                            every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2" /> seconds
+                        </td>
+                        <td>
+                            <a id='navboxCommentsLink' href='#' title='Comments on reddit'>comments</a>
+                        </td>
+                        <td>
+                            <a id='navboxLink' href='#' title='placeholder'>image</a>
+                        </td>
+                    </tr>
+                </table>
+                <ul>
+                <!-- Slide number buttons will be injected by jQuery -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div id="pictureSlider">
+        <!-- Pictures will be injected by jQuery -->
+    </div>
+
+</body>
+</html>

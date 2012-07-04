@@ -89,15 +89,13 @@ $(function () {
             }
         }
 
-    var initState = function () {
-            var updateAutoNext = function () {
-                    // $this will contain a reference to the checkbox   
-                    // the checkbox was checked/unchecked
-                    shouldAutoNextSlide = $(this).is(':checked')
-                    setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
-                }
+        shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
+        var updateAutoNext = function () {
+                shouldAutoNextSlide = $("#autoNextSlide").is(':checked')
+                setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
+            }
 
-            var shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
+        var initState = function () {
             var autoByCookie = getCookie(shouldAutoNextSlideCookie);
             if (autoByCookie == undefined) {
                 updateAutoNext();
@@ -162,6 +160,20 @@ $(function () {
             }
         }
 
+        var arrow = {
+            left: 37,
+            up: 38,
+            right: 39,
+            down: 40
+        };
+        var ONE_KEY = 49;
+        var NINE_KEY = 57;
+        var SPACE = 32;
+        var PAGEUP = 33;
+        var PAGEDOWN = 34;
+        var ENTER = 13;
+        var A_KEY = 65;
+        
         // Register keypress events on the whole document
         $(document).keyup(function (e) {
 
@@ -175,20 +187,12 @@ $(function () {
             // http://stackoverflow.com/questions/1402698/binding-arrow-keys-in-js-jquery
             var imageIndex = undefined;
             var code = (e.keyCode ? e.keyCode : e.which);
-            var arrow = {
-                left: 37,
-                up: 38,
-                right: 39,
-                down: 40
-            };
-            var ONE_KEY = 49;
-            var NINE_KEY = 57;
-            var SPACE = 32;
-            var PAGEUP = 33;
-            var PAGEDOWN = 34;
-            var ENTER = 13;
 
             switch (code) {
+            case A_KEY:
+                $("#autoNextSlide").prop("checked", ! $("#autoNextSlide").is(':checked'));
+                updateAutoNext();
+                break;
             case PAGEUP:
             case arrow.left:
             case arrow.up:

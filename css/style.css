@@ -15,7 +15,14 @@ ul,ol,li,h1,h2,h3,h4,h5,h6,pre,form,body,html,p,blockquote,fieldset,input{margin
 body { overflow:hidden; background-color: #000; color:#fff;}
 
 /* PICTURES */
-#pictureSlider { }
+#pictureSlider {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    z-index:-999;
+}
 #pictureSlider div { height:100%; width:100%; position:absolute; z-index:-999; }
 
 /* NAVIGATION BOX */
@@ -50,6 +57,7 @@ a:hover { border-bottom:1px dotted; }
     width: 100%;
     font-family: "Segoe UI","HelveticaNeue-Light","Helvetica Neue Light","Helvetica Neue",Arial,Tahoma,Verdana,sans-serif;
     font-size:14px;
+    
     }
 .nbmenu td { text-align: center; padding: 0px 10px 10px 0; max-width: 300px; overflow: hidden; }
 

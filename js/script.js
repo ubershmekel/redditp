@@ -323,7 +323,7 @@ $(function () {
             if (results == null) {
                 return ["", ""];
             } else {
-                return [decodeUrl(results[1]), decodeUrl(results[2])];
+                return [results[1], decodeUrl(results[2])];
             }
         }
 

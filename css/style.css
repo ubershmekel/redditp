@@ -36,7 +36,7 @@ a:hover { border-bottom:1px dotted; }
 .navbox p.bottom { position:absolute; bottom:5px; right:5px; }
 
 .nbmenu { margin: auto; font-family: "Segoe UI","HelveticaNeue-Light","Helvetica Neue Light","Helvetica Neue",Arial,Tahoma,Verdana,sans-serif; font-size:14px; }
-.nbmenu td { text-align: center; padding: 0px 10px 10px 10px; }
+.nbmenu td { text-align: center; padding: 0px 10px 10px 10px; max-width: 300px; overflow: hidden; }
 
 #navboxContents {
     padding: 10px 25px 10px 0;

@@ -336,7 +336,13 @@ $(function () {
         subredditUrl = options[Math.floor(Math.random() * options.length)];
     }
 
-    $('#subredditUrl').html("<a href='" + redditBaseUrl + subredditUrl + getVars + "'>" + subredditUrl + getVars + "</a>");
+    if (getVars.length > 0) {
+        getVarsQuestionMark = "?" + getVars;
+    } else {
+        getVarsQuestionMark = "";
+    }
+    
+    $('#subredditUrl').html("<a href='" + redditBaseUrl + subredditUrl + getVarsQuestionMark + "'>" + subredditUrl + getVarsQuestionMark + "</a>");
     var after = "";
     var redditData = null;
 

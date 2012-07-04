@@ -213,10 +213,10 @@ $(function () {
             }
         });
 
-    var nextSlide = function () {
+    nextSlide = function () {
             startAnimation(activeIndex + 1);
         }
-    var prevSlide = function () {
+    prevSlide = function () {
             startAnimation(activeIndex - 1);
         }
 
@@ -319,7 +319,7 @@ $(function () {
             var regexS = "(/r/[^&#?]*)[?]?(.*)";
             var regex = new RegExp(regexS);
             var results = regex.exec(window.location.href);
-            console.log(results);
+            //console.log(results);
             if (results == null) {
                 return ["", ""];
             } else {
@@ -331,11 +331,6 @@ $(function () {
     var urlData = getRestOfUrl();
     var subredditUrl = urlData[0]
     var getVars = urlData[1]
-    if (subredditUrl === "") {
-        subredditUrl = "/";
-    //    var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
-    //    subredditUrl = options[Math.floor(Math.random() * options.length)];
-    }
 
     if (getVars.length > 0) {
         getVarsQuestionMark = "?" + getVars;
@@ -343,24 +338,35 @@ $(function () {
         getVarsQuestionMark = "";
     }
     
-    $('#subredditUrl').html("<a href='" + redditBaseUrl + subredditUrl + getVarsQuestionMark + "'>" + subredditUrl + getVarsQuestionMark + "</a>");
+    var subredditName;
+    if (subredditUrl === "") {
+        subredditUrl = "/";
+        subredditName = "reddit.com" + getVarsQuestionMark;
+        //var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
+        //subredditUrl = options[Math.floor(Math.random() * options.length)];
+    } else {
+        subredditName = subredditUrl + getVarsQuestionMark;
+    }
+    
+    visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
+    $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
     var after = "";
     var redditData = null;
 
     var getNextImages = function () {
-            url = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
-            $.getJSON(url, function (data) {
+            var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
+            $.getJSON(jsonUrl, function (data) {
                 redditData = data
                 after = "&after=" + data.data.after;
 
                 $.each(data.data.children, function (i, item) {
-                    var url = item.data.url;
+                    var imgUrl = item.data.url;
                     var title = item.data.title;
                     var commentsUrl = "http://www.reddit.com" + item.data.permalink;
 
                     // ignore albums and things that don't seem like image files
-                    if (url.charAt(url.length - 4) == '.') {
-                        addImageSlide(url, title, commentsUrl);
+                    if (imgUrl.charAt(imgUrl.length - 4) == '.') {
+                        addImageSlide(imgUrl, title, commentsUrl);
                     }
                 });
             });

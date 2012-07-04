@@ -341,7 +341,7 @@ $(function () {
     var redditData = null;
 
     var getNextImages = function () {
-            url = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + getVars;
+            url = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
             $.getJSON(url, function (data) {
                 redditData = data
                 after = "&after=" + data.data.after;

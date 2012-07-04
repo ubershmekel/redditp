@@ -331,10 +331,11 @@ $(function () {
     var urlData = getRestOfUrl();
     var subredditUrl = urlData[0]
     var getVars = urlData[1]
-    //if (subredditUrl === "") {
+    if (subredditUrl === "") {
+        subredditUrl = "/";
     //    var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
     //    subredditUrl = options[Math.floor(Math.random() * options.length)];
-    //}
+    }
 
     if (getVars.length > 0) {
         getVarsQuestionMark = "?" + getVars;

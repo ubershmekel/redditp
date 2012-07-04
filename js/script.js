@@ -355,10 +355,19 @@ $(function () {
 
     var getNextImages = function () {
             var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
-            $.getJSON(jsonUrl, function (data) {
+            console.log(jsonUrl);
+            var failedAjax = function(data) {
+                alert("Failed ajax, maybe a bad url? Sorry about that :(");
+            };
+            var handleData = function(data) {
                 redditData = data
                 after = "&after=" + data.data.after;
-
+                
+                if (data.data.children.length == 0) {
+                    alert("No data from this url :(");
+                    return;
+                }
+                
                 $.each(data.data.children, function (i, item) {
                     var imgUrl = item.data.url;
                     var title = item.data.title;
@@ -369,7 +378,15 @@ $(function () {
                         addImageSlide(imgUrl, title, commentsUrl);
                     }
                 });
-            });
+            };
+            
+            
+            $.ajax({
+                url: jsonUrl,
+                dataType: 'json',
+                success: handleData,
+                error: failedAjax
+                });
         }
 
     getNextImages();

@@ -4,5 +4,6 @@ AddHandler php54-cgi .php
 RewriteEngine On
 RewriteRule ^r/(.*) /index.html
 RewriteRule ^user/(.*) /index.html
+RewriteRule ^domain/(.*) /index.html
 
 ErrorDocument 404 /404.html

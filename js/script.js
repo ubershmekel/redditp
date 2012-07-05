@@ -329,7 +329,7 @@ $(function () {
         if (goodExtensions.indexOf(extension) >= 0) {
             return true;
         } else {
-            console.log("skipped bad extension: " + url);
+            //console.log("skipped bad extension: " + url);
             return false;
         }
         
@@ -340,7 +340,7 @@ $(function () {
         return decodeURIComponent(url.replace(/\+/g, " "))
     }
     var getRestOfUrl = function () {
-            var regexS = "(/(?:(?:r)|(?:user))/[^&#?]*)[?]?(.*)";
+            var regexS = "(/(?:(?:r)|(?:user)|(?:domain))/[^&#?]*)[?]?(.*)";
             var regex = new RegExp(regexS);
             var results = regex.exec(window.location.href);
             //console.log(results);
@@ -353,6 +353,7 @@ $(function () {
 
     var redditBaseUrl = "http://www.reddit.com";
     var urlData = getRestOfUrl();
+    console.log(urlData)
     var subredditUrl = urlData[0]
     var getVars = urlData[1]
 
@@ -375,7 +376,7 @@ $(function () {
     visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
     $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
     var after = "";
-    var redditData = null;
+    //var redditData = null;
 
     var getNextImages = function () {
             var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
@@ -386,6 +387,7 @@ $(function () {
             var handleData = function(data) {
                 redditData = data
                 after = "&after=" + data.data.after;
+                var foundOneImage = false;
                 
                 if (data.data.children.length == 0) {
                     alert("No data from this url :(");
@@ -399,9 +401,14 @@ $(function () {
 
                     // ignore albums and things that don't seem like image files
                     if (isImageUrl(imgUrl)) {
+                        foundOneImage = true;
                         addImageSlide(imgUrl, title, commentsUrl);
                     }
                 });
+                
+                if (!foundOneImage) {
+                    alert("Sorry, no displayable images found in that url :(")
+                }
                 
                 // show the first image
                 if (activeIndex == -1) {

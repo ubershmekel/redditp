@@ -20,6 +20,8 @@ var photos = []
 var activeIndex = -1;
 
 $(function () {
+    var nextSlideTimeoutId = null;
+    
     $("#pictureSlider").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
         wipeLeft: function () {
@@ -93,6 +95,7 @@ $(function () {
         var updateAutoNext = function () {
                 shouldAutoNextSlide = $("#autoNextSlide").is(':checked')
                 setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
+                resetNextSlideTimer();
             }
 
         var initState = function () {
@@ -150,14 +153,6 @@ $(function () {
 
             // so li's have a space between them and can word-wrap in the box
             navboxUls.append(document.createTextNode(' '));
-
-            // show the first image
-            if (activeIndex == -1) {
-                activeIndex = 0;
-                animateNavigationBox(0);
-                slideBackgroundPhoto(0);
-                setTimeout(autoNextSlide, timeToNextSlide);
-            }
         }
 
         var arrow = {
@@ -217,6 +212,11 @@ $(function () {
             }
         });
 
+    var resetNextSlideTimer = function() {
+            clearTimeout(nextSlideTimeoutId);
+            nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
+    }
+    
     nextSlide = function () {
             startAnimation(activeIndex + 1);
         }
@@ -225,9 +225,8 @@ $(function () {
         }
 
     var autoNextSlide = function () {
-            setTimeout(autoNextSlide, timeToNextSlide);
-
             if (shouldAutoNextSlide) {
+                // startAnimation takes care of the setTimeout
                 nextSlide();
             }
         }
@@ -249,6 +248,8 @@ $(function () {
     // Variable to store if the animation is playing or not
     var isAnimating = false;
     var startAnimation = function (imageIndex) {
+            resetNextSlideTimer();
+            
             // If the same number has been chosen, or the index is outside the
             // photos range, or we're already animating, do nothing
             if (activeIndex == imageIndex || imageIndex > photos.length - 1 || imageIndex < 0 || isAnimating || photos.length == 0) {
@@ -315,6 +316,10 @@ $(function () {
                 isAnimating = false;
             });
         };
+    
+    var isImageUrl = function(url) {
+        return url.charAt(url.length - 4) == '.';
+    }
 
     var decodeUrl = function(url) {
         return decodeURIComponent(url.replace(/\+/g, " "))
@@ -359,7 +364,7 @@ $(function () {
 
     var getNextImages = function () {
             var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
-            console.log(jsonUrl);
+            //console.log(jsonUrl);
             var failedAjax = function(data) {
                 alert("Failed ajax, maybe a bad url? Sorry about that :(");
             };
@@ -378,10 +383,20 @@ $(function () {
                     var commentsUrl = "http://www.reddit.com" + item.data.permalink;
 
                     // ignore albums and things that don't seem like image files
-                    if (imgUrl.charAt(imgUrl.length - 4) == '.') {
+                    if (isImageUrl(imgUrl)) {
                         addImageSlide(imgUrl, title, commentsUrl);
                     }
                 });
+                
+                // show the first image
+                if (activeIndex == -1) {
+                    startAnimation(0);
+
+                    //activeIndex = 0;
+                    //animateNavigationBox(0);
+                    //slideBackgroundPhoto(0);
+                    //resetNextSlideTimer()
+                }
             };
             
             

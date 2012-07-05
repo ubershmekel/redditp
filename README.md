@@ -8,7 +8,7 @@ Features:
 * Swipe gestures on phones
 * Arrow keys, pgup/pgdown, spacebar change slides
 * 'a' toggles the auto-next.
-* /user/ and /domain url's work now.
+* /user/ and /domain/ url's work now.
 
 Planned features, depending on feedback:
 * Zoom/Pan for comics

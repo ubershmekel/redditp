@@ -317,15 +317,30 @@ $(function () {
             });
         };
     
+    var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
     var isImageUrl = function(url) {
-        return url.charAt(url.length - 4) == '.';
+        var dotLocation = url.lastIndexOf('.');
+        if (dotLocation < 0) {
+            console.log("skipped no dot: " + url);
+            return false;
+        }
+        var extension = url.substring(dotLocation);
+        
+        if (goodExtensions.indexOf(extension) >= 0) {
+            return true;
+        } else {
+            console.log("skipped bad extension: " + url);
+            return false;
+        }
+        
+        
     }
 
     var decodeUrl = function(url) {
         return decodeURIComponent(url.replace(/\+/g, " "))
     }
     var getRestOfUrl = function () {
-            var regexS = "(/r/[^&#?]*)[?]?(.*)";
+            var regexS = "(/(?:(?:r)|(?:user))/[^&#?]*)[?]?(.*)";
             var regex = new RegExp(regexS);
             var results = regex.exec(window.location.href);
             //console.log(results);

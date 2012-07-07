@@ -376,6 +376,9 @@ $(function () {
     visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
     $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
     var after = "";
+    
+    document.title = "redditP - " + subredditName;
+    
     //var redditData = null;
 
     var getNextImages = function () {

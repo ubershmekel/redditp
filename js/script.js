@@ -89,42 +89,47 @@ $(function () {
                     return unescape(y);
                 }
             }
+        };
+
+    var resetNextSlideTimer = function() {
+            clearTimeout(nextSlideTimeoutId);
+            nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
+    }
+    
+    shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
+    var updateAutoNext = function () {
+            shouldAutoNextSlide = $("#autoNextSlide").is(':checked')
+            setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
+            resetNextSlideTimer();
         }
 
-        shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
-        var updateAutoNext = function () {
-                shouldAutoNextSlide = $("#autoNextSlide").is(':checked')
-                setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
-                resetNextSlideTimer();
-            }
-
-        var initState = function () {
-            var autoByCookie = getCookie(shouldAutoNextSlideCookie);
-            if (autoByCookie == undefined) {
-                updateAutoNext();
-            } else {
-                shouldAutoNextSlide = (autoByCookie === "true");
-                $("#autoNextSlide").prop("checked", shouldAutoNextSlide);
-            }
-            $('#autoNextSlide').change(updateAutoNext);
-
-            var updateTimeToNextSlide = function () {
-                    var val = $('#timeToNextSlide').val()
-                    timeToNextSlide = parseFloat(val) * 1000;
-                    setCookie(timeToNextSlideCookie, val, cookieDays);
-                }
-
-            var timeToNextSlideCookie = "timeToNextSlideCookie";
-            timeByCookie = getCookie(timeToNextSlideCookie);
-            if (timeByCookie == undefined) {
-                updateTimeToNextSlide();
-            } else {
-                timeToNextSlide = parseFloat(timeByCookie) * 1000;
-                $('#timeToNextSlide').val(timeByCookie);
-            }
-
-            $('#timeToNextSlide').keyup(updateTimeToNextSlide);
+    var initState = function () {
+        var autoByCookie = getCookie(shouldAutoNextSlideCookie);
+        if (autoByCookie == undefined) {
+            updateAutoNext();
+        } else {
+            shouldAutoNextSlide = (autoByCookie === "true");
+            $("#autoNextSlide").prop("checked", shouldAutoNextSlide);
         }
+        $('#autoNextSlide').change(updateAutoNext);
+
+        var updateTimeToNextSlide = function () {
+                var val = $('#timeToNextSlide').val()
+                timeToNextSlide = parseFloat(val) * 1000;
+                setCookie(timeToNextSlideCookie, val, cookieDays);
+            }
+
+        var timeToNextSlideCookie = "timeToNextSlideCookie";
+        timeByCookie = getCookie(timeToNextSlideCookie);
+        if (timeByCookie == undefined) {
+            updateTimeToNextSlide();
+        } else {
+            timeToNextSlide = parseFloat(timeByCookie) * 1000;
+            $('#timeToNextSlide').val(timeByCookie);
+        }
+
+        $('#timeToNextSlide').keyup(updateTimeToNextSlide);
+    }
     initState()
 
     var addImageSlide = function (url, title, commentsLink) {
@@ -212,11 +217,6 @@ $(function () {
             }
         });
 
-    var resetNextSlideTimer = function() {
-            clearTimeout(nextSlideTimeoutId);
-            nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
-    }
-    
     nextSlide = function () {
             startAnimation(activeIndex + 1);
         }

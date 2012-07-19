@@ -41,20 +41,21 @@ $(function () {
         preventDefaultEvents: false
     });
 
+	var OPENSTATE_ATTR = "data-openstate";
     $('.collapser').click(function () {
-        var state = $(this).attr("openstate");
+        var state = $(this).attr(OPENSTATE_ATTR);
         if (state == "open") {
             $(this).attr("class", "collapser arrowRight");
             $(this).parent().animate({
                 left: "-425px"
             });
-            $(this).attr("openstate", "closed");
+            $(this).attr(OPENSTATE_ATTR, "closed");
         } else {
             $(this).attr("class", "collapser arrowLeft");
             $(this).parent().animate({
                 left: "0px"
             });
-            $(this).attr("openstate", "open");
+            $(this).attr(OPENSTATE_ATTR, "open");
         }
 
     })

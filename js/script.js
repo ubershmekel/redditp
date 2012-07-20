@@ -133,6 +133,17 @@ $(function () {
     }
     initState()
 
+	var addNumberButton = function(numberButton) {
+		var navboxUls = $(".navbox ul");
+		var thisNavboxUl = navboxUls[navboxUls.length - 1];
+
+		var newListItem = $("<li />").appendTo(thisNavboxUl);
+		numberButton.appendTo(newListItem);
+
+		// so li's have a space between them and can word-wrap in the box
+		navboxUls.append(document.createTextNode(' '));
+	}
+	
     var addImageSlide = function (url, title, commentsLink) {
             var pic = {
                 "title": title,
@@ -147,18 +158,13 @@ $(function () {
             preLoadImages(pic.url);
             photos.push(pic);
 
-            var navboxUls = $(".navbox ul");
-            var thisNavboxUl = navboxUls[navboxUls.length - 1];
-
             var i = photos.length - 1;
-            var numberButton = $("<a />").html(i + 1).data("index", i).attr("title", photos[i].title).attr("id", "numberButton" + (i + 1)).click(function () {
-                showImage($(this));
-            });
-            var newListItem = $("<li />").appendTo(thisNavboxUl);
-            numberButton.appendTo(newListItem);
-
-            // so li's have a space between them and can word-wrap in the box
-            navboxUls.append(document.createTextNode(' '));
+            var numberButton = $("<a />").html(i + 1).data("index", i).attr("title", photos[i].title).attr("id", "numberButton" + (i + 1));
+			numberButton.click(function () {
+				showImage($(this));
+			});
+			numberButton.addClass("numberButton");
+			addNumberButton(numberButton);
         }
 
         var arrow = {
@@ -204,6 +210,9 @@ $(function () {
             case arrow.down:
             case SPACE:
                 imageIndex = activeIndex + 1;
+				if(imageIndex >= photos.length) {
+					imageIndex = 0;
+				}
                 break;
             }
 
@@ -219,6 +228,11 @@ $(function () {
         });
 
     nextSlide = function () {
+			if(activeIndex + 1 == photos.length) {
+				// the only reason we got here and there aren't more pictures yet
+				// is because there are no more images to load
+				activeIndex = -1;
+			}
             startAnimation(activeIndex + 1);
         }
     prevSlide = function () {
@@ -272,9 +286,9 @@ $(function () {
     var toggleNumberButton = function (imageIndex, turnOn) {
             var numberButton = $('#numberButton' + (imageIndex + 1));
             if (turnOn) {
-                numberButton.attr('class', 'active');
+                numberButton.addClass('active');
             } else {
-                numberButton.attr('class', '');
+                numberButton.removeClass('active');
             }
         }
 
@@ -383,6 +397,12 @@ $(function () {
     //var redditData = null;
 
     var getNextImages = function () {
+			//if (noMoreToLoad){
+			//	console.log("No more images to load, will rotate to start.");
+			//	return;
+			//}
+	
+	
             var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
             //console.log(jsonUrl);
             var failedAjax = function(data) {
@@ -390,6 +410,8 @@ $(function () {
             };
             var handleData = function(data) {
                 redditData = data
+				// NOTE: if data.data.after is null then this causes us to start
+				// from the top on the next getNextImages which is fine.
                 after = "&after=" + data.data.after;
                 var foundOneImage = false;
                 
@@ -417,12 +439,15 @@ $(function () {
                 // show the first image
                 if (activeIndex == -1) {
                     startAnimation(0);
-
-                    //activeIndex = 0;
-                    //animateNavigationBox(0);
-                    //slideBackgroundPhoto(0);
-                    //resetNextSlideTimer()
                 }
+				
+				if(data.data.after == null) {
+					console.log("No more pages to load from this subreddit, reloading the start");
+					
+					// Show the user we're starting from the top
+					var numberButton = $("<span />").addClass("numberButton").text("-");
+					addNumberButton(numberButton);
+				}
             };
             
             

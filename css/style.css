@@ -31,10 +31,22 @@ a { text-decoration:none; color:#eee; font-weight: bold; }
 a:hover { border-bottom:1px dotted; }
 .navbox { max-height: 600px; overflow: auto; margin: 10px 10px 10px 0; width:450px; position:relative; left: 0px; opacity: 0.9; background-color: #555;}
 .navbox ul { list-style-type:none; display:block; margin:0px; right:10px; top:10px; }
-.navbox ul li { display:inline; list-style-type: none; cursor:pointer; }
+.navbox ul li { display:inline; list-style-type: none; }
+.numberButton {
+    display:inline-block;
+	width:25px;
+	height:17px;
+	text-align:center;
+	background:#333;
+	margin-left:5px;
+    text-decoration:none;
+	color:#eee;
+	font: bold 14px Helvetica, Arial, Sans-serif;
+	line-height:18px; 
+}
 .navbox ul li a {
-    display:inline-block; width:25px; height:17px; text-align:center; background:#333; margin-left:5px;
-    text-decoration:none; color:#eee; font: bold 14px Helvetica, Arial, Sans-serif; line-height:18px; }
+	cursor:pointer;
+	}
 .navbox ul li a:hover { background:#888; color:#000; border: 0; }
 .navbox ul li a.active {
     color:#eee;

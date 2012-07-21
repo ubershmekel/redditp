@@ -22,6 +22,25 @@ var activeIndex = -1;
 $(function () {
     var nextSlideTimeoutId = null;
     
+    nextSlide = function () {
+			if(activeIndex + 1 == photos.length) {
+				// the only reason we got here and there aren't more pictures yet
+				// is because there are no more images to load
+				activeIndex = -1;
+			}
+            startAnimation(activeIndex + 1);
+        }
+    prevSlide = function () {
+            startAnimation(activeIndex - 1);
+        }
+
+    var autoNextSlide = function () {
+            if (shouldAutoNextSlide) {
+                // startAnimation takes care of the setTimeout
+                nextSlide();
+            }
+        }
+
     $("#pictureSlider").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
         wipeLeft: function () {
@@ -228,25 +247,6 @@ $(function () {
                 console.log('invalid index: ' + imageIndex);
             }
         });
-
-    nextSlide = function () {
-			if(activeIndex + 1 == photos.length) {
-				// the only reason we got here and there aren't more pictures yet
-				// is because there are no more images to load
-				activeIndex = -1;
-			}
-            startAnimation(activeIndex + 1);
-        }
-    prevSlide = function () {
-            startAnimation(activeIndex - 1);
-        }
-
-    var autoNextSlide = function () {
-            if (shouldAutoNextSlide) {
-                // startAnimation takes care of the setTimeout
-                nextSlide();
-            }
-        }
 
 
         //

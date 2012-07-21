@@ -19,6 +19,30 @@ var photos = []
 // init to -1 until the first image is loaded
 var activeIndex = -1;
 
+
+// IE doesn't have indexOf, wtf...
+if(!Array.indexOf){
+	    Array.prototype.indexOf = function(obj){
+	        for(var i=0; i<this.length; i++){
+	            if(this[i]==obj){
+	                return i;
+	            }
+	        }
+	        return -1;
+	    }
+	}
+
+// IE doesn't have console.log and fails, wtf...
+// usage: log('inside coolFunc',this,arguments);
+// http://paulirish.com/2009/log-a-lightweight-wrapper-for-consolelog/
+window.log = function(){
+  log.history = log.history || [];   // store logs to an array for reference
+  log.history.push(arguments);
+  if(this.console){
+    console.log( Array.prototype.slice.call(arguments) );
+  }
+};
+
 $(function () {
     var nextSlideTimeoutId = null;
     
@@ -205,7 +229,7 @@ $(function () {
         // Register keypress events on the whole document
         $(document).keyup(function (e) {
 
-            //console.log(e.keyCode, e.which, e.charCode);
+            //log(e.keyCode, e.which, e.charCode);
 
             // 37 - left
             // 38 - up
@@ -244,7 +268,7 @@ $(function () {
             if (0 <= imageIndex && imageIndex < photos.length) {
                 startAnimation(imageIndex);
             } else {
-                console.log('invalid index: ' + imageIndex);
+                log('invalid index: ' + imageIndex);
             }
         });
 
@@ -338,7 +362,7 @@ $(function () {
     var isImageUrl = function(url) {
         var dotLocation = url.lastIndexOf('.');
         if (dotLocation < 0) {
-            console.log("skipped no dot: " + url);
+            log("skipped no dot: " + url);
             return false;
         }
         var extension = url.substring(dotLocation);
@@ -346,7 +370,7 @@ $(function () {
         if (goodExtensions.indexOf(extension) >= 0) {
             return true;
         } else {
-            //console.log("skipped bad extension: " + url);
+            //log("skipped bad extension: " + url);
             return false;
         }
         
@@ -360,7 +384,7 @@ $(function () {
             var regexS = "(/(?:(?:r)|(?:user)|(?:domain))/[^&#?]*)[?]?(.*)";
             var regex = new RegExp(regexS);
             var results = regex.exec(window.location.href);
-            //console.log(results);
+            //log(results);
             if (results == null) {
                 return ["", ""];
             } else {
@@ -370,7 +394,7 @@ $(function () {
 
     var redditBaseUrl = "http://www.reddit.com";
     var urlData = getRestOfUrl();
-    console.log(urlData)
+    log(urlData)
     var subredditUrl = urlData[0]
     var getVars = urlData[1]
 
@@ -400,13 +424,13 @@ $(function () {
 
     var getNextImages = function () {
 			//if (noMoreToLoad){
-			//	console.log("No more images to load, will rotate to start.");
+			//	log("No more images to load, will rotate to start.");
 			//	return;
 			//}
 	
 	
             var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
-            //console.log(jsonUrl);
+            //log(jsonUrl);
             var failedAjax = function(data) {
                 alert("Failed ajax, maybe a bad url? Sorry about that :(");
             };
@@ -444,7 +468,7 @@ $(function () {
                 }
 				
 				if(data.data.after == null) {
-					console.log("No more pages to load from this subreddit, reloading the start");
+					log("No more pages to load from this subreddit, reloading the start");
 					
 					// Show the user we're starting from the top
 					var numberButton = $("<span />").addClass("numberButton").text("-");

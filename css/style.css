@@ -18,8 +18,9 @@ body { overflow:hidden; background-color: #000; color:#fff;}
 /* NAVIGATION BOX */
 #navigationBoxes {float: left;}
 a { text-decoration:none; color:#eee; font-weight: bold; }
-a:hover { border-bottom:1px dotted; }
-.navbox { max-height: 600px; overflow: auto; margin: 10px 10px 10px 0; width:450px; position:relative; left: 0px; opacity: 0.9; background-color: #555;}
+a:hover { opacity: 1.0; }
+.navbox a:hover { border-bottom:1px dotted; }
+.navbox { max-height: 40%; overflow: auto; margin: 10px 10px 10px 0; width:450px; position:relative; left: 0px; opacity: 0.9; background-color: #555;}
 .navbox ul { list-style-type:none; display:block; margin:0px; right:10px; top:10px; }
 .navbox ul li { display:inline; list-style-type: none; }
 .numberButton {
@@ -107,6 +108,28 @@ filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#d93f3f3f', e
     border-left: 25px solid #bbb; 
 }
 
+.prevArrow {
+	position: absolute;
+	top: 50%;
+    width: 0; 
+    height: 0; 
+    border-top: 25px solid transparent;
+    border-bottom: 25px solid transparent; 
+    border-right: 55px solid #fff; 
+	opacity: 0.8;
+}
+
+.nextArrow {
+	position: absolute;
+	top: 50%;
+	right: 0;
+    width: 0; 
+    height: 0; 
+    border-top: 25px solid transparent;
+    border-bottom: 25px solid transparent; 
+    border-left: 55px solid #fff; 
+	opacity: 0.8;
+}
 
 
 /*

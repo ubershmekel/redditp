@@ -22,6 +22,9 @@
     </script>
 </head>
 <body>
+	<a class="prevArrow" href="#" title="The arrow keys work too" onClick="prevSlide(); return false;" id="prevButton"></a>
+	<a class="nextArrow" href="#" title="Try the arrow keys too" onClick="nextSlide(); return false;" id="nextButton"></a>
+	
     <div id="controlsDiv" class='navbox clouds'>
         <div class="collapser arrowLeft" data-openstate="open"></div>
         <div id="navboxContents">
@@ -44,11 +47,13 @@
                         <a id='navboxLink' href='#' title='placeholder'>image</a>
                     </td>
                 </tr>
+				<!--
                 <tr>
                     <td style="text-align:left;"><a href="#" title="The arrow keys work too" onClick="prevSlide(); return false;" id="prevButton">prev</a></td>
                     <td></td>
                     <td style="text-align:center;"><a href="#" title="Try the arrow keys too" onClick="nextSlide(); return false;" id="nextButton">next</a></td>
                 </tr>
+				-->
             </table>
             <ul>
             <!-- Slide number buttons will be injected by jQuery -->

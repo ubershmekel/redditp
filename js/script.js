@@ -46,8 +46,10 @@ $(function () {
         var state = $(this).attr(OPENSTATE_ATTR);
         if (state == "open") {
             $(this).attr("class", "collapser arrowRight");
+			// move to the left just enough so the collapser arrow is visible
+			var arrowLeftPoint = $(this).position().left;
             $(this).parent().animate({
-                left: "-425px"
+                left: "-" + arrowLeftPoint + "px"
             });
             $(this).attr(OPENSTATE_ATTR, "closed");
         } else {

@@ -22,6 +22,8 @@ a:hover { opacity: 1.0; }
 .navbox a:hover { border-bottom:1px dotted; }
 .navbox { max-height: 40%; overflow: auto; margin: 10px 10px 10px 0; width:450px; position:relative; left: 0px; opacity: 0.9; background-color: #555;}
 .navbox ul { list-style-type:none; display:block; margin:0px; right:10px; top:10px; }
+/* 108px so the next row is half-visible */
+.numberButtonList { overflow: auto; max-height: 108px; }
 .navbox ul li { display:inline; list-style-type: none; }
 .numberButton {
     display:inline-block;
@@ -113,9 +115,9 @@ filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#d93f3f3f', e
 	top: 50%;
     width: 0; 
     height: 0; 
-    border-top: 25px solid transparent;
-    border-bottom: 25px solid transparent; 
-    border-right: 55px solid #fff; 
+    border-top: 20px solid transparent;
+    border-bottom: 20px solid transparent; 
+    border-right: 60px solid #fff; 
 	opacity: 0.8;
 }
 
@@ -125,9 +127,9 @@ filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#d93f3f3f', e
 	right: 0;
     width: 0; 
     height: 0; 
-    border-top: 25px solid transparent;
-    border-bottom: 25px solid transparent; 
-    border-left: 55px solid #fff; 
+    border-top: 20px solid transparent;
+    border-bottom: 20px solid transparent; 
+    border-left: 60px solid #fff; 
 	opacity: 0.8;
 }
 

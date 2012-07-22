@@ -44,6 +44,24 @@ window.log = function(){
 };
 
 $(function () {
+	$('.fadeOnIdle').fadeTo('fast', 0); 
+	var navboxVisible = false;
+	var fadeoutTimer = null;
+	var fadeoutFunction = function(){
+			navboxVisible = false;
+			$('.fadeOnIdle').fadeTo('slow', 0);
+			};
+	$(window).mousemove(function(){
+		if(navboxVisible) {
+			clearTimeout(fadeoutTimer);
+			fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
+			return;
+		}
+		navboxVisible = true;
+		$('.fadeOnIdle').fadeTo('fast',1);
+		fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
+	})
+
     var nextSlideTimeoutId = null;
     
     nextSlide = function () {
@@ -421,6 +439,9 @@ $(function () {
     document.title = "redditP - " + subredditName;
     
     //var redditData = null;
+	
+	// if ever found even 1 image, don't show the error
+	var foundOneImage = false;
 
     var getNextImages = function () {
 			//if (noMoreToLoad){
@@ -439,7 +460,6 @@ $(function () {
 				// NOTE: if data.data.after is null then this causes us to start
 				// from the top on the next getNextImages which is fine.
                 after = "&after=" + data.data.after;
-                var foundOneImage = false;
                 
                 if (data.data.children.length == 0) {
                     alert("No data from this url :(");
@@ -459,6 +479,7 @@ $(function () {
                 });
                 
                 if (!foundOneImage) {
+					log(jsonUrl);
                     alert("Sorry, no displayable images found in that url :(")
                 }
                 

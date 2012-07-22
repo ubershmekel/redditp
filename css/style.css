@@ -20,42 +20,41 @@ body { overflow:hidden; background-color: #000; color:#fff;}
 a { text-decoration:none; color:#eee; font-weight: bold; }
 a:hover { opacity: 1.0; }
 .navbox a:hover { border-bottom:1px dotted; }
-.navbox { max-height: 40%; overflow: auto; margin: 10px 10px 10px 0; width:450px; position:relative; left: 0px; opacity: 0.9; background-color: #555;}
-.navbox ul { list-style-type:none; display:block; margin:0px; right:10px; top:10px; }
+.navbox { width:450px; max-height: 40%; overflow: auto; position:relative; left: 0px; opacity: 0.9; background-color: rgba(0,0,0,0.7);}
+.navbox ul { list-style-type:none; display:block; margin:0px; right:10px; top:10px; text-align: center;}
 /* 108px so the next row is half-visible */
 .numberButtonList { overflow: auto; max-height: 108px; }
-.navbox ul li { display:inline; list-style-type: none; }
+.navbox ul li { display: inline-block; list-style-type: none; }
 .numberButton {
-    display:inline-block;
-	width:25px;
-	height:17px;
-	text-align:center;
-	background:#333;
+    float: left;
+	
+	
+	
+	
 	margin-left:5px;
     text-decoration:none;
 	color:#eee;
-	font: bold 14px Helvetica, Arial, Sans-serif;
+	
+    font: bold 12px Helvetica, Arial, Sans-serif;
 	line-height:18px; 
+    padding: 3px 5px;
 }
 .navbox ul li a {
 	cursor:pointer;
 	}
 .navbox ul li a:hover { background:#888; color:#000; border: 0; }
 .navbox ul li a.active {
-    color:#eee;
-    background-color: #000;
+    color: #00AAAA;
     -moz-box-shadow: 2px 2px 3px #eee;
-    -webkit-box-shadow: 2px 2px 3px #eee;
-    box-shadow: 2px 2px 3px #eee;
     /* For IE 8 */
     -ms-filter: "progid:DXImageTransform.Microsoft.Shadow(Strength=3, Direction=135, Color='#EEEEEE')";
     /* For IE 5.5 - 7 */
     filter: progid:DXImageTransform.Microsoft.Shadow(Strength=3, Direction=135, Color='#EEEEEE');
 }
 
-#controlsDiv {position: absolute; bottom: 0; }
-#titleDiv {position: absolute; top: 0;}
-.navbox h2 { padding: 10px; font: bold 28px Helvetica, Arial, Sans-serif; text-shadow: 0px 2px 6px #333; }
+#controlsDiv {position: absolute; bottom: 0; left: 0;right: 0;}
+#titleDiv {position: absolute; top: 0;left: 0;right: 0;}
+.navbox h2 { padding: 10px 20px 10px 10px; font: bold 20px Helvetica, Arial, Sans-serif; }
 .navbox p { padding:20px 20px 20px 20px; font-family: "Segoe UI","HelveticaNeue-Light","Helvetica Neue Light","Helvetica Neue",Arial,Tahoma,Verdana,sans-serif; font-size:13px; color:#111; }
 .navbox p.bottom { position:absolute; bottom:5px; right:5px; }
 
@@ -75,17 +74,6 @@ a:hover { opacity: 1.0; }
 
 label.checkbox { font-weight: bold; }
 
-/* thanks to http://www.colorzilla.com/gradient-editor/ */
-.navbox {
-background: -moz-linear-gradient(top,  rgba(63,63,63,0.85) 0%, rgba(63,63,63,0.85) 1%, rgba(147,147,147,0.85) 91%, rgba(160,160,160,0.85) 94%, rgba(90,90,90,0.85) 100%); /* FF3.6+ */
-background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,rgba(63,63,63,0.85)), color-stop(1%,rgba(63,63,63,0.85)), color-stop(91%,rgba(147,147,147,0.85)), color-stop(94%,rgba(160,160,160,0.85)), color-stop(100%,rgba(90,90,90,0.85))); /* Chrome,Safari4+ */
-background: -webkit-linear-gradient(top,  rgba(63,63,63,0.85) 0%,rgba(63,63,63,0.85) 1%,rgba(147,147,147,0.85) 91%,rgba(160,160,160,0.85) 94%,rgba(90,90,90,0.85) 100%); /* Chrome10+,Safari5.1+ */
-background: -o-linear-gradient(top,  rgba(63,63,63,0.85) 0%,rgba(63,63,63,0.85) 1%,rgba(147,147,147,0.85) 91%,rgba(160,160,160,0.85) 94%,rgba(90,90,90,0.85) 100%); /* Opera 11.10+ */
-background: -ms-linear-gradient(top,  rgba(63,63,63,0.85) 0%,rgba(63,63,63,0.85) 1%,rgba(147,147,147,0.85) 91%,rgba(160,160,160,0.85) 94%,rgba(90,90,90,0.85) 100%); /* IE10+ */
-background: linear-gradient(to bottom,  rgba(63,63,63,0.85) 0%,rgba(63,63,63,0.85) 1%,rgba(147,147,147,0.85) 91%,rgba(160,160,160,0.85) 94%,rgba(90,90,90,0.85) 100%); /* W3C */
-filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#d93f3f3f', endColorstr='#d95a5a5a',GradientType=0 ); /* IE6-9 */
-}
-
 .cam { background-image:url("../images/bg_cam_txt.png"); }
 .clouds {  }
 .key { background-image:url("../images/bg_key_txt.png"); }
@@ -99,7 +87,7 @@ filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#d93f3f3f', e
     height: 0; 
     border-top: 15px solid transparent;
     border-bottom: 15px solid transparent; 
-    border-right: 25px solid #bbb; 
+    border-right: 25px solid #bbb;
 }
 
 .arrowRight {
@@ -107,7 +95,7 @@ filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#d93f3f3f', e
     height: 0; 
     border-top: 15px solid transparent;
     border-bottom: 15px solid transparent; 
-    border-left: 25px solid #bbb; 
+    border-left: 25px solid #bbb;
 }
 
 .prevArrow {
@@ -115,21 +103,28 @@ filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#d93f3f3f', e
 	top: 50%;
     width: 0; 
     height: 0; 
-    border-top: 20px solid transparent;
-    border-bottom: 20px solid transparent; 
-    border-right: 60px solid #fff; 
+    
+	border-top: 10px solid transparent;
+    
+	border-bottom: 10px solid transparent; 
+    
+	border-right: 20px solid white; 
 	opacity: 0.8;
+	left: 10px;
 }
 
 .nextArrow {
 	position: absolute;
 	top: 50%;
-	right: 0;
+	right: 10px;
     width: 0; 
     height: 0; 
-    border-top: 20px solid transparent;
-    border-bottom: 20px solid transparent; 
-    border-left: 60px solid #fff; 
+    
+	border-top: 10px solid transparent;
+    
+	border-bottom: 10px solid transparent; 
+    
+	border-left: 20px solid white; 
 	opacity: 0.8;
 }
 

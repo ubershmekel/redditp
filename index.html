@@ -22,44 +22,39 @@
     </script>
 </head>
 <body>
-	<a class="prevArrow fadeOnIdle" href="#" title="The arrow keys work too" onClick="prevSlide(); return false;" id="prevButton"></a>
-	<a class="nextArrow fadeOnIdle" href="#" title="Try the arrow keys too" onClick="nextSlide(); return false;" id="nextButton"></a>
-	
+    <a class="prevArrow fadeOnIdle" href="#" title="The arrow keys work too" onClick="prevSlide(); return false;" id="prevButton"></a>
+    <a class="nextArrow fadeOnIdle" href="#" title="Try the arrow keys too" onClick="nextSlide(); return false;" id="nextButton"></a>
+    
     <div id="controlsDiv" class='navbox clouds fadeOnIdle'>
         <div class="collapser" data-openstate="open">-</div>
         <div id="navboxContents">
-            <table class="nbmenu">
-                <tr>
-                    <td id="subredditUrl" colspan="2">Loading Reddit Slideshow</td>
-                    <td>
-                        <a href="https://github.com/ubershmekel/redditp/blob/master/README.md" title="hotkeys">hotkeys</a>/<a href="https://github.com/ubershmekel/redditp" title="source on github">src</a>/<a href="http://uberpython.wordpress.com/" title="who made this">blog</a>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="text-align:left;">
-                        <input class="checkbox" type="checkbox" name="autoNextSlide" id="autoNextSlide" value="Auto" checked=""/><label class="checkbox" for="autoNextSlide"> Auto-next</label>
-                        every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2" /> seconds
-                    </td>
-                    <td>
-                        <a id='navboxCommentsLink' href='#' title='Comments on reddit'>comments</a>
-                    </td>
-                    <td>
-                        <a id='navboxLink' href='#' title='placeholder'>image</a>
-                    </td>
-                </tr>
-				<!--
-                <tr>
-                    <td style="text-align:left;"><a href="#" title="The arrow keys work too" onClick="prevSlide(); return false;" id="prevButton">prev</a></td>
-                    <td></td>
-                    <td style="text-align:center;"><a href="#" title="Try the arrow keys too" onClick="nextSlide(); return false;" id="nextButton">next</a></td>
-                </tr>
-				-->
-            </table>
-			<div class="numberButtonList">
-				<ul>
-				<!-- Slide number buttons will be injected by jQuery -->
-				</ul>
-			</div>
+            <ul class="nbmenu">
+                <li id="subredditUrl">
+                    Loading Reddit Slideshow
+                </li>
+                <li>
+                    <a href="https://github.com/ubershmekel/redditp/blob/master/README.md" title="hotkeys">hotkeys</a> /
+                    <a href="https://github.com/ubershmekel/redditp" title="redditp source on github">src</a> /
+                    <a href="http://uberpython.wordpress.com/" title="who made this">blog</a>
+                </li>
+            </ul>
+            <ul class="nbmenu">
+                <li>
+                    <input class="checkbox" type="checkbox" name="autoNextSlide" id="autoNextSlide" value="Auto" checked=""/><label class="checkbox" for="autoNextSlide"> Auto-next</label>
+                    every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2" /> seconds
+                </li>
+                <li>
+                    <a id='navboxCommentsLink' href='#' title='Comments on reddit'>comments</a>
+                </li>
+                <li>
+                    <a id='navboxLink' href='#' title='placeholder'>image</a>
+                </li>
+            </ul>
+            <div class="numberButtonList">
+                <ul>
+                <!-- Slide number buttons will be injected by jQuery -->
+                </ul>
+            </div>
         </div>
     </div>
     <div id="titleDiv" class='navbox clouds'>

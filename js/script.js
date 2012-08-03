@@ -44,24 +44,30 @@ window.log = function(){
 };
 
 $(function () {
-	$('.fadeOnIdle').fadeTo('fast', 0); 
-	var navboxVisible = false;
-	var fadeoutTimer = null;
-	var fadeoutFunction = function(){
-			navboxVisible = false;
-			$('.fadeOnIdle').fadeTo('slow', 0);
+	fadeoutWhenIdle = true;
+	var setupFadeoutOnIdle = function() {
+		$('.fadeOnIdle').fadeTo('fast', 0); 
+		var navboxVisible = false;
+		var fadeoutTimer = null;
+		var fadeoutFunction = function(){
+				navboxVisible = false;
+				if(fadeoutWhenIdle) {
+					$('.fadeOnIdle').fadeTo('slow', 0);
+				}
 			};
-	$(window).mousemove(function(){
-		if(navboxVisible) {
-			clearTimeout(fadeoutTimer);
+		$(window).mousemove(function(){
+			if(navboxVisible) {
+				clearTimeout(fadeoutTimer);
+				fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
+				return;
+			}
+			navboxVisible = true;
+			$('.fadeOnIdle').fadeTo('fast',1);
 			fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
-			return;
-		}
-		navboxVisible = true;
-		$('.fadeOnIdle').fadeTo('fast',1);
-		fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
-	})
-
+		})
+	};
+	setupFadeoutOnIdle();
+	
     var nextSlideTimeoutId = null;
     
     nextSlide = function () {

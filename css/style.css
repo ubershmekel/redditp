@@ -21,29 +21,28 @@ a { text-decoration:none; color:#eee; font-weight: bold; }
 a:hover { opacity: 1.0; }
 .navbox a:hover { border-bottom:1px dotted; }
 .navbox { width:450px; max-height: 40%; overflow: auto; position:relative; left: 0px; opacity: 0.9; background-color: rgba(0,0,0,0.7);}
-.navbox ul { list-style-type:none; display:block; margin:0px; right:10px; top:10px; text-align: center;}
 /* 108px so the next row is half-visible */
 .numberButtonList { overflow: auto; max-height: 108px; }
+.navbox ul { list-style-type:none; display:block; margin:0px; right:10px; top:10px; text-align: left;}
 .navbox ul li { display: inline-block; list-style-type: none; }
 .numberButton {
     float: left;
-	
-	
-	
-	
-	margin-left:5px;
-    text-decoration:none;
-	color:#eee;
+
+	min-width: 15px;
+	margin-left: 5px;
+    text-decoration: none;
+	color: #eee;
 	
     font: bold 12px Helvetica, Arial, Sans-serif;
-	line-height:18px; 
+	text-align: center;
+	line-height: 18px; 
     padding: 3px 5px;
 }
 .navbox ul li a {
 	cursor:pointer;
 	}
-.navbox ul li a:hover { background:#888; color:#000; border: 0; }
-.navbox ul li a.active {
+.numberButtonList ul li a:hover { background:#888; color:#000; border: 0; }
+.numberButtonList ul li a.active {
     color: #00AAAA;
     -moz-box-shadow: 2px 2px 3px #eee;
     /* For IE 8 */
@@ -65,7 +64,7 @@ a:hover { opacity: 1.0; }
     font-size:14px;
     
     }
-.nbmenu td { text-align: center; padding: 0px 10px 10px 0; max-width: 300px; overflow: hidden; }
+.nbmenu li { text-align: left; padding: 10px 10px; max-width: 300px; overflow: hidden; }
 
 #navboxContents {
     padding: 10px 25px 10px 0;

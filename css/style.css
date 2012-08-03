@@ -79,38 +79,21 @@ label.checkbox { font-weight: bold; }
 .key { background-image:url("../images/bg_key_txt.png"); }
 .flowers { background-image:url("../images/bg_flowers_txt.png"); }
 
-.collapser { color: #bbb; float:right; cursor: hand; cursor: pointer;}
+.collapser { border: solid 1px #555; font-size: 20px; color: #bbb; padding: 0 10px; float:right; cursor: hand; cursor: pointer;}
 .checkbox { cursor: hand; cursor: pointer; }
-
-.arrowLeft {
-    width: 0; 
-    height: 0; 
-    border-top: 15px solid transparent;
-    border-bottom: 15px solid transparent; 
-    border-right: 25px solid #bbb;
-}
-
-.arrowRight {
-    width: 0; 
-    height: 0; 
-    border-top: 15px solid transparent;
-    border-bottom: 15px solid transparent; 
-    border-left: 25px solid #bbb;
-}
 
 .prevArrow {
 	position: absolute;
 	top: 50%;
+	left: 10px;
     width: 0; 
     height: 0; 
     
-	border-top: 10px solid transparent;
-    
-	border-bottom: 10px solid transparent; 
-    
-	border-right: 20px solid white; 
+	border-top: 15px solid transparent;
+	border-bottom: 15px solid transparent; 
+	border-right: 30px solid white; 
+
 	opacity: 0.8;
-	left: 10px;
 }
 
 .nextArrow {
@@ -120,11 +103,10 @@ label.checkbox { font-weight: bold; }
     width: 0; 
     height: 0; 
     
-	border-top: 10px solid transparent;
-    
-	border-bottom: 10px solid transparent; 
-    
-	border-left: 20px solid white; 
+	border-top: 15px solid transparent;
+	border-bottom: 15px solid transparent; 
+	border-left: 30px solid white; 
+	
 	opacity: 0.8;
 }
 

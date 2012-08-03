@@ -122,8 +122,7 @@ $(function () {
             });
             $(this).attr(OPENSTATE_ATTR, "open");
         }
-
-    })
+    });
 
     // maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
     var cache = [];
@@ -245,6 +244,7 @@ $(function () {
         var PAGEDOWN = 34;
         var ENTER = 13;
         var A_KEY = 65;
+        var T_KEY = 84;
         
         // Register keypress events on the whole document
         $(document).keyup(function (e) {
@@ -261,6 +261,9 @@ $(function () {
             var code = (e.keyCode ? e.keyCode : e.which);
 
             switch (code) {
+            case T_KEY:
+				$('#titleDiv .collapser').click();
+				break;
             case A_KEY:
                 $("#autoNextSlide").prop("checked", ! $("#autoNextSlide").is(':checked'));
                 updateAutoNext();
@@ -414,7 +417,7 @@ $(function () {
 
     var redditBaseUrl = "http://www.reddit.com";
     var urlData = getRestOfUrl();
-    log(urlData)
+    //log(urlData)
     var subredditUrl = urlData[0]
     var getVars = urlData[1]
 

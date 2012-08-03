@@ -3,14 +3,22 @@ redditp
 
 A full screen reddit presentation or slide show.
 
-Features:
-* All /r/ subreddits, including different ?sort stuff.
-* Swipe gestures on phones
-* Arrow keys, pgup/pgdown, spacebar change slides
-* 'a' toggles the auto-next.
-* /user/ and /domain/ url's work now.
+Hotkeys
+-------
 
-Planned features, depending on feedback:
+* a - toggles auto-next (play/pause)
+* Arrow keys, pgup/pgdown, spacebar change slides
+* Swipe gestures on phones
+* t - collapse/uncollapse title
+
+Features
+--------
+
+* All /r/ subreddits, including different ?sort stuff.
+* /user/ and /domain/ url's work now.
+* Url's ending with ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+
+Possible future features, depending on feedback:
 * Zoom/Pan for comics
 * Imgur albums support
 

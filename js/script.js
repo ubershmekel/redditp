@@ -22,15 +22,15 @@ var activeIndex = -1;
 
 // IE doesn't have indexOf, wtf...
 if(!Array.indexOf){
-	    Array.prototype.indexOf = function(obj){
-	        for(var i=0; i<this.length; i++){
-	            if(this[i]==obj){
-	                return i;
-	            }
-	        }
-	        return -1;
-	    }
-	}
+        Array.prototype.indexOf = function(obj){
+            for(var i=0; i<this.length; i++){
+                if(this[i]==obj){
+                    return i;
+                }
+            }
+            return -1;
+        }
+    }
 
 // IE doesn't have console.log and fails, wtf...
 // usage: log('inside coolFunc',this,arguments);
@@ -44,38 +44,38 @@ window.log = function(){
 };
 
 $(function () {
-	fadeoutWhenIdle = true;
-	var setupFadeoutOnIdle = function() {
-		$('.fadeOnIdle').fadeTo('fast', 0); 
-		var navboxVisible = false;
-		var fadeoutTimer = null;
-		var fadeoutFunction = function(){
-				navboxVisible = false;
-				if(fadeoutWhenIdle) {
-					$('.fadeOnIdle').fadeTo('slow', 0);
-				}
-			};
-		$(window).mousemove(function(){
-			if(navboxVisible) {
-				clearTimeout(fadeoutTimer);
-				fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
-				return;
-			}
-			navboxVisible = true;
-			$('.fadeOnIdle').fadeTo('fast',1);
-			fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
-		})
-	};
-	setupFadeoutOnIdle();
-	
+    fadeoutWhenIdle = true;
+    var setupFadeoutOnIdle = function() {
+        $('.fadeOnIdle').fadeTo('fast', 0); 
+        var navboxVisible = false;
+        var fadeoutTimer = null;
+        var fadeoutFunction = function(){
+                navboxVisible = false;
+                if(fadeoutWhenIdle) {
+                    $('.fadeOnIdle').fadeTo('slow', 0);
+                }
+            };
+        $(window).mousemove(function(){
+            if(navboxVisible) {
+                clearTimeout(fadeoutTimer);
+                fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
+                return;
+            }
+            navboxVisible = true;
+            $('.fadeOnIdle').fadeTo('fast',1);
+            fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
+        })
+    };
+    setupFadeoutOnIdle();
+    
     var nextSlideTimeoutId = null;
     
     nextSlide = function () {
-			if(activeIndex + 1 == photos.length) {
-				// the only reason we got here and there aren't more pictures yet
-				// is because there are no more images to load
-				activeIndex = -1;
-			}
+            if(activeIndex + 1 == photos.length) {
+                // the only reason we got here and there aren't more pictures yet
+                // is because there are no more images to load
+                activeIndex = -1;
+            }
             startAnimation(activeIndex + 1);
         }
     prevSlide = function () {
@@ -108,21 +108,21 @@ $(function () {
         preventDefaultEvents: false
     });
 
-	var OPENSTATE_ATTR = "data-openstate";
+    var OPENSTATE_ATTR = "data-openstate";
     $('.collapser').click(function () {
         var state = $(this).attr(OPENSTATE_ATTR);
         if (state == "open") {
-			// close it
-			$(this).text("+");
-			// move to the left just enough so the collapser arrow is visible
-			var arrowLeftPoint = $(this).position().left;
+            // close it
+            $(this).text("+");
+            // move to the left just enough so the collapser arrow is visible
+            var arrowLeftPoint = $(this).position().left;
             $(this).parent().animate({
                 left: "-" + arrowLeftPoint + "px"
             });
             $(this).attr(OPENSTATE_ATTR, "closed");
         } else {
-			// open it
-			$(this).text("-");
+            // open it
+            $(this).text("-");
             $(this).parent().animate({
                 left: "0px"
             });
@@ -203,17 +203,17 @@ $(function () {
     }
     initState()
 
-	var addNumberButton = function(numberButton) {
-		var navboxUls = $(".navbox ul");
-		var thisNavboxUl = navboxUls[navboxUls.length - 1];
+    var addNumberButton = function(numberButton) {
+        var navboxUls = $(".navbox ul");
+        var thisNavboxUl = navboxUls[navboxUls.length - 1];
 
-		var newListItem = $("<li />").appendTo(thisNavboxUl);
-		numberButton.appendTo(newListItem);
+        var newListItem = $("<li />").appendTo(thisNavboxUl);
+        numberButton.appendTo(newListItem);
 
-		// so li's have a space between them and can word-wrap in the box
-		navboxUls.append(document.createTextNode(' '));
-	}
-	
+        // so li's have a space between them and can word-wrap in the box
+        navboxUls.append(document.createTextNode(' '));
+    }
+    
     var addImageSlide = function (url, title, commentsLink) {
             var pic = {
                 "title": title,
@@ -230,11 +230,11 @@ $(function () {
 
             var i = photos.length - 1;
             var numberButton = $("<a />").html(i + 1).data("index", i).attr("title", photos[i].title).attr("id", "numberButton" + (i + 1));
-			numberButton.click(function () {
-				showImage($(this));
-			});
-			numberButton.addClass("numberButton");
-			addNumberButton(numberButton);
+            numberButton.click(function () {
+                showImage($(this));
+            });
+            numberButton.addClass("numberButton");
+            addNumberButton(numberButton);
         }
 
         var arrow = {
@@ -268,8 +268,8 @@ $(function () {
 
             switch (code) {
             case T_KEY:
-				$('#titleDiv .collapser').click();
-				break;
+                $('#titleDiv .collapser').click();
+                break;
             case A_KEY:
                 $("#autoNextSlide").prop("checked", ! $("#autoNextSlide").is(':checked'));
                 updateAutoNext();
@@ -284,9 +284,9 @@ $(function () {
             case arrow.down:
             case SPACE:
                 imageIndex = activeIndex + 1;
-				if(imageIndex >= photos.length) {
-					imageIndex = 0;
-				}
+                if(imageIndex >= photos.length) {
+                    imageIndex = 0;
+                }
                 break;
             }
 
@@ -450,17 +450,17 @@ $(function () {
     document.title = "redditP - " + subredditName;
     
     //var redditData = null;
-	
-	// if ever found even 1 image, don't show the error
-	var foundOneImage = false;
+    
+    // if ever found even 1 image, don't show the error
+    var foundOneImage = false;
 
     var getNextImages = function () {
-			//if (noMoreToLoad){
-			//	log("No more images to load, will rotate to start.");
-			//	return;
-			//}
-	
-	
+            //if (noMoreToLoad){
+            //    log("No more images to load, will rotate to start.");
+            //    return;
+            //}
+    
+    
             var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
             //log(jsonUrl);
             var failedAjax = function(data) {
@@ -468,8 +468,8 @@ $(function () {
             };
             var handleData = function(data) {
                 redditData = data
-				// NOTE: if data.data.after is null then this causes us to start
-				// from the top on the next getNextImages which is fine.
+                // NOTE: if data.data.after is null then this causes us to start
+                // from the top on the next getNextImages which is fine.
                 after = "&after=" + data.data.after;
                 
                 if (data.data.children.length == 0) {
@@ -490,7 +490,7 @@ $(function () {
                 });
                 
                 if (!foundOneImage) {
-					log(jsonUrl);
+                    log(jsonUrl);
                     alert("Sorry, no displayable images found in that url :(")
                 }
                 
@@ -498,14 +498,14 @@ $(function () {
                 if (activeIndex == -1) {
                     startAnimation(0);
                 }
-				
-				if(data.data.after == null) {
-					log("No more pages to load from this subreddit, reloading the start");
-					
-					// Show the user we're starting from the top
-					var numberButton = $("<span />").addClass("numberButton").text("-");
-					addNumberButton(numberButton);
-				}
+                
+                if(data.data.after == null) {
+                    log("No more pages to load from this subreddit, reloading the start");
+                    
+                    // Show the user we're starting from the top
+                    var numberButton = $("<span />").addClass("numberButton").text("-");
+                    addNumberButton(numberButton);
+                }
             };
             
             

@@ -28,19 +28,19 @@ a:hover { opacity: 1.0; }
 .numberButton {
     float: left;
 
-	min-width: 15px;
-	margin-left: 5px;
+    min-width: 15px;
+    margin-left: 5px;
     text-decoration: none;
-	color: #eee;
-	
+    color: #eee;
+    
     font: bold 12px Helvetica, Arial, Sans-serif;
-	text-align: center;
-	line-height: 18px; 
+    text-align: center;
+    line-height: 18px; 
     padding: 3px 5px;
 }
 .navbox ul li a {
-	cursor:pointer;
-	}
+    cursor:pointer;
+    }
 .numberButtonList ul li a:hover { background:#888; color:#000; border: 0; }
 .numberButtonList ul li a.active {
     color: #00AAAA;
@@ -82,31 +82,31 @@ label.checkbox { font-weight: bold; }
 .checkbox { cursor: hand; cursor: pointer; }
 
 .prevArrow {
-	position: absolute;
-	top: 50%;
-	left: 10px;
+    position: absolute;
+    top: 50%;
+    left: 10px;
     width: 0; 
     height: 0; 
     
-	border-top: 15px solid transparent;
-	border-bottom: 15px solid transparent; 
-	border-right: 30px solid white; 
+    border-top: 15px solid transparent;
+    border-bottom: 15px solid transparent; 
+    border-right: 30px solid white; 
 
-	opacity: 0.8;
+    opacity: 0.8;
 }
 
 .nextArrow {
-	position: absolute;
-	top: 50%;
-	right: 10px;
+    position: absolute;
+    top: 50%;
+    right: 10px;
     width: 0; 
     height: 0; 
     
-	border-top: 15px solid transparent;
-	border-bottom: 15px solid transparent; 
-	border-left: 30px solid white; 
-	
-	opacity: 0.8;
+    border-top: 15px solid transparent;
+    border-bottom: 15px solid transparent; 
+    border-left: 30px solid white; 
+    
+    opacity: 0.8;
 }
 
 

@@ -55,7 +55,7 @@ $(function () {
                     $('.fadeOnIdle').fadeTo('slow', 0);
                 }
             };
-        $(window).mousemove(function(){
+        $("body").mousemove(function(){
             if(navboxVisible) {
                 clearTimeout(fadeoutTimer);
                 fadeoutTimer = setTimeout(fadeoutFunction, 2000); 

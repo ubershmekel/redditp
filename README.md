@@ -21,5 +21,6 @@ Features
 Possible future features, depending on feedback:
 * Zoom/Pan for comics
 * Imgur albums support
+* Support for /r/random and /r/randnsfw virtual subreddits. These'll be tricky unless I cheat as they contain redirects.
 
 Made by Ubershmekel http://uberpython.wordpress.com/

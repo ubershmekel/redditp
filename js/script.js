@@ -377,9 +377,9 @@ $(function () {
             cssMap['background-size'] = "contain";
             cssMap['background-position'] = "center";
 
-            var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
+            //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
             var divNode = $("<div />").css(cssMap).addClass(photo.cssclass);
-            imgNode.appendTo(divNode);
+            //imgNode.appendTo(divNode);
             divNode.prependTo("#pictureSlider");
 
             $("#pictureSlider div").fadeIn(animationSpeed);

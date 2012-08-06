@@ -42,6 +42,10 @@ a:hover { opacity: 1.0; }
     cursor:pointer;
     }
 .numberButtonList ul li a:hover { background:#888; color:#000; border: 0; }
+.numberButtonList ul li a.active:hover {
+    color:  #00f;
+    cursor: default;
+}
 .numberButtonList ul li a.active {
     color: #00AAAA;
     -moz-box-shadow: 2px 2px 3px #eee;

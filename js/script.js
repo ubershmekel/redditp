@@ -390,8 +390,21 @@ $(function () {
             });
         };
     
+    var tryConvertUrl = function(url) {
+        if (url.indexOf('imgur.com') >= 0) {
+            if (url.indexOf('/a/') >= 0) {
+                // albums aren't supported yet
+                return '';
+            }
+            // imgur is really nice and serves the image with whatever extension
+            // you give it. '.jpg' is arbitrary
+            return url + '.jpg';
+        }
+        
+        return '';
+    }
     var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
-    var isImageUrl = function(url) {
+    var isImageExtension = function(url) {
         var dotLocation = url.lastIndexOf('.');
         if (dotLocation < 0) {
             log("skipped no dot: " + url);
@@ -486,9 +499,16 @@ $(function () {
                     var commentsUrl = "http://www.reddit.com" + item.data.permalink;
 
                     // ignore albums and things that don't seem like image files
-                    if (isImageUrl(imgUrl)) {
+                    var goodImageUrl = '';
+                    if (isImageExtension(imgUrl)) {
+                        goodImageUrl = imgUrl;
+                    } else {
+                        goodImageUrl = tryConvertUrl(imgUrl);
+                    }
+                    
+                    if (goodImageUrl != '') {
                         foundOneImage = true;
-                        addImageSlide(imgUrl, title, commentsUrl);
+                        addImageSlide(goodImageUrl, title, commentsUrl);
                     }
                 });
                 

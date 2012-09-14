@@ -70,8 +70,10 @@ $(function () {
     
     var nextSlideTimeoutId = null;
     
+    var loadingNextImages = false;
+
     nextSlide = function () {
-            if(activeIndex + 1 == photos.length) {
+            if(activeIndex + 1 == photos.length && !loadingNextImages) {
                 // the only reason we got here and there aren't more pictures yet
                 // is because there are no more images to load
                 activeIndex = -1;
@@ -475,8 +477,9 @@ $(function () {
             //    log("No more images to load, will rotate to start.");
             //    return;
             //}
-    
-    
+
+            loadingNextImages = true;
+
             var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
             //log(jsonUrl);
             var failedAjax = function(data) {
@@ -529,6 +532,7 @@ $(function () {
                     var numberButton = $("<span />").addClass("numberButton").text("-");
                     addNumberButton(numberButton);
                 }
+                loadingNextImages = false;
             };
             
             

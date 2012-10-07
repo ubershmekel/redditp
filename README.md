@@ -8,6 +8,7 @@ Hotkeys
 
 * a - toggles auto-next (play/pause)
 * t - collapse/uncollapse title
+* c - collapse/uncollapse controls
 * Arrow keys, pgup/pgdown, spacebar change slides
 * Swipe gestures on phones
 

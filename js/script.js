@@ -66,7 +66,9 @@ $(function () {
             fadeoutTimer = setTimeout(fadeoutFunction, 2000); 
         })
     };
-    setupFadeoutOnIdle();
+    // this fadeout was really inconvenient on mobile phones
+    // and instead the minimize buttons should be used.
+    //setupFadeoutOnIdle();
     
     var nextSlideTimeoutId = null;
     
@@ -252,6 +254,7 @@ $(function () {
         var PAGEDOWN = 34;
         var ENTER = 13;
         var A_KEY = 65;
+        var C_KEY = 67;
         var T_KEY = 84;
         
         // Register keypress events on the whole document
@@ -269,6 +272,9 @@ $(function () {
             var code = (e.keyCode ? e.keyCode : e.which);
 
             switch (code) {
+            case C_KEY:
+                $('#controlsDiv .collapser').click();
+                break;
             case T_KEY:
                 $('#titleDiv .collapser').click();
                 break;

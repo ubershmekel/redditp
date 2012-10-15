@@ -13,14 +13,11 @@ var cookieDays = 300;
 
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
-var photosSFW = []
-var photosAll = []
-var photos = photosAll
+var photos = []
 
 // 0-based index to set which picture to show first
 // init to -1 until the first image is loaded
 var activeIndex = -1;
-var activePhoto = null;
 
 
 // IE doesn't have indexOf, wtf...
@@ -77,15 +74,29 @@ $(function () {
 
     var loadingNextImages = false;
 
-    nextSlide = function () {
-        if (activeIndex + 1 == photos.length && !loadingNextImages) {
+    function nextSlide() {
+        if(!nsfw) {
+            for(var i = activeIndex + 1; i < photos.length; i++) {
+                if (!photos[i].over18) {
+                    return startAnimation(i)
+                }
+            }
+        }
+        if (isLastImage(activeIndex) && !loadingNextImages) {
             // the only reason we got here and there aren't more pictures yet
-            // is because there are no more images to load
-            activeIndex = -1;
+            // is because there are no more images to load, start over
+            return startAnimation(0);
         }
         startAnimation(activeIndex + 1);
     }
-    prevSlide = function () {
+    function prevSlide() {
+        if(!nsfw) {
+            for(var i = activeIndex - 1; i > 0; i--) {
+                if (!photos[i].over18) {
+                    return startAnimation(i)
+                }
+            }
+        }
         startAnimation(activeIndex - 1);
     }
 
@@ -181,31 +192,21 @@ $(function () {
         resetNextSlideTimer();
     }
 
-    sfwCookie = "sfwCookie";
-    var updateSfw = function () {
-        sfw = $("#sfw").is(':checked')
-        setCookie(sfwCookie, sfw, cookieDays);
-        if(sfw) {
-            $("#allNumberButtons").hide()
-            $("#sfwNumberButtons").show()
-            photos = photosSFW
-        } else {
-            $("#sfwNumberButtons").hide()
-            $("#allNumberButtons").show()
-            photos = photosAll
-        }
+    nsfwCookie = "nsfwCookie";
+    var updateNsfw = function () {
+        nsfw = $("#nsfw").is(':checked')
+        setCookie(nsfwCookie, nsfw, cookieDays);
     }
 
     var initState = function () {
-        var sfwByCookie = getCookie(sfwCookie);
-        if (sfwByCookie == undefined) {
-            sfw = false;
+        var nsfwByCookie = getCookie(nsfwCookie);
+        if (nsfwByCookie == undefined) {
+            nsfw = true;
         } else {
-            sfw = (sfwByCookie === "true");
-            $("#sfw").prop("checked", sfw);
+            nsfw = (nsfwByCookie === "true");
+            $("#nsfw").prop("checked", nsfw);
         }
-        $('#sfw').change(updateSfw);
-        updateSfw();
+        $('#nsfw').change(updateNsfw);
 
         var autoByCookie = getCookie(shouldAutoNextSlideCookie);
         if (autoByCookie == undefined) {
@@ -235,26 +236,18 @@ $(function () {
     }
     initState()
 
-    var addNumberButton = function (numberButton, over18) {
-        //var navboxUls = $(".navbox ul");
-        //var thisNavboxUl = navboxUls[navboxUls.length - 1];
-        var numberButtonList = $("#allNumberButtons");
-        var newListItem = $("<li />");
-        newListItem.appendTo(numberButtonList);
+    var addNumberButton = function (numberButton) {
+        var navboxUls = $(".navbox ul");
+        var thisNavboxUl = navboxUls[navboxUls.length - 1];
+
+        var newListItem = $("<li />").appendTo(thisNavboxUl);
         numberButton.appendTo(newListItem);
-        
-        if (!over18) {
-            var sfwNumberButtonList = $("#sfwNumberButtons");
-            newListItem.clone(true, true).appendTo(sfwNumberButtonList);
-            log(newListItem);
-        }
 
         // so li's have a space between them and can word-wrap in the box
-        //////////navboxUls.append(document.createTextNode(' '));
+        navboxUls.append(document.createTextNode(' '));
     }
 
     var addImageSlide = function (url, title, commentsLink, over18) {
-        var index = photosAll.length;
         var pic = {
             "title": title,
             "cssclass": "clouds",
@@ -263,19 +256,17 @@ $(function () {
             "url": url,
             "urltext": 'View picture',
             "commentsLink": commentsLink,
-            "index": index
+            "over18": over18
         }
 
         preLoadImages(pic.url);
-        photosAll.push(pic)
-        if (!over18) {
-            photosSFW.push(pic)
-        }
+        photos.push(pic);
 
-        var numberButton = $("<a />").html(index + 1)
-            .data("index", index)
-            .attr("title", photosAll[index].title)
-            .addClass("numberButton" + (index));
+        var i = photos.length - 1;
+        var numberButton = $("<a />").html(i + 1)
+            .data("index", i)
+            .attr("title", photos[i].title)
+            .attr("id", "numberButton" + (i + 1));
         if(over18) {
             numberButton.addClass("over18");
         }
@@ -283,7 +274,7 @@ $(function () {
             showImage($(this));
         });
         numberButton.addClass("numberButton");
-        addNumberButton(numberButton, over18);
+        addNumberButton(numberButton);
     }
 
     var arrow = {
@@ -313,7 +304,6 @@ $(function () {
         // 40 - down
         // More info: http://stackoverflow.com/questions/302122/jquery-event-keypress-which-key-was-pressed
         // http://stackoverflow.com/questions/1402698/binding-arrow-keys-in-js-jquery
-        var imageIndex = undefined;
         var code = (e.keyCode ? e.keyCode : e.which);
 
         switch (code) {
@@ -330,27 +320,12 @@ $(function () {
             case PAGEUP:
             case arrow.left:
             case arrow.up:
-                imageIndex = activeIndex - 1;
-                break;
+                return prevSlide()
             case PAGEDOWN:
             case arrow.right:
             case arrow.down:
             case SPACE:
-                imageIndex = activeIndex + 1;
-                if (imageIndex >= photos.length) {
-                    imageIndex = 0;
-                }
-                break;
-        }
-
-        if (imageIndex === undefined) {
-            return;
-        }
-
-        if (0 <= imageIndex && imageIndex < photos.length) {
-            startAnimation(imageIndex);
-        } else {
-            log('invalid index: ' + imageIndex);
+                return nextSlide()
         }
     });
 
@@ -365,6 +340,23 @@ $(function () {
         startAnimation(imageIndex);
     };
 
+    var isLastImage = function(imageIndex) {
+        if(nsfw) {
+            if(imageIndex == photos.length - 1) {
+                return true
+            } else {
+                return false
+            }
+        } else {
+            // look for remaining sfw images
+            for(var i = imageIndex + 1; i < photos.length; i++) {
+                if(!photos[i].over18) {
+                    return false
+                }
+            }
+            return true
+        }
+    }
     //
     // Starts the animation, based on the image index
     //
@@ -375,7 +367,7 @@ $(function () {
 
         // If the same number has been chosen, or the index is outside the
         // photos range, or we're already animating, do nothing
-        if (activeIndex == imageIndex || imageIndex > photosAll.length - 1 || imageIndex < 0 || isAnimating || photos.length == 0) {
+        if (activeIndex == imageIndex || imageIndex > photos.length - 1 || imageIndex < 0 || isAnimating || photos.length == 0) {
             return;
         }
 
@@ -385,15 +377,14 @@ $(function () {
 
         // Set the active index to the used image index
         activeIndex = imageIndex;
-        activePhoto = photos[activeIndex]
 
-        if (imageIndex == photos.length - 1) {
+        if (isLastImage(activeIndex)) {
             getNextImages();
         }
     };
 
     var toggleNumberButton = function (imageIndex, turnOn) {
-        var numberButton = $('.numberButton' + (imageIndex + 1));
+        var numberButton = $('#numberButton' + (imageIndex + 1));
         if (turnOn) {
             numberButton.addClass('active');
         } else {
@@ -411,12 +402,8 @@ $(function () {
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
-        // NOTE: the usage of .index is because photosSFW and photosAll have
-        // different length and indexes.
-        if(activePhoto != null) {
-            toggleNumberButton(activePhoto.index, false);
-        }
-        toggleNumberButton(photo.index, true);
+        toggleNumberButton(activeIndex, false);
+        toggleNumberButton(imageIndex, true);
     };
 
     //
@@ -448,6 +435,26 @@ $(function () {
         });
     };
 
+    
+    
+    var verifyNsfwMakesSense = function() {
+        // Cases when you forgot NSFW off but went to /r/nsfw
+        // can cause strange bugs, let's help the user when over 80% of the
+        // content is NSFW.
+        var nsfwImages = 0
+        for(var i = 0; i < photos.length; i++) {
+            if(photos[i].over18) {
+                nsfwImages += 1
+            }
+        }
+        
+        if(0.8 < nsfwImages * 1.0 / photos.length) {
+            nsfw = true
+            $("#nsfw").prop("checked", nsfw)
+        }
+    }
+    
+    
     var tryConvertUrl = function (url) {
         if (url.indexOf('imgur.com') >= 0) {
             if (url.indexOf('/a/') >= 0) {
@@ -555,8 +562,7 @@ $(function () {
             $.each(data.data.children, function (i, item) {
                 var imgUrl = item.data.url;
                 var title = item.data.title;
-                var over_18 = item.data.over_18;
-                log(item.data);
+                var over18 = item.data.over_18;
                 var commentsUrl = "http://www.reddit.com" + item.data.permalink;
 
                 // ignore albums and things that don't seem like image files
@@ -569,10 +575,12 @@ $(function () {
 
                 if (goodImageUrl != '') {
                     foundOneImage = true;
-                    addImageSlide(goodImageUrl, title, commentsUrl, over_18);
+                    addImageSlide(goodImageUrl, title, commentsUrl, over18);
                 }
             });
 
+            verifyNsfwMakesSense()
+            
             if (!foundOneImage) {
                 log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(")
@@ -587,10 +595,11 @@ $(function () {
                 log("No more pages to load from this subreddit, reloading the start");
 
                 // Show the user we're starting from the top
-                var endNumberButton = $("<span />").addClass("numberButton").text("-");
-                addNumberButton(endNumberButton, false);
+                var numberButton = $("<span />").addClass("numberButton").text("-");
+                addNumberButton(numberButton);
             }
             loadingNextImages = false;
+            
         };
 
 

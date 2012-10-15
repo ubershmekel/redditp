@@ -38,6 +38,10 @@ a:hover { opacity: 1.0; }
     line-height: 18px; 
     padding: 3px 5px;
 }
+.over18 {
+    color: #f77;
+}
+
 .navbox ul li a {
     cursor:pointer;
     }

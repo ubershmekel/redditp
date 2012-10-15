@@ -37,6 +37,9 @@
                     <a href="https://github.com/ubershmekel/redditp" title="redditp source on github">src</a> /
                     <a href="http://uberpython.wordpress.com/" title="who made this">blog</a>
                 </li>
+                <li>
+                    <input class="checkbox" type="checkbox" name="sfw" id="sfw" value="Auto" checked"=true" /><label class="checkbox over18" for="nsfw"> nsfw</label>
+                </li>
             </ul>
             <ul class="nbmenu">
                 <li>
@@ -51,8 +54,10 @@
                 </li>
             </ul>
             <div class="numberButtonList">
-                <ul>
+                <ul id="allNumberButtons">
                 <!-- Slide number buttons will be injected by jQuery -->
+                </ul>
+                <ul id="sfwNumberButtons">
                 </ul>
             </div>
         </div>

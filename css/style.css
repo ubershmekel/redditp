@@ -101,6 +101,8 @@ label.checkbox { font-weight: bold; }
     border-right: 30px solid white; 
 
     opacity: 0.8;
+    
+    cursor: hand; cursor: pointer;
 }
 
 .nextArrow {
@@ -115,6 +117,7 @@ label.checkbox { font-weight: bold; }
     border-left: 30px solid white; 
     
     opacity: 0.8;
+    cursor: hand; cursor: pointer;
 }
 
 

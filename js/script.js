@@ -100,6 +100,10 @@ $(function () {
         startAnimation(activeIndex - 1);
     }
 
+    $('#prevButton').click(prevSlide)
+    $('#nextButton').click(nextSlide)
+    
+    
     var autoNextSlide = function () {
         if (shouldAutoNextSlide) {
             // startAnimation takes care of the setTimeout

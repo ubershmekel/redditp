@@ -44,6 +44,10 @@ window.log = function () {
 };
 
 $(function () {
+
+    $("#subredditUrl").text("Loading Reddit Slideshow");
+    $("#navboxTitle").text("Loading Reddit Slideshow");
+
     fadeoutWhenIdle = true;
     var setupFadeoutOnIdle = function () {
         $('.fadeOnIdle').fadeTo('fast', 0);

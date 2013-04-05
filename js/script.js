@@ -93,18 +93,10 @@ $(function () {
 
     $("#pictureSlider").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
-        wipeLeft: function () {
-            nextSlide();
-        },
-        wipeRight: function () {
-            prevSlide();
-        },
-        wipeUp: function () {
-            nextSlide();
-        },
-        wipeDown: function () {
-            prevSlide();
-        },
+        wipeLeft: nextSlide,
+        wipeRight: prevSlide,
+        wipeUp: nextSlide,
+        wipeDown: prevSlide,
         min_move_x: 20,
         min_move_y: 20,
         preventDefaultEvents: false

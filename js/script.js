@@ -45,8 +45,7 @@ window.log = function () {
 };
 
 $(function () {
-    $("#subredditUrl").text("Loading Reddit Slideshow");
-    $("#navboxTitle").text("Loading Reddit Slideshow");
+    $("#subredditUrl, #navboxTitle").text("Loading Reddit Presentation");
 
     var nextSlideTimeoutId = null;
     var loadingNextImages = false;
@@ -505,7 +504,7 @@ $(function () {
             // from the top on the next getNextImages which is fine.
             after = "&after=" + data.after;
 
-            if (data.data.children.length == 0) {
+            if (data.children.length == 0) {
                 alert("No data from this url :(");
                 return;
             }

@@ -343,6 +343,7 @@ $(function () {
         }
 
         isAnimating = true;
+		
         animateNavigationBox(imageIndex);
         slideBackgroundPhoto(imageIndex);
 
@@ -385,22 +386,25 @@ $(function () {
         var photo = photos[imageIndex];
 
         // Create a new div and apply the CSS
-        var cssMap = Object();
-        cssMap['display'] = "none";
-        cssMap['background-image'] = "url(" + photo.image + ")";
-        cssMap['background-repeat'] = "no-repeat";
-        cssMap['background-size'] = "contain";
-        cssMap['background-position'] = "center";
+        var cssMap = {
+        	'display': "none",
+        	'background-image': "url(" + photo.image + ")",
+        	'background-repeat': "no-repeat",
+        	'background-size': "contain",
+        	'background-position': "center"
+		}
 
-        var divNode = $("<div />").css(cssMap).addClass(photo.cssclass);
-        divNode.prependTo("#pictureSlider");
-
-        $("#pictureSlider div").fadeIn(animationSpeed);
-        var oldDiv = $("#pictureSlider div:not(:first)");
-        oldDiv.fadeOut(animationSpeed, function () {
-            oldDiv.remove();
+        // Fade out old div
+		$("#pictureSlider div").fadeOut(animationSpeed, function () {
+            $(this).remove();
             isAnimating = false;
         });
+
+		// Fade in new one
+		$("<div />").css(cssMap)
+					.addClass(photo.cssclass)
+					.prependTo("#pictureSlider")
+					.fadeIn(animationSpeed);
     };
     
     var verifyNsfwMakesSense = function() {
@@ -421,14 +425,12 @@ $(function () {
     }
         
     var tryConvertUrl = function (url) {
-        if (url.indexOf('imgur.com') >= 0) {
-            if (url.indexOf('/a/') >= 0) {
-                // albums aren't supported yet
-                return '';
-            }
-            // imgur is really nice and serves the image with whatever extension
-            // you give it. '.jpg' is arbitrary
-            return url + '.jpg';
+        if (url.indexOf('imgur.com') >= 0 
+			// albums aren't supported yet
+			&& url.indexOf('/a/') < 0) {
+            	// imgur is really nice and serves the image with whatever extension
+            	// you give it. '.jpg' is arbitrary
+            	return url + '.jpg';
         }
 
         return '';

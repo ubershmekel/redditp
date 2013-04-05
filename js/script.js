@@ -245,17 +245,13 @@ $(function () {
         var numberButton = $("<a />").html(i + 1)
             .data("index", i)
             .attr("title", photos[i].title)
-            .attr("id", "numberButton" + (i + 1));
+            .attr("id", "numberButton" + (i + 1))
+			.addClass("numberButton")
+			.toggleClass('over18', over18)
+			.click(function () {
+            	showImage($(this));
+        	});
 
-        if(over18) {
-            numberButton.addClass("over18");
-        }
-
-        numberButton.click(function () {
-            showImage($(this));
-        });
-
-        numberButton.addClass("numberButton");
         addNumberButton(numberButton);
     }
 
@@ -324,6 +320,7 @@ $(function () {
                     return false
                 }
             }
+
             return true
         }
     }
@@ -338,8 +335,12 @@ $(function () {
 
         // If the same number has been chosen, or the index is outside the
         // photos range, or we're already animating, do nothing
-        if (activeIndex == imageIndex || imageIndex > photos.length - 1 || imageIndex < 0 || isAnimating || photos.length == 0) {
-            return;
+        if (activeIndex == imageIndex || 
+			imageIndex > photos.length - 1 || 
+			imageIndex < 0 || 
+			isAnimating || 
+			photos.length == 0) {
+            	return;
         }
 
         isAnimating = true;
@@ -356,12 +357,7 @@ $(function () {
     };
 
     var toggleNumberButton = function (imageIndex, turnOn) {
-        var numberButton = $('#numberButton' + (imageIndex + 1));
-        if (turnOn) {
-            numberButton.addClass('active');
-        } else {
-            numberButton.removeClass('active');
-        }
+		$('#numberButton' + (imageIndex + 1)).toggleClass('active', turnOn)
     }
 
     //

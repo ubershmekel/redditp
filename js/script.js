@@ -19,6 +19,39 @@ var photos = []
 // init to -1 until the first image is loaded
 var activeIndex = -1;
 
+var OPENSTATE_ATTR = "data-openstate";
+var arrow = {
+    left: 37,
+    up: 38,
+    right: 39,
+    down: 40
+};
+var ONE_KEY = 49;
+var NINE_KEY = 57;
+var SPACE = 32;
+var PAGEUP = 33;
+var PAGEDOWN = 34;
+var ENTER = 13;
+var A_KEY = 65;
+var C_KEY = 67;
+var T_KEY = 84;
+
+var nextSlideTimeoutId = null;
+var loadingNextImages = false;
+var cache = [];
+shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
+nsfwCookie = "nsfwCookie";
+var isAnimating = false;
+var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+var redditBaseUrl = "http://www.reddit.com";
+var urlData;
+var subredditUrl;
+var getVars;
+var subredditName;
+var after = "";
+// if ever found even 1 image, don't show the error
+var foundOneImage = false;
+
 // IE doesn't have indexOf, wtf...
 if (!Array.indexOf) {
     Array.prototype.indexOf = function (obj) {
@@ -44,54 +77,408 @@ window.log = function () {
     }
 };
 
+// Presentation code
+
+function nextSlide() {
+    if(!nsfw) {
+        for(var i = activeIndex + 1; i < photos.length; i++) {
+            if (!photos[i].over18) {
+                return startAnimation(i)
+            }
+        }
+    }
+
+    if (isLastImage(activeIndex) && !loadingNextImages) {
+        // the only reason we got here and there aren't more pictures yet
+        // is because there are no more images to load, start over
+        return startAnimation(0);
+    }
+
+    startAnimation(activeIndex + 1);
+}
+
+function prevSlide() {
+    if(!nsfw) {
+        for(var i = activeIndex - 1; i > 0; i--) {
+            if (!photos[i].over18) {
+                return startAnimation(i)
+            }
+        }
+    }
+
+    startAnimation(activeIndex - 1);
+}
+
+var autoNextSlide = function () {
+    if (shouldAutoNextSlide) {
+        // startAnimation takes care of the setTimeout
+        nextSlide();
+    }
+}
+
+// maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
+// Arguments are image paths relative to the current page.
+var preLoadImages = function () {
+    var args_len = arguments.length;
+    for (var i = args_len; i--;) {
+        var cacheImage = document.createElement('img');
+        cacheImage.src = arguments[i];
+        cache.push(cacheImage);
+    }
+};
+
+var setCookie = function (c_name, value, exdays) {
+    var exdate = new Date();
+    exdate.setDate(exdate.getDate() + exdays);
+    var c_value = escape(value) + ((exdays == null) ? "" : "; expires=" + exdate.toUTCString());
+    document.cookie = c_name + "=" + c_value;
+}
+
+var getCookie = function (c_name) {
+    var i, x, y;
+    var cookiesArray = document.cookie.split(";");
+
+    for (i = 0; i < cookiesArray.length; i++) {
+        x = cookiesArray[i].substr(0, cookiesArray[i].indexOf("="));
+        y = cookiesArray[i].substr(cookiesArray[i].indexOf("=") + 1);
+        x = x.replace(/^\s+|\s+$/g, "");
+        if (x == c_name) {
+            return unescape(y);
+        }
+    }
+};
+
+var resetNextSlideTimer = function () {
+    clearTimeout(nextSlideTimeoutId);
+    nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
+}
+
+var updateAutoNext = function () {
+    shouldAutoNextSlide = $("#autoNextSlide").is(':checked')
+    setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
+    resetNextSlideTimer();
+}
+
+var updateNsfw = function () {
+    nsfw = $("#nsfw").is(':checked')
+    setCookie(nsfwCookie, nsfw, cookieDays);
+}
+
+var initState = function () {
+    var nsfwByCookie = getCookie(nsfwCookie);
+    if (nsfwByCookie == undefined) {
+        nsfw = true;
+    } else {
+        nsfw = (nsfwByCookie === "true");
+        $("#nsfw").prop("checked", nsfw);
+    }
+
+    $('#nsfw').change(updateNsfw);
+
+    var autoByCookie = getCookie(shouldAutoNextSlideCookie);
+    if (autoByCookie == undefined) {
+        updateAutoNext();
+    } else {
+        shouldAutoNextSlide = (autoByCookie === "true");
+        $("#autoNextSlide").prop("checked", shouldAutoNextSlide);
+    }
+
+    $('#autoNextSlide').change(updateAutoNext);
+
+    var updateTimeToNextSlide = function () {
+        var val = $('#timeToNextSlide').val()
+        timeToNextSlide = parseFloat(val) * 1000;
+        setCookie(timeToNextSlideCookie, val, cookieDays);
+    }
+
+    var timeToNextSlideCookie = "timeToNextSlideCookie";
+    timeByCookie = getCookie(timeToNextSlideCookie);
+    if (timeByCookie == undefined) {
+        updateTimeToNextSlide();
+    } else {
+        timeToNextSlide = parseFloat(timeByCookie) * 1000;
+        $('#timeToNextSlide').val(timeByCookie);
+    }
+
+    $('#timeToNextSlide').keyup(updateTimeToNextSlide);
+}
+
+var addNumberButton = function (numberButton) {
+    var navboxUls = $(".navbox ul");
+    var thisNavboxUl = navboxUls[navboxUls.length - 1];
+
+    var newListItem = $("<li />").appendTo(thisNavboxUl);
+    numberButton.appendTo(newListItem);
+
+    // so li's have a space between them and can word-wrap in the box
+    navboxUls.append(document.createTextNode(' '));
+}
+
+var addImageSlide = function (url, title, commentsLink, over18) {
+    var pic = {
+        "title": title,
+        "cssclass": "clouds",
+        "image": url,
+        "text": "",
+        "url": url,
+        "urltext": 'View picture',
+        "commentsLink": commentsLink,
+        "over18": over18
+    }
+
+    preLoadImages(pic.url);
+    photos.push(pic);
+
+    var i = photos.length - 1;
+    var numberButton = $("<a />").html(i + 1)
+        .data("index", i)
+        .attr("title", photos[i].title)
+        .attr("id", "numberButton" + (i + 1))
+.addClass("numberButton")
+.toggleClass('over18', over18)
+.click(function () {
+        	showImage($(this));
+    	});
+
+    addNumberButton(numberButton);
+}
+
+//
+// Shows an image and plays the animation
+//
+var showImage = function (docElem) {
+    // Retrieve the index we need to use
+    var imageIndex = docElem.data("index");
+
+    startAnimation(imageIndex);
+};
+
+var isLastImage = function(imageIndex) {
+    if(nsfw) {
+        return (imageIndex == photos.length - 1);
+    } else {
+        // look for remaining sfw images
+        for(var i = imageIndex + 1; i < photos.length; i++) {
+            if(!photos[i].over18) {
+                return false
+            }
+        }
+
+        return true
+    }
+}
+
+//
+// Starts the animation, based on the image index
+//
+// Variable to store if the animation is playing or not
+var startAnimation = function (imageIndex) {
+    resetNextSlideTimer();
+
+    // If the same number has been chosen, or the index is outside the
+    // photos range, or we're already animating, do nothing
+    if (activeIndex == imageIndex || 
+imageIndex > photos.length - 1 || 
+imageIndex < 0 || 
+isAnimating || 
+photos.length == 0) {
+        	return;
+    }
+
+    isAnimating = true;
+
+    animateNavigationBox(imageIndex);
+    slideBackgroundPhoto(imageIndex);
+
+    // Set the active index to the used image index
+    activeIndex = imageIndex;
+
+    if (isLastImage(activeIndex)) {
+        getNextImages();
+    }
+};
+
+var toggleNumberButton = function (imageIndex, turnOn) {
+$('#numberButton' + (imageIndex + 1)).toggleClass('active', turnOn)
+}
+
+//
+// Animate the navigation box
+//
+var animateNavigationBox = function (imageIndex) {
+    var photo = photos[imageIndex];
+
+    $('#navboxTitle').html(photo.title);
+    $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
+    $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
+
+    toggleNumberButton(activeIndex, false);
+    toggleNumberButton(imageIndex, true);
+};
+
+//
+// Slides the background photos
+//
+var slideBackgroundPhoto = function (imageIndex) {
+    // Retrieve the accompanying photo based on the index
+    var photo = photos[imageIndex];
+
+    // Create a new div and apply the CSS
+    var cssMap = {
+    	'display': "none",
+    	'background-image': "url(" + photo.image + ")",
+    	'background-repeat': "no-repeat",
+    	'background-size': "contain",
+    	'background-position': "center"
+}
+
+    // Fade out old div
+$("#pictureSlider div").fadeOut(animationSpeed, function () {
+        $(this).remove();
+        isAnimating = false;
+    });
+
+// Fade in new one
+$("<div />").css(cssMap)
+	.addClass(photo.cssclass)
+	.prependTo("#pictureSlider")
+	.fadeIn(animationSpeed);
+};
+
+var verifyNsfwMakesSense = function() {
+    // Cases when you forgot NSFW off but went to /r/nsfw
+    // can cause strange bugs, let's help the user when over 80% of the
+    // content is NSFW.
+    var nsfwImages = 0
+    for(var i = 0; i < photos.length; i++) {
+        if(photos[i].over18) {
+            nsfwImages += 1
+        }
+    }
+    
+    if(0.8 < nsfwImages * 1.0 / photos.length) {
+        nsfw = true
+        $("#nsfw").prop("checked", nsfw)
+    }
+}
+    
+var tryConvertUrl = function (url) {
+    if (url.indexOf('imgur.com') >= 0 
+// albums aren't supported yet
+&& url.indexOf('/a/') < 0) {
+        	// imgur is really nice and serves the image with whatever extension
+        	// you give it. '.jpg' is arbitrary
+        	return url + '.jpg';
+    }
+
+    return '';
+}
+
+var isImageExtension = function (url) {
+    var dotLocation = url.lastIndexOf('.');
+    if (dotLocation < 0) {
+        log("skipped no dot: " + url);
+        return false;
+    }
+
+    var extension = url.substring(dotLocation);
+    return (goodExtensions.indexOf(extension) >= 0);
+}
+
+var decodeUrl = function (url) {
+    return decodeURIComponent(url.replace(/\+/g, " "))
+}
+
+var getRestOfUrl = function () {
+    var regexS = "(/(?:(?:r)|(?:user)|(?:domain))/[^&#?]*)[?]?(.*)";
+    var regex = new RegExp(regexS);
+    var results = regex.exec(window.location.href);
+
+    if (results == null) {
+        return ["", ""];
+    } else {
+        return [results[1], decodeUrl(results[2])];
+    }
+}
+
+var getNextImages = function () {
+    loadingNextImages = true;
+
+    var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
+    var failedAjax = function (data) {
+        alert("Failed ajax, maybe a bad url? Sorry about that :(");
+    };
+
+    var handleData = function (response) {
+        data = response.data
+        // NOTE: if data.data.after is null then this causes us to start
+        // from the top on the next getNextImages which is fine.
+        after = "&after=" + data.after;
+
+        if (data.children.length == 0) {
+            alert("No data from this url :(");
+            return;
+        }
+
+        $.each(data.children, function (i, item) {
+            var imgUrl = item.data.url;
+            var title = item.data.title;
+            var over18 = item.data.over_18;
+            var commentsUrl = "http://www.reddit.com" + item.data.permalink;
+
+            // ignore albums and things that don't seem like image files
+            var goodImageUrl = '';
+            if (isImageExtension(imgUrl)) {
+                goodImageUrl = imgUrl;
+            } else {
+                goodImageUrl = tryConvertUrl(imgUrl);
+            }
+
+            if (goodImageUrl != '') {
+                foundOneImage = true;
+                addImageSlide(goodImageUrl, title, commentsUrl, over18);
+            }
+        });
+
+        verifyNsfwMakesSense()
+        
+        if (!foundOneImage) {
+            log(jsonUrl);
+            alert("Sorry, no displayable images found in that url :(")
+        }
+
+        // show the first image
+        if (activeIndex == -1) {
+            startAnimation(0);
+        }
+
+        if (data.after == null) {
+            log("No more pages to load from this subreddit, reloading the start");
+
+            // Show the user we're starting from the top
+            var numberButton = $("<span />").addClass("numberButton").text("-");
+            addNumberButton(numberButton);
+        }
+
+        loadingNextImages = false;
+    };
+	
+	$.ajax({
+	    url: jsonUrl,
+	    dataType: 'json',
+	    success: handleData,
+	    error: failedAjax
+    });
+}
+
+// doc.ready
 $(function () {
     $("#subredditUrl, #navboxTitle").text("Loading Reddit Presentation");
+	$('#prevButton').click(prevSlide);
+    $('#nextButton').click(nextSlide);   
 
-    var nextSlideTimeoutId = null;
-    var loadingNextImages = false;
-
-    function nextSlide() {
-        if(!nsfw) {
-            for(var i = activeIndex + 1; i < photos.length; i++) {
-                if (!photos[i].over18) {
-                    return startAnimation(i)
-                }
-            }
-        }
-
-        if (isLastImage(activeIndex) && !loadingNextImages) {
-            // the only reason we got here and there aren't more pictures yet
-            // is because there are no more images to load, start over
-            return startAnimation(0);
-        }
-
-        startAnimation(activeIndex + 1);
-    }
-
-    function prevSlide() {
-        if(!nsfw) {
-            for(var i = activeIndex - 1; i > 0; i--) {
-                if (!photos[i].over18) {
-                    return startAnimation(i)
-                }
-            }
-        }
-
-        startAnimation(activeIndex - 1);
-    }
-
-    $('#prevButton').click(prevSlide)
-    $('#nextButton').click(nextSlide)    
-    
-    var autoNextSlide = function () {
-        if (shouldAutoNextSlide) {
-            // startAnimation takes care of the setTimeout
-            nextSlide();
-        }
-    }
-
-    $("#pictureSlider").touchwipe({
-        // wipeLeft means the user moved his finger from right to left.
+	$("#pictureSlider").touchwipe({
+    	// wipeLeft means the user moved his finger from right to left.
         wipeLeft: nextSlide,
         wipeRight: prevSlide,
         wipeUp: nextSlide,
@@ -101,7 +488,6 @@ $(function () {
         preventDefaultEvents: false
     });
 
-    var OPENSTATE_ATTR = "data-openstate";
     $('.collapser').click(function () {
         var state = $(this).attr(OPENSTATE_ATTR);
         if (state == "open") {
@@ -123,153 +509,7 @@ $(function () {
         }
     });
 
-    // maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
-    var cache = [];
-    // Arguments are image paths relative to the current page.
-    var preLoadImages = function () {
-        var args_len = arguments.length;
-        for (var i = args_len; i--;) {
-            var cacheImage = document.createElement('img');
-            cacheImage.src = arguments[i];
-            cache.push(cacheImage);
-        }
-    };
-
-    var setCookie = function (c_name, value, exdays) {
-        var exdate = new Date();
-        exdate.setDate(exdate.getDate() + exdays);
-        var c_value = escape(value) + ((exdays == null) ? "" : "; expires=" + exdate.toUTCString());
-        document.cookie = c_name + "=" + c_value;
-    }
-
-    var getCookie = function (c_name) {
-        var i, x, y;
-        var cookiesArray = document.cookie.split(";");
-
-        for (i = 0; i < cookiesArray.length; i++) {
-            x = cookiesArray[i].substr(0, cookiesArray[i].indexOf("="));
-            y = cookiesArray[i].substr(cookiesArray[i].indexOf("=") + 1);
-            x = x.replace(/^\s+|\s+$/g, "");
-            if (x == c_name) {
-                return unescape(y);
-            }
-        }
-    };
-
-    var resetNextSlideTimer = function () {
-        clearTimeout(nextSlideTimeoutId);
-        nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
-    }
-
-    shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
-    var updateAutoNext = function () {
-        shouldAutoNextSlide = $("#autoNextSlide").is(':checked')
-        setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
-        resetNextSlideTimer();
-    }
-
-    nsfwCookie = "nsfwCookie";
-    var updateNsfw = function () {
-        nsfw = $("#nsfw").is(':checked')
-        setCookie(nsfwCookie, nsfw, cookieDays);
-    }
-
-    var initState = function () {
-        var nsfwByCookie = getCookie(nsfwCookie);
-        if (nsfwByCookie == undefined) {
-            nsfw = true;
-        } else {
-            nsfw = (nsfwByCookie === "true");
-            $("#nsfw").prop("checked", nsfw);
-        }
-
-        $('#nsfw').change(updateNsfw);
-
-        var autoByCookie = getCookie(shouldAutoNextSlideCookie);
-        if (autoByCookie == undefined) {
-            updateAutoNext();
-        } else {
-            shouldAutoNextSlide = (autoByCookie === "true");
-            $("#autoNextSlide").prop("checked", shouldAutoNextSlide);
-        }
-
-        $('#autoNextSlide').change(updateAutoNext);
-
-        var updateTimeToNextSlide = function () {
-            var val = $('#timeToNextSlide').val()
-            timeToNextSlide = parseFloat(val) * 1000;
-            setCookie(timeToNextSlideCookie, val, cookieDays);
-        }
-
-        var timeToNextSlideCookie = "timeToNextSlideCookie";
-        timeByCookie = getCookie(timeToNextSlideCookie);
-        if (timeByCookie == undefined) {
-            updateTimeToNextSlide();
-        } else {
-            timeToNextSlide = parseFloat(timeByCookie) * 1000;
-            $('#timeToNextSlide').val(timeByCookie);
-        }
-
-        $('#timeToNextSlide').keyup(updateTimeToNextSlide);
-    }
-
-    initState()
-
-    var addNumberButton = function (numberButton) {
-        var navboxUls = $(".navbox ul");
-        var thisNavboxUl = navboxUls[navboxUls.length - 1];
-
-        var newListItem = $("<li />").appendTo(thisNavboxUl);
-        numberButton.appendTo(newListItem);
-
-        // so li's have a space between them and can word-wrap in the box
-        navboxUls.append(document.createTextNode(' '));
-    }
-
-    var addImageSlide = function (url, title, commentsLink, over18) {
-        var pic = {
-            "title": title,
-            "cssclass": "clouds",
-            "image": url,
-            "text": "",
-            "url": url,
-            "urltext": 'View picture',
-            "commentsLink": commentsLink,
-            "over18": over18
-        }
-
-        preLoadImages(pic.url);
-        photos.push(pic);
-
-        var i = photos.length - 1;
-        var numberButton = $("<a />").html(i + 1)
-            .data("index", i)
-            .attr("title", photos[i].title)
-            .attr("id", "numberButton" + (i + 1))
-			.addClass("numberButton")
-			.toggleClass('over18', over18)
-			.click(function () {
-            	showImage($(this));
-        	});
-
-        addNumberButton(numberButton);
-    }
-
-    var arrow = {
-        left: 37,
-        up: 38,
-        right: 39,
-        down: 40
-    };
-    var ONE_KEY = 49;
-    var NINE_KEY = 57;
-    var SPACE = 32;
-    var PAGEUP = 33;
-    var PAGEDOWN = 34;
-    var ENTER = 13;
-    var A_KEY = 65;
-    var C_KEY = 67;
-    var T_KEY = 84;
+    initState();
 
     // Register keypress events on the whole document
     $(document).keyup(function (e) {
@@ -300,178 +540,16 @@ $(function () {
         }
     });
 
-    //
-    // Shows an image and plays the animation
-    //
-    var showImage = function (docElem) {
-        // Retrieve the index we need to use
-        var imageIndex = docElem.data("index");
-
-        startAnimation(imageIndex);
-    };
-
-    var isLastImage = function(imageIndex) {
-        if(nsfw) {
-            return (imageIndex == photos.length - 1);
-        } else {
-            // look for remaining sfw images
-            for(var i = imageIndex + 1; i < photos.length; i++) {
-                if(!photos[i].over18) {
-                    return false
-                }
-            }
-
-            return true
-        }
-    }
-
-    //
-    // Starts the animation, based on the image index
-    //
-    // Variable to store if the animation is playing or not
-    var isAnimating = false;
-    var startAnimation = function (imageIndex) {
-        resetNextSlideTimer();
-
-        // If the same number has been chosen, or the index is outside the
-        // photos range, or we're already animating, do nothing
-        if (activeIndex == imageIndex || 
-			imageIndex > photos.length - 1 || 
-			imageIndex < 0 || 
-			isAnimating || 
-			photos.length == 0) {
-            	return;
-        }
-
-        isAnimating = true;
-		
-        animateNavigationBox(imageIndex);
-        slideBackgroundPhoto(imageIndex);
-
-        // Set the active index to the used image index
-        activeIndex = imageIndex;
-
-        if (isLastImage(activeIndex)) {
-            getNextImages();
-        }
-    };
-
-    var toggleNumberButton = function (imageIndex, turnOn) {
-		$('#numberButton' + (imageIndex + 1)).toggleClass('active', turnOn)
-    }
-
-    //
-    // Animate the navigation box
-    //
-    var animateNavigationBox = function (imageIndex) {
-        var photo = photos[imageIndex];
-
-        $('#navboxTitle').html(photo.title);
-        $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
-        $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
-
-        toggleNumberButton(activeIndex, false);
-        toggleNumberButton(imageIndex, true);
-    };
-
-    //
-    // Slides the background photos
-    //
-    var slideBackgroundPhoto = function (imageIndex) {
-        // Retrieve the accompanying photo based on the index
-        var photo = photos[imageIndex];
-
-        // Create a new div and apply the CSS
-        var cssMap = {
-        	'display': "none",
-        	'background-image': "url(" + photo.image + ")",
-        	'background-repeat': "no-repeat",
-        	'background-size': "contain",
-        	'background-position': "center"
-		}
-
-        // Fade out old div
-		$("#pictureSlider div").fadeOut(animationSpeed, function () {
-            $(this).remove();
-            isAnimating = false;
-        });
-
-		// Fade in new one
-		$("<div />").css(cssMap)
-					.addClass(photo.cssclass)
-					.prependTo("#pictureSlider")
-					.fadeIn(animationSpeed);
-    };
-    
-    var verifyNsfwMakesSense = function() {
-        // Cases when you forgot NSFW off but went to /r/nsfw
-        // can cause strange bugs, let's help the user when over 80% of the
-        // content is NSFW.
-        var nsfwImages = 0
-        for(var i = 0; i < photos.length; i++) {
-            if(photos[i].over18) {
-                nsfwImages += 1
-            }
-        }
-        
-        if(0.8 < nsfwImages * 1.0 / photos.length) {
-            nsfw = true
-            $("#nsfw").prop("checked", nsfw)
-        }
-    }
-        
-    var tryConvertUrl = function (url) {
-        if (url.indexOf('imgur.com') >= 0 
-			// albums aren't supported yet
-			&& url.indexOf('/a/') < 0) {
-            	// imgur is really nice and serves the image with whatever extension
-            	// you give it. '.jpg' is arbitrary
-            	return url + '.jpg';
-        }
-
-        return '';
-    }
-
-    var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
-    var isImageExtension = function (url) {
-        var dotLocation = url.lastIndexOf('.');
-        if (dotLocation < 0) {
-            log("skipped no dot: " + url);
-            return false;
-        }
-
-        var extension = url.substring(dotLocation);
-        return (goodExtensions.indexOf(extension) >= 0);
-    }
-
-    var decodeUrl = function (url) {
-        return decodeURIComponent(url.replace(/\+/g, " "))
-    }
-
-    var getRestOfUrl = function () {
-        var regexS = "(/(?:(?:r)|(?:user)|(?:domain))/[^&#?]*)[?]?(.*)";
-        var regex = new RegExp(regexS);
-        var results = regex.exec(window.location.href);
-
-        if (results == null) {
-            return ["", ""];
-        } else {
-            return [results[1], decodeUrl(results[2])];
-        }
-    }
-
-    var redditBaseUrl = "http://www.reddit.com";
-    var urlData = getRestOfUrl();
-    var subredditUrl = urlData[0]
-    var getVars = urlData[1]
-
+	urlData = getRestOfUrl();
+	subredditUrl = urlData[0]
+	getVars = urlData[1]
     if (getVars.length > 0) {
         getVarsQuestionMark = "?" + getVars;
     } else {
         getVarsQuestionMark = "";
     }
 
-    var subredditName;
+    subredditName;
     if (subredditUrl === "") {
         subredditUrl = "/";
         subredditName = "reddit.com" + getVarsQuestionMark;
@@ -482,81 +560,7 @@ $(function () {
     visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
     $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
     
-	var after = "";
     document.title = "redditP - " + subredditName;
-
-    // if ever found even 1 image, don't show the error
-    var foundOneImage = false;
-
-    var getNextImages = function () {
-        loadingNextImages = true;
-
-        var jsonUrl = redditBaseUrl + subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
-        var failedAjax = function (data) {
-            alert("Failed ajax, maybe a bad url? Sorry about that :(");
-        };
-
-        var handleData = function (response) {
-            data = response.data
-            // NOTE: if data.data.after is null then this causes us to start
-            // from the top on the next getNextImages which is fine.
-            after = "&after=" + data.after;
-
-            if (data.children.length == 0) {
-                alert("No data from this url :(");
-                return;
-            }
-
-            $.each(data.children, function (i, item) {
-                var imgUrl = item.data.url;
-                var title = item.data.title;
-                var over18 = item.data.over_18;
-                var commentsUrl = "http://www.reddit.com" + item.data.permalink;
-
-                // ignore albums and things that don't seem like image files
-                var goodImageUrl = '';
-                if (isImageExtension(imgUrl)) {
-                    goodImageUrl = imgUrl;
-                } else {
-                    goodImageUrl = tryConvertUrl(imgUrl);
-                }
-
-                if (goodImageUrl != '') {
-                    foundOneImage = true;
-                    addImageSlide(goodImageUrl, title, commentsUrl, over18);
-                }
-            });
-
-            verifyNsfwMakesSense()
-            
-            if (!foundOneImage) {
-                log(jsonUrl);
-                alert("Sorry, no displayable images found in that url :(")
-            }
-
-            // show the first image
-            if (activeIndex == -1) {
-                startAnimation(0);
-            }
-
-            if (data.after == null) {
-                log("No more pages to load from this subreddit, reloading the start");
-
-                // Show the user we're starting from the top
-                var numberButton = $("<span />").addClass("numberButton").text("-");
-                addNumberButton(numberButton);
-            }
-
-            loadingNextImages = false;
-        };
-
-        $.ajax({
-            url: jsonUrl,
-            dataType: 'json',
-            success: handleData,
-            error: failedAjax
-        });
-    }
 
     getNextImages();
 });

@@ -471,7 +471,8 @@ $(function () {
             }
             // imgur is really nice and serves the image with whatever extension
             // you give it. '.jpg' is arbitrary
-            return url + '.jpg';
+            // regexp removes /r/<sub>/ prefix if it exists
+            return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
         }
 
         return '';

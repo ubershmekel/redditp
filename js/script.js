@@ -143,9 +143,15 @@ var RedditUrlHelper = function() {
 	var init = function(hostname) {
 		self = this
 		var path = parsePath(window.location.href);
-		self.host = hostname || 'http://www.reddit.com'
-			
-		urlString = self.host + path.subreddit + '.json?jsonp=?&after=#$#REPLACE#$#&' + path.getVars
+		var host = hostname || 'http://www.reddit.com'
+		
+		urlString = host + path.subreddit + '.json?jsonp=?&after=#$#REPLACE#$#&' + path.getVars
+		
+		self.url = {
+			host: host,
+			subreddit: path.subreddit,
+			getVars: path.getVars
+		}
 	}
 	
 	var getNextUrl = function() {
@@ -187,6 +193,8 @@ var RedditUrlHelper = function() {
 	        	// imgur is really nice and serves the image with whatever extension
 	        	// you give it. '.jpg' is arbitrary
 				// TODO: If the subreddit is gif related then assume this is .gif
+				// TODO: If we append this, we should probably autoroute to the i. subdomain to reduce the delay caused by a redirect
+				// 		 But this is mitigated by preloading so it's likely good enough as is
 	        	return url + '.jpg'
 	    }
 
@@ -196,7 +204,7 @@ var RedditUrlHelper = function() {
 	return {
 		lastSeen: '',
 		init: init,
-		host: '',
+		url: {},
 		nextUrl: getNextUrl,
 		getValidImage: getValidImageUrl
 	}	
@@ -224,7 +232,7 @@ var RedditStream = function() {
 			return true;
 		}
 	}
-	
+
 	var getData = function(callback) {
 		pendingCallbacks.push(callback); 
 		if (pendingCallbacks.length > 1) { return; }
@@ -246,7 +254,7 @@ var RedditStream = function() {
 				// Try to salvage images
 				item.data.url = urlHelper.getValidImage(item.data.url)
 	            if (item.data.url != '') {
-					item.data.permalink = urlHelper.host + item.data.permalink
+					item.data.permalink = urlHelper.url.host + item.data.permalink
 					photos.push(item.data)
 				}
 	        });
@@ -277,10 +285,21 @@ var RedditStream = function() {
 		urlHelper.init(o.hostname);
 	}
 	
+	var sourceInfo = function() {
+		var url = urlHelper.url
+		var getVars = url.getVars.length > 0 ? '?' + url.getVars : '' 
+		
+		return {
+			name: url.subreddit,
+			link: url.host + url.subreddit + getVars
+		}
+	}
+	
 	return {
 		name: 'Reddit',
 		init: init,
-		getIndex: getIndex
+		getIndex: getIndex,
+		getSourceInfo: sourceInfo
 	}
 }();
 
@@ -289,10 +308,8 @@ var Presentation = function() {
 	var dataSource
 	var onProgress
 	var allowNSFW = false
-	var autoMove = {
-		waitTime: -3000,
-		timeout: 0
-	}
+	var autoMove = { waitTime: -3000, timeout: 0 }
+	var preloadCache = {}
 	var self
 	
 	var init = function(source, onprogress) {
@@ -336,32 +353,40 @@ var Presentation = function() {
 				return transitionTo(nextTry, reverse)
 			}
 			
-			currentPhoto = photo
+			current.photo = photo
 			onProgress(current.index, photo.title, photo)
+			
+			// TODO: Preload X more images
+			preloadNext(current.index)
 		});
 		
 		if (!isInMemory) {
 			onProgress(current.index, 'Fetching data from ' + dataSource.name)
 		}
-	
-		// TODO: Preload X more images
-	
+		
 		tryAutoMove()
 	}
 	
-	/*
-		TODO:
-		// maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
-		// Arguments are image paths relative to the current page.
-		var preLoadImages = function () {
-		    var args_len = arguments.length;
-		    for (var i = args_len; i--;) {
-		        var cacheImage = document.createElement('img');
-		        cacheImage.src = arguments[i];
-		        cache.push(cacheImage);
-		    }
-		};
-	*/
+	var preloadNext = function(startIndex) {
+		for (var i = startIndex; i < (self.preloadCount + startIndex); i++) {
+			// Skip if already preloaded / preloading
+			if (preloadCache[i]) { continue }
+			
+			var isInMemory = dataSource.getIndex(i, function(photo) {
+				// TODO : Handle skipping nsfw images in preloader if not showing them
+				
+				var cacheImage = document.createElement('img')
+				cacheImage.src  = photo.url
+				
+				preloadCache[i] = {
+					photo: photo,
+					img: cacheImage
+				}
+			});
+			
+			if (!isInMemory) { preloadCache[i] = { isFetching: true } }
+		}
+	}
 	
 	var setAutoMoveEnabled = function(enabled) {
 		var sign = enabled ? 1 : -1
@@ -419,6 +444,7 @@ var Presentation = function() {
 // 
 // Core UI Logic
 //
+
 var RedditPresentation = function() {
 	var animationSpeed = 1000
 	var presentation
@@ -440,10 +466,6 @@ var RedditPresentation = function() {
 			T_KEY: 84
 		}
 	
-	var init = function(options) {
-		setup(options || {})
-	}
-	
 	var setup = function(options) {
 		var dataSource = options.dataSource || RedditStream
 		var syncHelper = options.helper || CookieHelper
@@ -453,42 +475,19 @@ var RedditPresentation = function() {
 		presentation.init(dataSource, onSlideChange);
 		bindInputs()
 		setupCookies(syncHelper)
+		setupSubRedditInfo(dataSource)
 	}
 	
-	var onSlideChange = function(index, text, photo) {
-		if (photo) {
-			changeImage(index, photo)
-		} else {
-			setDescription(text)
-		}
-	}
-	
-	var handleData = function(startIndex, data) {
-		// Check if the nsfw flag makes sense
-		ensureNsfwFilterMakesSense(data)
-		
-		// Add number buttons for each of the new images
-		$.each(data.slice(startIndex), function(i, photo) { 
-			addNumberButton(startIndex + i, photo) 
-		})
-	}
-	
-	var ensureNsfwFilterMakesSense = function(photos) {
-		// Cases when you forgot NSFW off but went to /r/nsfw can cause strange bugs,
-	    // let's help the user when over 80% of the content is NSFW.
-	    var nsfwCount = ($(photos).filter(function(index, photo) {
-			return photo.over_18
-		}).length * 1.0)
-   
-	    if(nsfwCount / photos.length > 0.8) { setNSFWAllowed(true) }
-	}
-	
-	var changeImage = function(index, photo) {
-		updateNavigationTexts(index, photo);
-		updateImage(index, photo);
-	}
+	var setupSubRedditInfo = function(dataSource) {
+		var info = dataSource.getSourceInfo()
 
-	var setDescription = function(text) { $('#navboxTitle').html(text); }
+	    $('#subredditUrl').html("<a href='" + info.link + "'>" + info.name + "</a>");  
+	    document.title = "redditP - " + info.name;
+	}
+		
+	//
+	// Handling User Inputs
+	// 
 
  	var changeSlide = function(val) { return presentation.move(val) }
 	var nextSlide = function(){ return changeSlide('+') }
@@ -596,6 +595,45 @@ var RedditPresentation = function() {
 		})
 	}
 
+	///
+	///	Handling System Inputs
+	///
+	
+	var handleData = function(startIndex, data) {
+		// Check if the nsfw flag makes sense
+		ensureNsfwFilterMakesSense(data)
+		
+		// Add number buttons for each of the new images
+		$.each(data.slice(startIndex), function(i, photo) { 
+			addNumberButton(startIndex + i, photo) 
+		})
+	}
+	
+	var ensureNsfwFilterMakesSense = function(photos) {
+		// Cases when you forgot NSFW off but went to /r/nsfw can cause strange bugs,
+	    // let's help the user when over 80% of the content is NSFW.
+	    var nsfwCount = ($(photos).filter(function(index, photo) {
+			return photo.over_18
+		}).length * 1.0)
+   
+	    if(nsfwCount / photos.length > 0.8) { setNSFWAllowed(true) }
+	}
+	
+	var onSlideChange = function(index, text, photo) {
+		if (photo) {
+			changeImage(index, photo)
+		} else {
+			setDescription(text)
+		}
+	}
+	
+	var changeImage = function(index, photo) {
+		updateNavigationTexts(index, photo);
+		updateImage(index, photo);
+	}
+
+	var setDescription = function(text) { $('#navboxTitle').html(text); }
+	
 	var addNumberButton = function (index, photo) {
 		var numberButton = $("<a />").html(index + 1)
 					        	.data("index", index)
@@ -661,7 +699,7 @@ var RedditPresentation = function() {
 			.fadeIn(animationSpeed);
 	};
 	
-	return { init: init }
+	return { init: function(options) { setup(options || {}) } }
 }()
 
 //
@@ -672,8 +710,8 @@ $(RedditPresentation.init);
 /* 
 	TODO
 	test swipe support after refactor
-	preloading X next images
 	gif duration
+	'delay' time - lock the movement for X ms so user cant just tap tap tap and get an fps bomb
 	
 	reverse number order in navbox? (more likely to actually see what number you're at)
 	f for fullscreen?
@@ -690,11 +728,4 @@ $(RedditPresentation.init);
             	var numberButton = $("<span />").addClass("numberButton").text("-");
             	addNumberButton(numberButton);
         	}
-	
-	TODO::
-	// setup subreddit link and page title
-	visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
-    $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
-  
-    document.title = "redditP - " + subredditName;
 */

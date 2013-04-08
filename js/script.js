@@ -184,7 +184,10 @@ var RedditUrlHelper = function() {
                 // TODO: handle links such as: http://imgur.com/gallery/Kogjqg5/new
                 // reroute to i subdomain if appending a filetype
                 var imageDomainUrl = url.replace('http://imgur.com', 'http://i.imgur.com')
-                return imageDomainUrl + '.jpg'
+                
+                // regexp removes /r/<sub>/ prefix if it exists
+                // E.g. http://imgur.com/r/aww/x9q6yW9
+                return imageDomainUrl.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
         }
 
         return ''

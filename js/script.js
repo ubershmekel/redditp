@@ -36,8 +36,70 @@ window.log = function () {
     }
 };
 
+// Simplifies working with cookies by providing a simple helper function
+// to sync the status of input elements with a cookie
 var CookieHelper = function() {
     var cookieDays = 300
+    
+    // Sync inputs to cookies
+    var syncState = function(selector, bindevent, getState, setState) {
+        var element = $(selector)
+        var cookieName = getCookieName(selector)
+        var cookieValue = getCookie(cookieName, cookieDays);
+        
+        var saveState = function(val) {
+            setState(val, element)
+            setCookie(cookieName, val, cookieDays);
+        }
+
+        // Load value from store
+        if (cookieValue == undefined) {
+            // No stored value, save current state
+            var val = getState(element)
+            saveState(val)
+        } else {
+            setState(cookieValue, element)
+        }
+
+        // Save changes - TODO: if jQuery > 1.7 then use .on instead of .bind
+        $(element).bind(bindevent, function() {
+            var val = getState(this)
+            saveState(val)
+        });
+    }
+
+    // This doesn't matter so much
+    var getCookieName = function(selector) { return 'redditp_' + selector + '_cookie' }
+    
+    var syncCheckbox = function(selector, onSet) {
+        syncState(selector, 
+                'change',
+                function(element) {
+                    return $(element).prop('checked')
+                },
+                function(value, element) {
+                    var val = (value + '') === 'true'
+                    onSet(val)
+                    $(element).prop('checked', val)
+                })
+    }
+
+    var syncInputValue = function(selector, onSet) {
+        syncState(selector,
+                'keyup',
+                function(element) {
+                    return $(element).val()
+                },
+                function(value, element) {
+                    var f = value
+                    $(element).val(f)
+                    onSet(f)
+                })
+    }
+    
+    ///
+    /// Public API Methods
+    ///
     
     var setCookie = function (c_name, value, exdays) {
         var exdate = new Date();
@@ -60,65 +122,6 @@ var CookieHelper = function() {
         }
     }
     
-    // Sync inputs to cookies
-    var syncState = function(element, cookieName, bindevent, getState, setState) {
-        var saveState = function(val) {
-            setState(val, element)
-            setCookie(cookieName, val, cookieDays);
-        }
-
-        // Load value from store
-        var cookieValue = getCookie(cookieName, cookieDays);
-        if (cookieValue == undefined) {
-            // No stored value, save current state
-            var val = getState(element)
-            saveState(val)
-        } else {
-            setState(cookieValue, element)
-        }
-
-        // Save changes - TODO: if jQuery > 1.7 then use .on instead of .bind
-        $(element).bind(bindevent, function() {
-            var val = getState(this)
-            saveState(val)
-        });
-    }
-
-    // This doesn't matter so much
-    var getCookieName = function(selector) { return 'redditp_' + selector + '_cookie' }
-    
-    var syncCheckbox = function(selector, onSet) {
-        syncState(
-            $(selector), 
-            getCookieName(selector),
-            'change',
-            function(element) {
-                return $(element).prop('checked')
-            },
-            function(value, element) {
-                var val = (value + '') === 'true'
-                onSet(val)
-                $(element).prop('checked', val)
-            }
-        )
-    }
-
-    var syncInput = function(selector, onSet) {
-        syncState(
-            $(selector),
-            getCookieName(selector),
-            'keyup',
-            function(element) {
-                return $(element).val()
-            },
-            function(value, element) {
-                var f = value
-                $(element).val(f)
-                onSet(f)
-            }
-        )
-    }
-    
     // Syncs a cookies value with the an input element
     // selector : string : stringJQuery selector for finding input to sync
     // onSet : Callback(newvalue, element) : called when input state changes
@@ -127,39 +130,25 @@ var CookieHelper = function() {
     
         switch(type) {
             case 'checkbox': return syncCheckbox(selector, onSet)
-            case 'text': return syncInput(selector, onSet)
-            default: throw 'unsupported input type'
+            case 'text': return syncInputValue(selector, onSet)
+            default: throw 'Unsupported Input Type'
         }
     }
 
     return {
-        sync: syncSelector
+        sync: syncSelector,
+        set: setCookie,
+        get: getCookie
     }
 }()
 
+// Simplify parsing the urls and dealing with the reddit api
 var RedditUrlHelper = function() {
-    var urlString = ''
     var imgExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+    var lastSeen = ''
     var self
     
-    var init = function(hostname) {
-        self = this
-        var path = parsePath(window.location.href);
-        var host = hostname || 'http://www.reddit.com'
-        
-        urlString = host + path.subreddit + '.json?jsonp=?&after=#$#REPLACE#$#&' + path.getVars
-        
-        self.url = {
-            host: host,
-            subreddit: path.subreddit,
-            getVars: path.getVars
-        }
-    }
-    
-    var getNextUrl = function() {
-        return urlString.replace('#$#REPLACE#$#', self.lastSeen)
-    }
-    
+    // Find subreddit and getvars from a given url
     var parsePath = function (url) {
         var regex = new RegExp("(/(?:(?:r)|(?:user)|(?:domain))/[^&#?]*)[?]?(.*)")
         var results = regex.exec(url)
@@ -171,6 +160,8 @@ var RedditUrlHelper = function() {
             getVars: decodeURIComponent(results[2].replace(/\+/g, " ")) 
         }
     }
+    
+    // Checks if the url ends with a valid image file extension
     var isImageExtension = function (url) {
         var dotLocation = url.lastIndexOf('.')
         if (dotLocation < 0) {
@@ -182,15 +173,11 @@ var RedditUrlHelper = function() {
         return (imgExtensions.indexOf(extension) >= 0)
     }
     
-    var getValidImageUrl = function(url) {
-        // ignore albums and things that don't seem like image files
-        if (isImageExtension(url)) { return url } 
-        return tryConvertUrl(url)
-    }
-    
+    // Try to salvage a usable image for a given url
     var tryConvertUrl = function (url) {
-        // albums aren't supported yet
-        if (url.indexOf('imgur.com') >= 0 && url.indexOf('/a/') < 0) {
+        if (url.indexOf('imgur.com') >= 0 
+            // albums aren't supported yet
+            && url.indexOf('/a/') < 0) {
                 // imgur is really nice and serves the image with whatever extension
                 // you give it. '.jpg' is arbitrary
 
@@ -203,11 +190,48 @@ var RedditUrlHelper = function() {
         return ''
     }
     
+    //
+    // Public API Methods
+    //
+    
+    var init = function(hostname) {
+        self = this
+        var path = parsePath(window.location.href);
+        var host = hostname || 'http://www.reddit.com'
+        
+        self.url = {
+            host: host,
+            subreddit: path.subreddit,
+            getVars: path.getVars
+        }
+    }
+    
+    // Gets the url for the next dataset
+    var getNextUrl = function() {
+        // No more data
+        if (lastSeen == null) { return false }
+        
+        return self.url.host + self.url.subreddit + '.json?jsonp=?&after=' + lastSeen + '&' + self.url.getVars
+    }
+    
+    // Guess if a url will give a valid image to show
+    // returns (url or a modified version) if valid
+    // returns '' if invalid
+    var getValidImageUrl = function(url) {
+        // ignore albums and things that don't seem like image files
+        if (isImageExtension(url)) { return url } 
+        return tryConvertUrl(url)
+    }
+    
+    var setLastSeen = function(value) {
+        console.log(value)
+        lastSeen = value
+    }
+    
     return {
-        lastSeen: '',
+        setLastSeen: setLastSeen,
         init: init,
-        url: {},
-        nextUrl: getNextUrl,
+        getNextUrl: getNextUrl,
         getValidImage: getValidImageUrl
     }   
 }();
@@ -216,84 +240,130 @@ var RedditUrlHelper = function() {
 // Core Logic
 //
 
+// Reddit DataSource
+// Gets metadata from the json api for a given index
+// Calls any subscribed onData callbacks whenever new data is recieved from the api
+// getSourceInfo().name will be the current subreddits shown
 var RedditStream = function() {
     var images
     var pendingCallbacks
     var onDataSubscribers
     var urlHelper
     var self
+
+    // Sends each subscriber notification of the startIndex of the new data
+    // and an array of all the data incase they need to do work with that
+    var informDataSubscribers = function(oldLength, images) {
+        $.each(onDataSubscribers, function(index, callback) {
+            callback(oldLength, images)
+        })
+    }
+    
+    // Handle a json api response
+    var handleResponse = function (response) {
+        data = response.data
+        // NOTE: if data.after is null then this causes us to start
+        // from the top on the next getNextImages which is fine.
+        urlHelper.setLastSeen(data.after)
+
+        // TODO: Handle this better than just logging it
+        if (data.children.length == 0) {
+            log("No data from this url :(")
+            return;
+        }
+        
+        // Filter the new images and add them to collection
+        var valid = filterData(data.children)
+        images = images.concat(valid)
+        
+        // Let subscribers know we have new data
+        informDataSubscribers(images.length - valid.length, images)
+        
+        // Allow the next waiting request to go!
+        executePendingCallbacks()
+    }
+    
+    // Only allow urls which seem to be images
+    var filterData = function(items) {
+        var passed = []
+        $.each(items, function (i, item) {
+            // Try to salvage images
+            var validLink = urlHelper.getValidImage(item.data.url)
+            if (validLink != '') {
+                item.data.permalink = urlHelper.url.host + item.data.permalink
+                item.data.url = validLink
+                passed.push(item.data)
+            }
+        })
+        return passed
+    }
+    
+    // Clear request backlog
+    var executePendingCallbacks = function() {
+        // Note: Swap and clear pending array to stop infinite recursion possibility
+        // TODO: Should work with a .pop, try & test that (with simultanious index requests)
+        var toExec = pendingCallbacks;
+        pendingCallbacks = [];
+        $.each(toExec, function(i, item) { item() })
+    }
+    
+    // Loads data from the reddit api
+    //  It ensures only sequential calls to the api are made and they are made one at a time
+    //  This ensures we don't lose any callbacks e.g. if a request for multiple indexes are made
+    //  before the api had returned
+    var getData = function(callback) {
+        pendingCallbacks.push(callback); 
+        if (pendingCallbacks.length > 1) { return; }
+    
+        var nextUrl = urlHelper.getNextUrl();
+        if (nextUrl) {
+            $.ajax({
+                url: nextUrl,
+                dataType: 'json',
+                success: handleResponse,
+                error: function (data) {
+                    log("Failed ajax, maybe a bad url? Sorry about that :(");
+                }
+            })
+        } else {
+            // Reached the end of the subreddit
+            // TODO: Loop back to 0
+            log('No more images')
+        }
+    }
+    
+    // 
+    // Public API
+    //
     
     var init = function(options) {
         self = this
-        var o = options || {}
         images = []
         pendingCallbacks = []
         onDataSubscribers = []
-        
+        var o = options || {}
         urlHelper = o.helper || RedditUrlHelper
         urlHelper.init(o.hostname)
     }
     
+    // Gets metadata from the reddit api for a given index
     // Returns true if the index was already loaded
+    // else it will call then callback on completion of the api call
     var getIndex = function(index, callback) {
         if (index >= images.length) {
             // Need to load image
-            getData(function() { getIndex(index, callback); });
-            return false;
+            return getData(function() { getIndex(index, callback); }) && false // Always returns falsey
         } else {
-            callback(images[index])
-            return true;
+            // already have metadata in memory, just callback instantly
+            return callback(images[index]) || true // Always returns truthy
         }
     }
-
-    var getData = function(callback) {
-        pendingCallbacks.push(callback); 
-        if (pendingCallbacks.length > 1) { return; }
-        
-        var handleData = function (response) {
-            data = response.data
-            // NOTE: if data.after is null then this causes us to start
-            // from the top on the next getNextImages which is fine.
-            urlHelper.lastSeen = data.after;
-
-            if (data.children.length == 0) {
-                log("No data from this url :(");
-                return;
-            }
-            
-            // Save all the data and call the bufferCallback if given
-            var oldLength = images.length;
-            $.each(data.children, function (i, item) {
-                // Try to salvage images
-                item.data.url = urlHelper.getValidImage(item.data.url)
-                if (item.data.url != '') {
-                    item.data.permalink = urlHelper.url.host + item.data.permalink
-                    images.push(item.data)
-                }
-            });
     
-            $.each(onDataSubscribers, function(index, callback) {
-                callback(oldLength, images)
-            })
-            
-            // Allow the next waiting request to go!
-            var toExec = pendingCallbacks;
-            pendingCallbacks = [];
-            $.each(toExec, function(i, item) { item(); });
-        };
-    
-        $.ajax({
-            url: urlHelper.nextUrl(),
-            dataType: 'json',
-            success: handleData,
-            error: function (data) {
-                log("Failed ajax, maybe a bad url? Sorry about that :(");
-            }
-        });
-    }
-    
+    // Information about the dataSource's current resource
+    // For reddit, the name of the subreddits being shown will be useful
     var sourceInfo = function() {
         var url = urlHelper.url
+        // Prepend a '?' to getVars if there are any
         var getVars = url.getVars.length > 0 ? '?' + url.getVars : '' 
         
         return {
@@ -311,12 +381,13 @@ var RedditStream = function() {
     }
 }();
 
-// Wrap a DataSource
+// The preloader decorates a dataSource to preload additional images on each image request
 var Preloader = function(wrapped, preloadAmount) {
     if (typeof wrapped !== 'object') { throw 'Preloader requires a DataSource' }
     var cache = {}
     var preloadAmount = preloadAmount || 3
     
+    // Preload more images
     var preloadAfter = function(startIndex) {
         for (var i = startIndex; i < (preloadAmount + startIndex); i++) {
             // Skip if already preloaded / preloading
@@ -330,17 +401,24 @@ var Preloader = function(wrapped, preloadAmount) {
         }
     }
     
+    // Preload an image with a given metadata
     var preloadImage = function(index, image) {
         // TODO : Handle skipping nsfw images in preloader if not showing them
         var cacheImage = document.createElement('img')
         cacheImage.src  = image.url
         
+        // Setup the cache for future use
         cache[index] = {
             image: image,
             img: cacheImage
         }
     }
-        
+    
+    ///
+    /// Public API
+    ///
+    
+    // Delegate these to the wrapped dataSource instance
     this.name = wrapped.name
     this.onData = wrapped.onData
     this.getSourceInfo = wrapped.getSourceInfo
@@ -350,6 +428,7 @@ var Preloader = function(wrapped, preloadAmount) {
         cache = {}
     }
     
+    // Wrap the dataSource while also reusing the cached images and preloading future indices
     this.getIndex = function(index, callback) {         
         return wrapped.getIndex(index, function(image) {
             var cached = cache[index]
@@ -366,6 +445,10 @@ var Preloader = function(wrapped, preloadAmount) {
     return this
 }
 
+// Presentation takes care of the logic of which image should be shown at a time
+//  It handles navigation through the move method
+//  It will automatically skip over the NSFW images if they should not be shown
+//  It will automatically progress to the next image (after a given time) if AutoMove is enabled
 var Presentation = function() {
     var current = {}
     var dataSource
@@ -374,19 +457,106 @@ var Presentation = function() {
     var autoMove = { waitTime: -3000, timeout: 0 }
     var self
     
+    // Find next valid image in dataSource (skipping nsfw)
+    // If we're moving backwards then reverse needs to be set!
+    var transitionTo = function(index, reverse) {
+        // If it's NaN then default to zero, and account for negative indices
+        var i = Math.max(index || 0, 0)
+        
+        // new desired index
+        current.index = i
+        
+        var isInMemory = dataSource.getIndex(i, function(image) {
+            // Skip over nsfw images in both directions
+            if (!allowNSFW && image.over_18) {
+                var nextTry = reverse ? i - 1 : i + 1
+
+                return transitionTo(nextTry, reverse)
+            }
+            
+            // If the current desired index is still this one, then show the image
+            if (current.index == i) { 
+                current.image = image 
+                onProgress(i, image.title, image)
+            } 
+        });
+        
+        // If we don't have the image alraedy, it's doing a dataSource request
+        if (!isInMemory) { 
+            onProgress(current.index, 'Fetching data from ' + dataSource.name) 
+        }
+        
+        // Delay automove due to transition
+        resetAutoMove()
+    }
+    
+    // Setup the AutoMove cycle according to current variables
+    var resetAutoMove = function() {
+        // always clear the timeouts on any change/retrigger
+        clearTimeout(autoMove.timeout)
+        
+        // do nothing if disabled or above 5fps (sane limit)
+        if (autoMove.waitTime < 200) { return }
+        
+        // Go!
+        autoMove.timeout = setTimeout(function(){ move('+')}, autoMove.waitTime);
+    }
+    
+    ///
+    /// Public API Methods
+    ///
+    
+    // AutoMover is controlled by a waitTime internally, 
+    // we map the boolean input to a sign to indicate on or off (positive/negative)
+    var setAutoMoveEnabled = function(enabled) {
+        var sign = enabled ? 1 : -1
+        autoMove.waitTime = sign * Math.abs(autoMove.waitTime)
+        
+        resetAutoMove()
+    }
+    
+    // Delaytime : 1000 = 1second
+    var setAutoMoveWaitTime = function(val) {
+        if (autoMove.waitTime > 0) {
+            autoMove.waitTime = Math.abs(val)
+        } else {
+            autoMove.waitTime = -Math.abs(val)  
+        }
+        
+        resetAutoMove()
+    }
+    
+    var setAllowNSFW = function(allowed) {
+        allowNSFW = !!allowed
+        
+        // If the current image is NSFW, then we need to change image if it just got disabled
+        if (!allowNSFW 
+         && current.image 
+         && current.image.over_18) {
+            move('+')
+        }
+    }
+    
     var init = function(source, onprogress) {
         self = this
         dataSource = source
         onProgress = onprogress
         current = {}
+
+        // Stop any old timers from firing after a re-init
+        if (autoMove.timeout) { clearTimeout(autoMove.timeout) }
         autoMove = { waitTime: 3000, timeout: 0 }
         
-        if (typeof onProgress !== 'function') { throw 'Must supply function arguments to presentation' }
+        if (typeof onProgress !== 'function') { throw 'Must supply progress function to Presentation' }
         
-        // Go to initial image
+        // Start the show!
         move(0)
     }
     
+    // Controls the Presentation
+    // Accepts a number representing the index to show
+    // Or '+' indicating go to the next image
+    // Or '-' indicating go to the previous image
     var move = function(val) {
         if (typeof val === 'string') {
             if (val[0] == '+') {
@@ -400,75 +570,9 @@ var Presentation = function() {
         transitionTo(parseInt(val))
     }
     
-    var transitionTo = function(index, reverse) {
-        // If it's NaN then default to zero, and account for negative indices
-        var i = Math.max(index || 0, 0)
-        
-        var isInMemory = dataSource.getIndex(i, function(image) {
-            // Skip over nsfw images in both directions
-            if (!allowNSFW && image.over_18) {
-                var nextTry = reverse ? i - 1 : i + 1
-
-                return transitionTo(nextTry, reverse)
-            }
-            
-            current.image = image
-            current.index = i
-            onProgress(i, image.title, image)
-        });
-        
-        current.index = i
-        
-        if (!isInMemory) {
-            onProgress(current.index, 'Fetching data from ' + dataSource.name)
-        }
-        
-        resetAutoMove()
-    }
-    
-    var setAutoMoveEnabled = function(enabled) {
-        var sign = enabled ? 1 : -1
-        autoMove.waitTime = sign * Math.abs(autoMove.waitTime)
-        
-        resetAutoMove()
-    }
-    
-    // Delaytime in ms
-    var setAutoMoveWaitTime = function(val) {
-        if (autoMove.waitTime > 0) {
-            autoMove.waitTime = Math.abs(val)
-        } else {
-            autoMove.waitTime = -Math.abs(val)  
-        }
-        
-        resetAutoMove()
-    }
-    
-    var resetAutoMove = function() {
-        // always clear the timeouts on any change/retrigger
-        clearTimeout(autoMove.timeout)
-        
-        // do nothing if disabled or above 5fps (sane limit)
-        if (autoMove.waitTime < 200) { return }
-        
-        // Go!
-        autoMove.timeout = setTimeout(function(){ move('+')}, autoMove.waitTime);
-    }
-    
-    var setAllowNSFW = function(allowed) {
-        allowNSFW = allowed
-        
-        // If the current image is NSFW, then we need to change image if it just got disabled
-        if (!allowNSFW 
-         && current.image 
-         && current.image.over_18) {
-            move('+')
-        }
-    }
-        
     return {
         init: init,
-        move: move, // Takes either a number or +1 / -1 // + / -
+        move: move, 
         setAutoMoveEnabled: setAutoMoveEnabled,
         setAutoMoveWaitTime: setAutoMoveWaitTime,
         setAllowNSFW: setAllowNSFW
@@ -479,6 +583,8 @@ var Presentation = function() {
 // Core UI Logic
 //
 
+// RedditPresentation ties the DOM to the Presentation & DataSource setup
+// It should handle anything relating to the DOM
 var RedditPresentation = function() {
     var animationSpeed = 1000
     var presentation
@@ -499,21 +605,7 @@ var RedditPresentation = function() {
             C_KEY: 67,
             T_KEY: 84
         }
-    
-    var setup = function(options) {
-        var dataSource = options.dataSource || RedditStream
-        var syncHelper = options.helper || CookieHelper
-        presentation = options.presentationLogic || Presentation
         
-        dataSource.init()
-        dataSource.onData(handleData)
-        
-        presentation.init(dataSource, onSlideChange);
-        bindInputs()
-        setupCookies(syncHelper)
-        setupSubRedditInfo(dataSource)
-    }
-    
     var setupSubRedditInfo = function(dataSource) {
         var info = dataSource.getSourceInfo()
 
@@ -558,6 +650,33 @@ var RedditPresentation = function() {
         setupCollapsers();
     }
     
+    var bindKeyboard = function() {
+        $(document).keyup(function (e) {
+            // More info: http://stackoverflow.com/questions/302122/jquery-event-keypress-which-key-was-pressed
+            // http://stackoverflow.com/questions/1402698/binding-arrow-keys-in-js-jquery
+            var code = (e.keyCode ? e.keyCode : e.which);
+            with(keys) {
+                switch (code) {
+                    case C_KEY:
+                        return toggleControls();
+                    case T_KEY:
+                        return toggleTitle();
+                    case A_KEY:
+                        return toggleAutoMove();
+                    case PAGEUP:
+                    case ARROWS.LEFT:
+                    case ARROWS.UP:
+                        return prevSlide()
+                    case PAGEDOWN:
+                    case ARROWS.RIGHT:
+                    case ARROWS.DOWN:
+                    case SPACE:
+                        return nextSlide()
+                }
+            }
+        });
+    }
+    
     var bindSwipeControls = function() {
         // TODO: test this on iPad
         $("#pictureSlider").touchwipe({
@@ -591,33 +710,6 @@ var RedditPresentation = function() {
         });
     }
     
-    var bindKeyboard = function() {
-        $(document).keyup(function (e) {
-            // More info: http://stackoverflow.com/questions/302122/jquery-event-keypress-which-key-was-pressed
-            // http://stackoverflow.com/questions/1402698/binding-arrow-keys-in-js-jquery
-            var code = (e.keyCode ? e.keyCode : e.which);
-            with(keys) {
-                switch (code) {
-                    case C_KEY:
-                        return toggleControls();
-                    case T_KEY:
-                        return toggleTitle();
-                    case A_KEY:
-                        return toggleAutoMove();
-                    case PAGEUP:
-                    case ARROWS.LEFT:
-                    case ARROWS.UP:
-                        return prevSlide()
-                    case PAGEDOWN:
-                    case ARROWS.RIGHT:
-                    case ARROWS.DOWN:
-                    case SPACE:
-                        return nextSlide()
-                }
-            }
-        });
-    }
-    
     var setupCookies = function(sh) {
         var p = presentation
         sh.sync('#autoNextSlide', function(v) { 
@@ -632,7 +724,7 @@ var RedditPresentation = function() {
     }
 
     ///
-    /// Handling System Inputs
+    /// Handling System Changes
     ///
     
     var handleData = function(startIndex, data) {
@@ -648,9 +740,9 @@ var RedditPresentation = function() {
     var ensureNsfwFilterMakesSense = function(images) {
         // Cases when you forgot NSFW off but went to /r/nsfw can cause strange bugs,
         // let's help the user when over 80% of the content is NSFW.
-        var nsfwCount = ($(images).filter(function(index, image) {
+        var nsfwCount = 1.0 * $(images).filter(function(index, image) {
             return image.over_18
-        }).length * 1.0)
+        }).length
    
         if(nsfwCount / images.length > 0.8) { setNSFWAllowed(true) }
     }
@@ -685,11 +777,13 @@ var RedditPresentation = function() {
     // Update UI with new relevant texts
     var updateNavigationTexts = function (index, image) {
         setDescription(image.title)
+        // Updates image link
         $('#navboxLink').attr({
             'href': image.url,
             'title': image.title
         });
     
+        // Update comments link
         $('#navboxCommentsLink').attr({ 
             'href': image.permalink,
             'title': "Comments on reddit"
@@ -698,7 +792,7 @@ var RedditPresentation = function() {
         updateActiveButton(index);
     };
 
-    // Update which button is active, uses data-index value
+    // Update which button is active, using element data-index value
     var updateActiveButton = function(index) {
         $('div.numberButtonList li a')
             // Ensure we only have one active at a time
@@ -708,19 +802,18 @@ var RedditPresentation = function() {
             .addClass('active')
     }
 
-    // Setup the new image, will remove all old images and fadein a new one
+    // Remove all old images and fadein a new one
     var updateImage = function (index, image) {
-        // Create a new div and apply the CSS
-        var cssMap = {
-            'display': "none",
-            'background-image': "url('" + image.url + "')",
-        }
-
         // Fade out old div
         $("#pictureSlider div").fadeOut(animationSpeed, function () {
             $(this).remove();
             isAnimating = false;
         });
+
+        var cssMap = {
+            'display': "none",
+            'background-image': "url('" + image.url + "')",
+        }
 
         // Fade in new one
         $("<div />").css(cssMap)
@@ -730,6 +823,29 @@ var RedditPresentation = function() {
             .fadeIn(animationSpeed);
     };
     
+    // 
+    // Public API Methods
+    //
+    
+    // Setup the presentation with a given dataSource
+    // Hook up any handlers to respond to changes in the presentation
+    // Then setup the bindings for user interaction
+    // 
+    // Can override default DataSource/Presentation/SyncHelper using options parameter hash
+    var setup = function(options) {
+        var dataSource = options.dataSource || RedditStream
+        var syncHelper = options.helper || CookieHelper
+        presentation = options.presentationLogic || Presentation
+        
+        dataSource.init()
+        dataSource.onData(handleData)
+        
+        presentation.init(dataSource, onSlideChange);
+        bindInputs()
+        setupCookies(syncHelper)
+        setupSubRedditInfo(dataSource)
+    }
+    
     return { init: function(options) { setup(options || {}) } }
 }()
 
@@ -737,6 +853,7 @@ var RedditPresentation = function() {
 // Load presentation when document is ready
 //
 $(function() {
+    // Use the preloader as dataSource
     var options = { dataSource: new Preloader(RedditStream) }
     RedditPresentation.init(options)
 });

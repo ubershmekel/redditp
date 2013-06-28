@@ -1,5 +1,5 @@
 /*
- * Author: Yuval Greenfield (http://uberpython.wordpress.com) 
+ * Author: Yuval Greenfield (http://uberpython.wordpress.com)
  *
  * Favicon by Double-J designs http://www.iconfinder.com/icondetails/68600/64/_icon
  * HTML based on http://demo.marcofolio.net/fullscreen_image_slider/
@@ -106,8 +106,8 @@ $(function () {
 
     $('#prevButton').click(prevSlide)
     $('#nextButton').click(nextSlide)
-    
-    
+
+
     var autoNextSlide = function () {
         if (shouldAutoNextSlide) {
             // startAnimation takes care of the setTimeout
@@ -206,6 +206,13 @@ $(function () {
         setCookie(nsfwCookie, nsfw, cookieDays);
     }
 
+    gifCookie = "gifCookie";
+    var updateGif = function () {
+        gif = $("#gif").is(':checked')
+        setCookie(gifCookie, gif, cookieDays);
+        location.reload();
+    }
+
     var initState = function () {
         var nsfwByCookie = getCookie(nsfwCookie);
         if (nsfwByCookie == undefined) {
@@ -215,6 +222,15 @@ $(function () {
             $("#nsfw").prop("checked", nsfw);
         }
         $('#nsfw').change(updateNsfw);
+
+        var gifByCookie = getCookie(gifCookie);
+        if (gifByCookie == undefined) {
+            gif = true;
+        } else {
+            gif = (gifByCookie === "true");
+            $("#gif").prop("checked", gif);
+        }
+        $('#gif').change(updateGif);
 
         var autoByCookie = getCookie(shouldAutoNextSlideCookie);
         if (autoByCookie == undefined) {
@@ -443,8 +459,8 @@ $(function () {
         });
     };
 
-    
-    
+
+
     var verifyNsfwMakesSense = function() {
         // Cases when you forgot NSFW off but went to /r/nsfw
         // can cause strange bugs, let's help the user when over 80% of the
@@ -455,14 +471,14 @@ $(function () {
                 nsfwImages += 1
             }
         }
-        
+
         if(0.8 < nsfwImages * 1.0 / photos.length) {
             nsfw = true
             $("#nsfw").prop("checked", nsfw)
         }
     }
-    
-    
+
+
     var tryConvertUrl = function (url) {
         if (url.indexOf('imgur.com') >= 0) {
             if (url.indexOf('/a/') >= 0) {
@@ -473,12 +489,19 @@ $(function () {
             // you give it. '.jpg' is arbitrary
             // regexp removes /r/<sub>/ prefix if it exists
             // E.g. http://imgur.com/r/aww/x9q6yW9
-            return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
+            if (url === url.replace(/r\/[^ \/]+\/(\w+)/, '$1')) {
+                return ''
+            } else {
+                return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
+            }
         }
 
         return '';
     }
-    var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+    var goodExtensions = ['.jpg', '.jpeg', '.bmp', '.png']
+    if ($('#gif:checked').length > 0) {
+        goodExtensions.push('.gif');
+    }
     var isImageExtension = function (url) {
         var dotLocation = url.lastIndexOf('.');
         if (dotLocation < 0) {
@@ -590,7 +613,7 @@ $(function () {
             });
 
             verifyNsfwMakesSense()
-            
+
             if (!foundOneImage) {
                 log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(")
@@ -609,7 +632,7 @@ $(function () {
                 addNumberButton(numberButton);
             }
             loadingNextImages = false;
-            
+
         };
 
 

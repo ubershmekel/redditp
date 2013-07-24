@@ -526,7 +526,7 @@ $(function () {
             alert("Failed ajax, maybe a bad url? Sorry about that :(");
         };
         var handleData = function (data) {
-            redditData = data
+            //redditData = data //global for debugging data
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getNextImages which is fine.
             after = "&after=" + data.data.after;
@@ -650,8 +650,6 @@ $(function () {
     var getVars;
     var after = "";
     setupUrls();
-
-    //var redditData = null;
 
     // if ever found even 1 image, don't show the error
     var foundOneImage = false;

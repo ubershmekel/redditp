@@ -9,4 +9,7 @@ RewriteRule ^domain/(.*) /index.html
 # to hide .git and allow redditp.com/.compact
 RewriteRule ^\.(.*) /index.html
 
+# new multireddits with /me/
+RewriteRule ^me/(.*) /index.html
+
 ErrorDocument 404 /404.html

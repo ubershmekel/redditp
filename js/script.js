@@ -1,10 +1,14 @@
 /*
- * Author: Yuval Greenfield (http://uberpython.wordpress.com) 
- *
- * Favicon by Double-J designs http://www.iconfinder.com/icondetails/68600/64/_icon
- * HTML based on http://demo.marcofolio.net/fullscreen_image_slider/
- * Author of slideshow base :      Marco Kuiper (http://www.marcofolio.net/)
- */
+  Author: Yuval Greenfield (http://uberpython.wordpress.com) 
+ 
+  You can save the HTML file and use it locally btw like so:
+    file:///wherever/index.html?/r/aww
+ 
+  Favicon by Double-J designs http://www.iconfinder.com/icondetails/68600/64/_icon
+  HTML based on http://demo.marcofolio.net/fullscreen_image_slider/
+  Author of slideshow base :      Marco Kuiper (http://www.marcofolio.net/)
+*/
+
 // Speed of the animation
 var animationSpeed = 1000;
 var shouldAutoNextSlide = true;
@@ -104,9 +108,6 @@ $(function () {
         startAnimation(activeIndex - 1);
     }
 
-    $('#prevButton').click(prevSlide)
-    $('#nextButton').click(nextSlide)
-    
     
     var autoNextSlide = function () {
         if (shouldAutoNextSlide) {
@@ -242,7 +243,6 @@ $(function () {
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
     }
-    initState()
 
     var addNumberButton = function (numberButton) {
         var navboxUls = $(".navbox ul");
@@ -465,6 +465,8 @@ $(function () {
     
     var tryConvertUrl = function (url) {
         if (url.indexOf('imgur.com') >= 0) {
+            // special cases with imgur
+            
             if (url.indexOf('/a/') >= 0) {
                 // albums aren't supported yet
                 return '';
@@ -493,8 +495,6 @@ $(function () {
             //log("skipped bad extension: " + url);
             return false;
         }
-
-
     }
 
     var decodeUrl = function (url) {
@@ -511,39 +511,6 @@ $(function () {
             return [results[1], decodeUrl(results[2])];
         }
     }
-
-    var redditBaseUrl = "http://www.reddit.com";
-    var urlData = getRestOfUrl();
-    //log(urlData)
-    var subredditUrl = urlData[0]
-    var getVars = urlData[1]
-
-    if (getVars.length > 0) {
-        getVarsQuestionMark = "?" + getVars;
-    } else {
-        getVarsQuestionMark = "";
-    }
-
-    var subredditName;
-    if (subredditUrl === "") {
-        subredditUrl = "/";
-        subredditName = "reddit.com" + getVarsQuestionMark;
-        //var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
-        //subredditUrl = options[Math.floor(Math.random() * options.length)];
-    } else {
-        subredditName = subredditUrl + getVarsQuestionMark;
-    }
-
-    visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
-    $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
-    var after = "";
-
-    document.title = "redditP - " + subredditName;
-
-    //var redditData = null;
-
-    // if ever found even 1 image, don't show the error
-    var foundOneImage = false;
 
     var getNextImages = function () {
         //if (noMoreToLoad){
@@ -613,13 +580,68 @@ $(function () {
         };
 
 
+        var doneAjaxReq = function(xhr, data) {
+            if (xhr.status == 0) {
+                // This is to handle 404's which don't fire the "error" event.
+                alert('Ajax completed with a bad status, maybe a bad url?')
+            } else {
+                //alert('done');
+            }
+            // else - success
+        };
+        
         $.ajax({
             url: jsonUrl,
             dataType: 'json',
             success: handleData,
-            error: failedAjax
+            error: failedAjax,
+            complete: doneAjaxReq,
+            404: failedAjax,
+            timeout: 5000
         });
     }
 
+    
+    
+    
+
+    $('#prevButton').click(prevSlide)
+    $('#nextButton').click(nextSlide)
+    
+    initState()
+    var redditBaseUrl = "http://www.reddit.com";
+    var urlData = getRestOfUrl();
+    //log(urlData)
+    var subredditUrl = urlData[0]
+    var getVars = urlData[1]
+
+    if (getVars.length > 0) {
+        getVarsQuestionMark = "?" + getVars;
+    } else {
+        getVarsQuestionMark = "";
+    }
+
+    var subredditName;
+    if (subredditUrl === "") {
+        subredditUrl = "/";
+        subredditName = "reddit.com" + getVarsQuestionMark;
+        //var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
+        //subredditUrl = options[Math.floor(Math.random() * options.length)];
+    } else {
+        subredditName = subredditUrl + getVarsQuestionMark;
+    }
+
+    visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
+    $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
+    var after = "";
+
+    document.title = "redditP - " + subredditName;
+
+    //var redditData = null;
+
+    // if ever found even 1 image, don't show the error
+    var foundOneImage = false;
+
     getNextImages();
+    
 });

@@ -242,6 +242,9 @@ $(function () {
         }
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
+        
+        $('#prevButton').click(prevSlide)
+        $('#nextButton').click(nextSlide)
     }
 
     var addNumberButton = function (numberButton) {
@@ -647,10 +650,7 @@ $(function () {
     
     
 
-    $('#prevButton').click(prevSlide)
-    $('#nextButton').click(nextSlide)
-    
-    initState()
+    initState();
     
     var redditBaseUrl = "http://www.reddit.com";
     var subredditUrl;

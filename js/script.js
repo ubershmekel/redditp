@@ -604,7 +604,39 @@ $(function () {
         });
     }
 
-    
+    var setupUrls = function() {
+        var urlData = getRestOfUrl();
+        //log(urlData)
+        subredditUrl = urlData[0]
+        getVars = urlData[1]
+        
+        if (getVars.length > 0) {
+            getVarsQuestionMark = "?" + getVars;
+        } else {
+            getVarsQuestionMark = "";
+        }
+
+        // Remove .compact as it interferes with .json (we get "/r/all/.compact.json").
+        subredditUrl = subredditUrl.replace(/.compact/, "")
+        // Consolidate double slashes to avoid r/all/.compact/ -> r/all//
+        subredditUrl = subredditUrl.replace(/\/{2,}/, "/")
+
+        var subredditName;
+        if (subredditUrl === "") {
+            subredditUrl = "/";
+            subredditName = "reddit.com" + getVarsQuestionMark;
+            //var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
+            //subredditUrl = options[Math.floor(Math.random() * options.length)];
+        } else {
+            subredditName = subredditUrl + getVarsQuestionMark;
+        }
+        
+
+        visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
+        $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
+
+        document.title = "redditP - " + subredditName;
+    }
     
     
 
@@ -612,33 +644,12 @@ $(function () {
     $('#nextButton').click(nextSlide)
     
     initState()
+    
     var redditBaseUrl = "http://www.reddit.com";
-    var urlData = getRestOfUrl();
-    //log(urlData)
-    var subredditUrl = urlData[0]
-    var getVars = urlData[1]
-
-    if (getVars.length > 0) {
-        getVarsQuestionMark = "?" + getVars;
-    } else {
-        getVarsQuestionMark = "";
-    }
-
-    var subredditName;
-    if (subredditUrl === "") {
-        subredditUrl = "/";
-        subredditName = "reddit.com" + getVarsQuestionMark;
-        //var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
-        //subredditUrl = options[Math.floor(Math.random() * options.length)];
-    } else {
-        subredditName = subredditUrl + getVarsQuestionMark;
-    }
-
-    visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
-    $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
+    var subredditUrl;
+    var getVars;
     var after = "";
-
-    document.title = "redditP - " + subredditName;
+    setupUrls();
 
     //var redditData = null;
 
@@ -646,5 +657,4 @@ $(function () {
     var foundOneImage = false;
 
     getNextImages();
-    
 });

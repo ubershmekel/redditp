@@ -639,7 +639,7 @@ $(function () {
         
         // truncate and display subreddit name in the control box
         var displayedSubredditName = subredditName;
-        var capsize = 25
+        var capsize = 23 // empirically tested, TODO: make css rules to verify this is enough
         if(displayedSubredditName.length > capsize) {
             displayedSubredditName = displayedSubredditName.substr(0,capsize) + "&hellip;";
         }

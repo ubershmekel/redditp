@@ -590,6 +590,9 @@ $(function () {
             // else - success
         };
         
+        
+        // I still haven't been able to catch jsonp 404 events so the timeout
+        // is the current solution sadly.
         $.ajax({
             url: jsonUrl,
             dataType: 'json',

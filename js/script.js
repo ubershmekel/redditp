@@ -632,8 +632,15 @@ $(function () {
         }
         
 
-        visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
-        $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + subredditName + "</a>");
+        var visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
+        
+        // truncate and display subreddit name in the control box
+        var displayedSubredditName = subredditName;
+        var capsize = 25
+        if(displayedSubredditName.length > capsize) {
+            displayedSubredditName = displayedSubredditName.substr(0,capsize) + "&hellip;";
+        }
+        $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + displayedSubredditName + "</a>");
 
         document.title = "redditP - " + subredditName;
     }
@@ -649,6 +656,7 @@ $(function () {
     var subredditUrl;
     var getVars;
     var after = "";
+    
     setupUrls();
 
     // if ever found even 1 image, don't show the error

@@ -304,8 +304,14 @@ $(function () {
     var C_KEY = 67;
     var T_KEY = 84;
 
-    // Register keypress events on the whole document
+    
+    // Register keyboard events on the whole document
     $(document).keyup(function (e) {
+        if(e.ctrlKey) {
+            // ctrl key is pressed so we're most likely switching tabs or doing something
+            // unrelated to redditp UI
+            return;
+        }
 
         //log(e.keyCode, e.which, e.charCode);
 

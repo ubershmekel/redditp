@@ -3,6 +3,8 @@ redditp
 
 A full screen reddit presentation or slide show.
 
+http://redditp.com
+
 Hotkeys
 -------
 

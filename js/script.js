@@ -645,7 +645,9 @@ $(function () {
         
         // truncate and display subreddit name in the control box
         var displayedSubredditName = subredditName;
-        var capsize = 23 // empirically tested, TODO: make css rules to verify this is enough
+        // empirically tested capsize, TODO: make css rules to verify this is enough.
+        // it would make the "nsfw" checkbox be on its own line :(
+        var capsize = 19
         if(displayedSubredditName.length > capsize) {
             displayedSubredditName = displayedSubredditName.substr(0,capsize) + "&hellip;";
         }

@@ -521,6 +521,19 @@ $(function () {
         }
     }
 
+    var failCleanup = function() {
+        if (photos.length > 0) {
+            // already loaded images, don't ruin the existing experience
+            return;
+        }
+        
+        // remove "loading" title
+        $('#navboxTitle').text('');
+        
+        // display alternate recommendations
+        $('#recommend').css({'display':'block'});
+    }
+    
     var getNextImages = function () {
         //if (noMoreToLoad){
         //    log("No more images to load, will rotate to start.");
@@ -533,6 +546,7 @@ $(function () {
         //log(jsonUrl);
         var failedAjax = function (data) {
             alert("Failed ajax, maybe a bad url? Sorry about that :(");
+            failCleanup();
         };
         var handleData = function (data) {
             //redditData = data //global for debugging data
@@ -589,6 +603,10 @@ $(function () {
         };
 
 
+        /*
+        
+        // this and failedAjax occur on timeout, so remove this redundancy
+        
         var doneAjaxReq = function(xhr, data) {
             if (xhr.status == 0) {
                 // This is to handle 404's which don't fire the "error" event.
@@ -597,7 +615,7 @@ $(function () {
                 //alert('done');
             }
             // else - success
-        };
+        };*/
         
         
         // I still haven't been able to catch jsonp 404 events so the timeout
@@ -607,7 +625,7 @@ $(function () {
             dataType: 'json',
             success: handleData,
             error: failedAjax,
-            complete: doneAjaxReq,
+            //complete: doneAjaxReq,
             404: failedAjax,
             timeout: 5000
         });

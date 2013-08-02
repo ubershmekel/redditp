@@ -18,8 +18,10 @@ body { overflow:hidden; background-color: #000; color:#fff;}
 /* NAVIGATION BOX */
 #navigationBoxes {float: left;}
 a { text-decoration:none; color:#eee; font-weight: bold; }
-a:hover { opacity: 1.0; }
-.navbox a:hover { border-bottom:1px dotted; }
+a:hover {
+    opacity: 1.0;
+    border-bottom:1px dotted;
+}
 .navbox { width:450px; max-height: 40%; overflow: auto; position:relative; left: 0px; opacity: 0.9; background-color: rgba(0,0,0,0.7);}
 /* 108px so the next row is half-visible */
 .numberButtonList { overflow: auto; max-height: 108px; }

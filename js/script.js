@@ -563,7 +563,7 @@ $(function () {
                 var imgUrl = item.data.url;
                 var title = item.data.title;
                 var over18 = item.data.over_18;
-                var commentsUrl = "http://www.reddit.com" + item.data.permalink;
+                var commentsUrl = redditBaseUrl + item.data.permalink;
 
                 // ignore albums and things that don't seem like image files
                 var goodImageUrl = '';
@@ -676,13 +676,18 @@ $(function () {
     
     
 
-    initState();
     
-    var redditBaseUrl = "//www.reddit.com";
+    var redditBaseUrl = "http://www.reddit.com";
+    if (location.protocol === 'https:') {
+        // page is secure
+        redditBaseUrl = "https://pay.reddit.com";
+    }
+
     var subredditUrl;
     var getVars;
     var after = "";
     
+    initState();
     setupUrls();
 
     // if ever found even 1 image, don't show the error

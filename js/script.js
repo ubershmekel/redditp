@@ -678,7 +678,7 @@ $(function () {
 
     initState();
     
-    var redditBaseUrl = "http://www.reddit.com";
+    var redditBaseUrl = "//www.reddit.com";
     var subredditUrl;
     var getVars;
     var after = "";

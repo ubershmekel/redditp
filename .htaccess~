@@ -1,20 +1,15 @@
-#I dont need it (uncomment if you do)
 #Action php54-cgi /php54.cgi
 #AddHandler php54-cgi .php
 
 RewriteEngine On
-
-#Make CSS folder Available
 RewriteRule r/css/(.*)$ 	css/$1	[L]
 RewriteRule user/css/(.*)$ 	css/$1 	[L]
-RewriteRule domain/css/(.*)$ 	css/$1 	[L]
+RewriteRule domain/css/(.*)$ 	css/$1   	[L]
 
-#Make JS folder Available
-RewriteRule r/js/(.*)$ 		js/$1  	[L]
-RewriteRule user/js/(.*)$ 	js/$1  	[L]
-RewriteRule domain/js/(.*)$ 	js/$1  	[L]
+RewriteRule r/js/(.*)$ 		js/$1     	[L]
+RewriteRule user/js/(.*)$ 	js/$1      	[L]
+RewriteRule domain/js/(.*)$ 	js/$1     	[L]
 
-#Make index file Available
 RewriteRule r/(.*)$ 		index.html      [L]
 RewriteRule user/(.*)$ 		index.html      [L]
 RewriteRule domain/(.*)$ 	index.html	[L]

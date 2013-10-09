@@ -15,6 +15,9 @@ var shouldAutoNextSlide = true;
 var timeToNextSlide = 6 * 1000;
 var cookieDays = 300;
 
+//ID of Imgur App
+var imgurClientID = '843958ee391a550';
+
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
 var photos = []
@@ -476,10 +479,6 @@ $(function () {
         if (url.indexOf('imgur.com') >= 0) {
             // special cases with imgur
             
-            if (url.indexOf('/a/') >= 0) {
-                // albums aren't supported yet
-                return '';
-            }
             // imgur is really nice and serves the image with whatever extension
             // you give it. '.jpg' is arbitrary
             // regexp removes /r/<sub>/ prefix if it exists
@@ -570,7 +569,32 @@ $(function () {
                 if (isImageExtension(imgUrl)) {
                     goodImageUrl = imgUrl;
                 } else {
-                    goodImageUrl = tryConvertUrl(imgUrl);
+					if (imgUrl.indexOf('imgur.com/a/') >= 0) {
+
+						// get album ID
+						var albumID =imgUrl.match(/.*\/(.+?$)/)[1];
+						
+						$.ajax({ 
+							// keep the right order. (need anoter solution, takes too long)
+							async: false,
+							url: 'https://api.imgur.com/3/album/' + albumID + "/images",
+
+							type: 'GET',
+							dataType: 'json',
+							success: function(data) { 
+					
+								$.each(data.data,function(index, value){
+									addImageSlide(value.link, title, commentsUrl, over18);
+								});
+							},
+							error: function() { console.log("error:"+imgUrl+" ; "+albumID); },
+							beforeSend:  function(xhr) {
+								xhr.setRequestHeader('Authorization', 'Client-ID '+ imgurClientID);
+							}
+						});
+					}
+					else
+						goodImageUrl = tryConvertUrl(imgUrl);
                 }
 
                 if (goodImageUrl != '') {

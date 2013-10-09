@@ -20,7 +20,7 @@ Features
 * All /r/ subreddits, including different ?sort stuff.
 * /user/ , /domain/ , /me/ url's work.
 * Url's ending with ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
-* You can save the html file locally and use it, just make sure you add a separator e.g. the question mark in file:///c/myredditp.html/?/r/gifs so the browser knows to pick up the right file and go to the right subreddit.
+* You can save the html file locally and use it, just make sure you add a separator e.g. the question mark in file:///c/myredditp.html?/r/gifs so the browser knows to pick up the right file and go to the right subreddit.
 
 Possible future features, depending on feedback:
 * Zoom/Pan for comics

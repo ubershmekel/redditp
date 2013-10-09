@@ -20,6 +20,7 @@ Features
 * All /r/ subreddits, including different ?sort stuff.
 * /user/ and /domain/ url's work now.
 * Url's ending with ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+* Local usage without webserver. (index.html#/r/aww)
 
 Possible future features, depending on feedback:
 * Zoom/Pan for comics

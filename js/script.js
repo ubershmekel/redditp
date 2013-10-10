@@ -9,7 +9,7 @@
   Author of slideshow base :      Marco Kuiper (http://www.marcofolio.net/)
 */
 
-var imgurClientID = ''; <INSERT IMGUR API KEY>
+var imgurClientID = ''; //<INSERT IMGUR API KEY>
 
 // Speed of the animation
 var animationSpeed = 1000;
@@ -277,11 +277,7 @@ $(function () {
 		var albumID = url.match(/.*\/(.+?$)/)[1];
 
 		$.ajax({
-			// keep the right order. (need anoter solution,
-			// takes too long)
-//			async : false,
 			url : 'https://api.imgur.com/3/album/' + albumID,
-//					+ "/images", (causes problems with some albums)
 
 			type : 'GET',
 			dataType : 'json',
@@ -290,16 +286,12 @@ $(function () {
 //				pic.url = data.data[0].link;
 				// Change the URL of the Placeholder
 				pic.image = data.data.images[0].link;
-/*				$.each(data.data, function(index, value) {
-					addImageSlide(value.link, title,
-							commentsUrl, over18);
-				});*/
 			},
 			error : function() {
-				console
-						.log("error:" + imgUrl + " ; "
-								+ albumID);
+				pic.title = "I'm sorry for the black screen! (Try the \"Image\" link)"
 			},
+			//JSONP error fix.
+            timeout: 5000,
 			beforeSend : function(xhr) {
 				xhr.setRequestHeader('Authorization',
 						'Client-ID ' + imgurClientID);
@@ -640,7 +632,7 @@ $(function () {
                 if (isImageExtension(imgUrl)) {
                     goodImageUrl = imgUrl;
                 } else {
-                    if (imgurClientID === '' && imgUrl.indexOf('imgur.com/a/') >= 0) {
+                    if (imgurClientID !== '' && imgUrl.indexOf('imgur.com/a/') >= 0) {
                     	 addAlbumSlide(imgUrl, title, commentsUrl, over18);
                     }
                     else

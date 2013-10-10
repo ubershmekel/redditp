@@ -9,6 +9,8 @@
   Author of slideshow base :      Marco Kuiper (http://www.marcofolio.net/)
 */
 
+var imgurClientID = ''; <INSERT IMGUR API KEY>
+
 // Speed of the animation
 var animationSpeed = 1000;
 var shouldAutoNextSlide = true;
@@ -258,6 +260,69 @@ $(function () {
         navboxUls.append(document.createTextNode(' '));
     }
 
+    var addAlbumSlide = function (url, title, commentsLink, over18) {
+    	//Placeholder
+    	var pic = {
+                "title": title,
+                "cssclass": "clouds",
+                "image": url,
+                "text": "",
+                "url": url,
+                "urltext": 'View picture',
+                "commentsLink": commentsLink,
+                "over18": over18
+            }
+    	
+    	// get album ID
+		var albumID = url.match(/.*\/(.+?$)/)[1];
+
+		$.ajax({
+			// keep the right order. (need anoter solution,
+			// takes too long)
+//			async : false,
+			url : 'https://api.imgur.com/3/album/' + albumID,
+//					+ "/images", (causes problems with some albums)
+
+			type : 'GET',
+			dataType : 'json',
+			success : function(data) {
+//				Clicking on image link shows the album, not the picture
+//				pic.url = data.data[0].link;
+				// Change the URL of the Placeholder
+				pic.image = data.data.images[0].link;
+/*				$.each(data.data, function(index, value) {
+					addImageSlide(value.link, title,
+							commentsUrl, over18);
+				});*/
+			},
+			error : function() {
+				console
+						.log("error:" + imgUrl + " ; "
+								+ albumID);
+			},
+			beforeSend : function(xhr) {
+				xhr.setRequestHeader('Authorization',
+						'Client-ID ' + imgurClientID);
+			}
+		});
+    	
+         photos.push(pic);
+
+         var i = photos.length - 1;
+         var numberButton = $("<a />").html(i + 1)
+             .data("index", i)
+             .attr("title", photos[i].title)
+             .attr("id", "numberButton" + (i + 1));
+         if(over18) {
+             numberButton.addClass("over18");
+         }
+         numberButton.click(function () {
+             showImage($(this));
+         });
+         numberButton.addClass("numberButton");
+         addNumberButton(numberButton);
+    }
+    
     var addImageSlide = function (url, title, commentsLink, over18) {
         var pic = {
             "title": title,
@@ -403,6 +468,11 @@ $(function () {
     var toggleNumberButton = function (imageIndex, turnOn) {
         var numberButton = $('#numberButton' + (imageIndex + 1));
         if (turnOn) {
+        	//scrolles to active numberButton.
+/*        	$('#numberButtonList').animate({
+                scrollTop: numberButton.offset().top
+            });
+*/
             numberButton.addClass('active');
         } else {
             numberButton.removeClass('active');
@@ -477,7 +547,7 @@ $(function () {
             // special cases with imgur
             
             if (url.indexOf('/a/') >= 0) {
-                // albums aren't supported yet
+                // No imgur AppID
                 return '';
             }
             // imgur is really nice and serves the image with whatever extension
@@ -570,6 +640,10 @@ $(function () {
                 if (isImageExtension(imgUrl)) {
                     goodImageUrl = imgUrl;
                 } else {
+                    if (imgurClientID === '' && imgUrl.indexOf('imgur.com/a/') >= 0) {
+                    	 addAlbumSlide(imgUrl, title, commentsUrl, over18);
+                    }
+                    else
                     goodImageUrl = tryConvertUrl(imgUrl);
                 }
 

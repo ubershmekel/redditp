@@ -512,8 +512,11 @@ $(function () {
     var decodeUrl = function (url) {
         return decodeURIComponent(url.replace(/\+/g, " "))
     }
-    var getRestOfUrl = function () {
+    rp.getRestOfUrl = function () {
         // Separate to before the question mark and after
+        // Detect predefined reddit url paths. If you modify this be sure to fix
+        // .htaccess
+        // This is a good idea so we can give a quick 404 page when appropriate.
         
         var regexS = "(/(?:(?:r/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
@@ -637,7 +640,7 @@ $(function () {
     }
 
     var setupUrls = function() {
-        rp.urlData = getRestOfUrl();
+        rp.urlData = rp.getRestOfUrl();
         //log(rp.urlData)
         subredditUrl = rp.urlData[0]
         getVars = rp.urlData[1]

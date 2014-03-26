@@ -1,10 +1,12 @@
 Action php54-cgi /php54.cgi
 AddHandler php54-cgi .php
 
+# Updates here should coincide with rp.getRestOfUrl()
 RewriteEngine On
 RewriteRule ^r/(.*) /index.html
 RewriteRule ^user/(.*) /index.html
 RewriteRule ^domain/(.*) /index.html
+RewriteRule ^search(.*) /index.html
 
 # to hide .git and allow redditp.com/.compact
 RewriteRule ^\.(.*) /index.html

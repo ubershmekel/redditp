@@ -9,6 +9,9 @@
   Author of slideshow base :      Marco Kuiper (http://www.marcofolio.net/)
 */
 
+// TODO: refactor all the globals to use the rp object's namespace.
+var rp = {};
+
 // Speed of the animation
 var animationSpeed = 1000;
 var shouldAutoNextSlide = true;
@@ -510,7 +513,9 @@ $(function () {
         return decodeURIComponent(url.replace(/\+/g, " "))
     }
     var getRestOfUrl = function () {
-        var regexS = "(/(?:(?:r)|(?:user)|(?:domain))/[^&#?]*)[?]?(.*)";
+        // Separate to before the question mark and after
+        
+        var regexS = "(/(?:(?:r/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
         //log(results);
@@ -632,10 +637,10 @@ $(function () {
     }
 
     var setupUrls = function() {
-        var urlData = getRestOfUrl();
-        //log(urlData)
-        subredditUrl = urlData[0]
-        getVars = urlData[1]
+        rp.urlData = getRestOfUrl();
+        //log(rp.urlData)
+        subredditUrl = rp.urlData[0]
+        getVars = rp.urlData[1]
         
         if (getVars.length > 0) {
             getVarsQuestionMark = "?" + getVars;
@@ -643,7 +648,7 @@ $(function () {
             getVarsQuestionMark = "";
         }
 
-        // Remove .compact as it interferes with .json (we get "/r/all/.compact.json").
+        // Remove .compact as it interferes with .json (we got "/r/all/.compact.json" which doesn't work).
         subredditUrl = subredditUrl.replace(/.compact/, "")
         // Consolidate double slashes to avoid r/all/.compact/ -> r/all//
         subredditUrl = subredditUrl.replace(/\/{2,}/, "/")

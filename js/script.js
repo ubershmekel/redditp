@@ -118,6 +118,16 @@ $(function () {
             nextSlide();
         }
     }
+	
+	function open_in_background(selector){
+		// as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
+		// works on latest ff and chrome
+		var link = $(selector)[0];
+		var mev = document.createEvent("MouseEvents");
+		mev.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0,
+									true, false, false, true, 0, null);
+		link.dispatchEvent(mev);
+	}
 
     $("#pictureSlider").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
@@ -305,6 +315,8 @@ $(function () {
     var ENTER = 13;
     var A_KEY = 65;
     var C_KEY = 67;
+	var I_KEY = 73;
+	var R_KEY = 82;
     var T_KEY = 84;
 
     
@@ -337,6 +349,12 @@ $(function () {
                 $("#autoNextSlide").prop("checked", !$("#autoNextSlide").is(':checked'));
                 updateAutoNext();
                 break;
+			case I_KEY:
+				open_in_background("#navboxLink");
+				break;
+			case R_KEY:
+				open_in_background("#navboxCommentsLink");
+				break;
             case PAGEUP:
             case arrow.left:
             case arrow.up:

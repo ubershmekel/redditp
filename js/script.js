@@ -9,7 +9,8 @@
   Author of slideshow base :      Marco Kuiper (http://www.marcofolio.net/)
 */
 
-var imgurClientID = ''; //<INSERT IMGUR API KEY>
+// TODO: refactor all the globals to use the rp object's namespace.
+var rp = {};
 
 // Speed of the animation
 var animationSpeed = 1000;
@@ -260,61 +261,6 @@ $(function () {
         navboxUls.append(document.createTextNode(' '));
     }
 
-    var addAlbumSlide = function (url, title, commentsLink, over18) {
-    	//Placeholder
-    	var pic = {
-                "title": title,
-                "cssclass": "clouds",
-                "image": url,
-                "text": "",
-                "url": url,
-                "urltext": 'View picture',
-                "commentsLink": commentsLink,
-                "over18": over18
-            }
-    	
-    	// get album ID
-		var albumID = url.match(/.*\/(.+?$)/)[1];
-
-		$.ajax({
-			url : 'https://api.imgur.com/3/album/' + albumID,
-
-			type : 'GET',
-			dataType : 'json',
-			success : function(data) {
-//				Clicking on image link shows the album, not the picture
-//				pic.url = data.data[0].link;
-				// Change the URL of the Placeholder
-				pic.image = data.data.images[0].link;
-			},
-			error : function() {
-				pic.title = "I'm sorry for the black screen! (Try the \"Image\" link)"
-			},
-			//JSONP error fix.
-            timeout: 5000,
-			beforeSend : function(xhr) {
-				xhr.setRequestHeader('Authorization',
-						'Client-ID ' + imgurClientID);
-			}
-		});
-    	
-         photos.push(pic);
-
-         var i = photos.length - 1;
-         var numberButton = $("<a />").html(i + 1)
-             .data("index", i)
-             .attr("title", photos[i].title)
-             .attr("id", "numberButton" + (i + 1));
-         if(over18) {
-             numberButton.addClass("over18");
-         }
-         numberButton.click(function () {
-             showImage($(this));
-         });
-         numberButton.addClass("numberButton");
-         addNumberButton(numberButton);
-    }
-    
     var addImageSlide = function (url, title, commentsLink, over18) {
         var pic = {
             "title": title,
@@ -460,11 +406,6 @@ $(function () {
     var toggleNumberButton = function (imageIndex, turnOn) {
         var numberButton = $('#numberButton' + (imageIndex + 1));
         if (turnOn) {
-        	//scrolles to active numberButton.
-/*        	$('#numberButtonList').animate({
-                scrollTop: numberButton.offset().top
-            });
-*/
             numberButton.addClass('active');
         } else {
             numberButton.removeClass('active');
@@ -539,7 +480,7 @@ $(function () {
             // special cases with imgur
             
             if (url.indexOf('/a/') >= 0) {
-                // No imgur AppID
+                // albums aren't supported yet
                 return '';
             }
             // imgur is really nice and serves the image with whatever extension
@@ -571,8 +512,13 @@ $(function () {
     var decodeUrl = function (url) {
         return decodeURIComponent(url.replace(/\+/g, " "))
     }
-    var getRestOfUrl = function () {
-        var regexS = "(/(?:(?:r)|(?:user)|(?:domain))/[^&#?]*)[?]?(.*)";
+    rp.getRestOfUrl = function () {
+        // Separate to before the question mark and after
+        // Detect predefined reddit url paths. If you modify this be sure to fix
+        // .htaccess
+        // This is a good idea so we can give a quick 404 page when appropriate.
+        
+        var regexS = "(/(?:(?:r/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
         //log(results);
@@ -632,10 +578,6 @@ $(function () {
                 if (isImageExtension(imgUrl)) {
                     goodImageUrl = imgUrl;
                 } else {
-                    if (imgurClientID !== '' && imgUrl.indexOf('imgur.com/a/') >= 0) {
-                    	 addAlbumSlide(imgUrl, title, commentsUrl, over18);
-                    }
-                    else
                     goodImageUrl = tryConvertUrl(imgUrl);
                 }
 
@@ -698,10 +640,10 @@ $(function () {
     }
 
     var setupUrls = function() {
-        var urlData = getRestOfUrl();
-        //log(urlData)
-        subredditUrl = urlData[0]
-        getVars = urlData[1]
+        rp.urlData = rp.getRestOfUrl();
+        //log(rp.urlData)
+        subredditUrl = rp.urlData[0]
+        getVars = rp.urlData[1]
         
         if (getVars.length > 0) {
             getVarsQuestionMark = "?" + getVars;
@@ -709,7 +651,7 @@ $(function () {
             getVarsQuestionMark = "";
         }
 
-        // Remove .compact as it interferes with .json (we get "/r/all/.compact.json").
+        // Remove .compact as it interferes with .json (we got "/r/all/.compact.json" which doesn't work).
         subredditUrl = subredditUrl.replace(/.compact/, "")
         // Consolidate double slashes to avoid r/all/.compact/ -> r/all//
         subredditUrl = subredditUrl.replace(/\/{2,}/, "/")

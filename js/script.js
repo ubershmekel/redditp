@@ -476,7 +476,7 @@ $(function () {
     
     
     var tryConvertUrl = function (url) {
-        if (url.indexOf('imgur.com') >= 0) {
+        if (url.indexOf('imgur.com') >= 0 || url.indexOf('/gallery/')) {
             // special cases with imgur
             
             if (url.indexOf('/a/') >= 0) {

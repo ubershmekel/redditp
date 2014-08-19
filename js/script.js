@@ -1,9 +1,9 @@
 /*
-  Author: Yuval Greenfield (http://uberpython.wordpress.com) 
- 
+  Author: Yuval Greenfield (http://uberpython.wordpress.com)
+
   You can save the HTML file and use it locally btw like so:
     file:///wherever/index.html?/r/aww
- 
+
   Favicon by Double-J designs http://www.iconfinder.com/icondetails/68600/64/_icon
   HTML based on http://demo.marcofolio.net/fullscreen_image_slider/
   Author of slideshow base :      Marco Kuiper (http://www.marcofolio.net/)
@@ -108,7 +108,7 @@ $(function () {
         startAnimation(activeIndex - 1);
     }
 
-    
+
     var autoNextSlide = function () {
         if (shouldAutoNextSlide) {
             // startAnimation takes care of the setTimeout
@@ -242,7 +242,7 @@ $(function () {
         }
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
-        
+
         $('#prevButton').click(prevSlide)
         $('#nextButton').click(nextSlide)
     }
@@ -258,7 +258,7 @@ $(function () {
         navboxUls.append(document.createTextNode(' '));
     }
 
-    var addImageSlide = function (url, title, commentsLink, over18) {
+    var addImageSlide = function (url, title, commentsLink, over18, sourceSub) {
         var pic = {
             "title": title,
             "cssclass": "clouds",
@@ -267,7 +267,8 @@ $(function () {
             "url": url,
             "urltext": 'View picture',
             "commentsLink": commentsLink,
-            "over18": over18
+            "over18": over18,
+            "sourceSub": sourceSub
         }
 
         preLoadImages(pic.url);
@@ -304,7 +305,7 @@ $(function () {
     var C_KEY = 67;
     var T_KEY = 84;
 
-    
+
     // Register keyboard events on the whole document
     $(document).keyup(function (e) {
         if(e.ctrlKey) {
@@ -415,7 +416,7 @@ $(function () {
     var animateNavigationBox = function (imageIndex) {
         var photo = photos[imageIndex];
 
-        $('#navboxTitle').html(photo.title);
+        $('#navboxTitle').html(photo.title + "<br />" + "from " + photo.sourceSub);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
@@ -452,8 +453,8 @@ $(function () {
         });
     };
 
-    
-    
+
+
     var verifyNsfwMakesSense = function() {
         // Cases when you forgot NSFW off but went to /r/nsfw
         // can cause strange bugs, let's help the user when over 80% of the
@@ -464,18 +465,18 @@ $(function () {
                 nsfwImages += 1
             }
         }
-        
+
         if(0.8 < nsfwImages * 1.0 / photos.length) {
             nsfw = true
             $("#nsfw").prop("checked", nsfw)
         }
     }
-    
-    
+
+
     var tryConvertUrl = function (url) {
         if (url.indexOf('imgur.com') >= 0) {
             // special cases with imgur
-            
+
             if (url.indexOf('/a/') >= 0) {
                 // albums aren't supported yet
                 return '';
@@ -526,14 +527,14 @@ $(function () {
             // already loaded images, don't ruin the existing experience
             return;
         }
-        
+
         // remove "loading" title
         $('#navboxTitle').text('');
-        
+
         // display alternate recommendations
         $('#recommend').css({'display':'block'});
     }
-    
+
     var getNextImages = function () {
         //if (noMoreToLoad){
         //    log("No more images to load, will rotate to start.");
@@ -565,6 +566,11 @@ $(function () {
                 var over18 = item.data.over_18;
                 var commentsUrl = redditBaseUrl + item.data.permalink;
 
+                // Get the source reddit that the picture comes from
+                var sourceSubPattern = /(\/r\/[a-zA-Z0-1\-]*)\//i
+                var sourceSub = item.data.permalink.match(sourceSubPattern);
+                sourceSub = sourceSub[1];
+
                 // ignore albums and things that don't seem like image files
                 var goodImageUrl = '';
                 if (isImageExtension(imgUrl)) {
@@ -575,12 +581,12 @@ $(function () {
 
                 if (goodImageUrl != '') {
                     foundOneImage = true;
-                    addImageSlide(goodImageUrl, title, commentsUrl, over18);
+                    addImageSlide(goodImageUrl, title, commentsUrl, over18, sourceSub);
                 }
             });
 
             verifyNsfwMakesSense()
-            
+
             if (!foundOneImage) {
                 log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(")
@@ -599,14 +605,14 @@ $(function () {
                 addNumberButton(numberButton);
             }
             loadingNextImages = false;
-            
+
         };
 
 
         /*
-        
+
         // this and failedAjax occur on timeout, so remove this redundancy
-        
+
         var doneAjaxReq = function(xhr, data) {
             if (xhr.status == 0) {
                 // This is to handle 404's which don't fire the "error" event.
@@ -616,8 +622,8 @@ $(function () {
             }
             // else - success
         };*/
-        
-        
+
+
         // I still haven't been able to catch jsonp 404 events so the timeout
         // is the current solution sadly.
         $.ajax({
@@ -636,7 +642,7 @@ $(function () {
         //log(urlData)
         subredditUrl = urlData[0]
         getVars = urlData[1]
-        
+
         if (getVars.length > 0) {
             getVarsQuestionMark = "?" + getVars;
         } else {
@@ -657,10 +663,10 @@ $(function () {
         } else {
             subredditName = subredditUrl + getVarsQuestionMark;
         }
-        
+
 
         var visitSubredditUrl = redditBaseUrl + subredditUrl + getVarsQuestionMark;
-        
+
         // truncate and display subreddit name in the control box
         var displayedSubredditName = subredditName;
         // empirically tested capsize, TODO: make css rules to verify this is enough.
@@ -673,10 +679,10 @@ $(function () {
 
         document.title = "redditP - " + subredditName;
     }
-    
-    
 
-    
+
+
+
     var redditBaseUrl = "http://www.reddit.com";
     if (location.protocol === 'https:') {
         // page is secure
@@ -686,7 +692,7 @@ $(function () {
     var subredditUrl;
     var getVars;
     var after = "";
-    
+
     initState();
     setupUrls();
 

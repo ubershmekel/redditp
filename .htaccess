@@ -3,6 +3,11 @@ AddHandler php54-cgi .php
 
 # Updates here should coincide with rp.getRestOfUrl()
 RewriteEngine On
+
+RewriteBase /
+RewriteCond %{HTTP_HOST} ^www\.(.*)$ [NC]
+RewriteRule ^(.*)$ http://%1/$1 [R=301,L]
+
 RewriteRule ^r/(.*) /index.html
 RewriteRule ^user/(.*) /index.html
 RewriteRule ^domain/(.*) /index.html

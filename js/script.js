@@ -120,19 +120,19 @@ $(function () {
     }
     
     function open_in_background(selector){
-    	// as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
-    	// works on latest chrome, safari and opera
-    	var link = $(selector)[0];
-    	
-    	// Simulating a ctrl key won't trigger a background tab on IE and Firefox ( https://bugzilla.mozilla.org/show_bug.cgi?id=812202 )
-    	// so we need to open a new window
-    	if ( navigator.userAgent.match(/msie/i) || navigator.userAgent.match(/trident/i)  || navigator.userAgent.match(/firefox/i) ){
-    		window.open(link.href,'_blank');
-    	} else {
-    		var mev = document.createEvent("MouseEvents");
-    		mev.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, true, false, false, true, 0, null);
-    		link.dispatchEvent(mev);
-    	}
+        // as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
+        // works on latest chrome, safari and opera
+        var link = $(selector)[0];
+        
+        // Simulating a ctrl key won't trigger a background tab on IE and Firefox ( https://bugzilla.mozilla.org/show_bug.cgi?id=812202 )
+        // so we need to open a new window
+        if ( navigator.userAgent.match(/msie/i) || navigator.userAgent.match(/trident/i)  || navigator.userAgent.match(/firefox/i) ){
+            window.open(link.href,'_blank');
+        } else {
+            var mev = document.createEvent("MouseEvents");
+            mev.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, true, false, false, true, 0, null);
+            link.dispatchEvent(mev);
+        }
     }
 
     $("#pictureSlider").touchwipe({
@@ -356,11 +356,11 @@ $(function () {
                 updateAutoNext();
                 break;
             case I_KEY:
-            	open_in_background("#navboxLink");
-            	break;
+                open_in_background("#navboxLink");
+                break;
             case R_KEY:
-            	open_in_background("#navboxCommentsLink");
-            	break;
+                open_in_background("#navboxCommentsLink");
+                break;
             case PAGEUP:
             case arrow.left:
             case arrow.up:

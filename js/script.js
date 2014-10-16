@@ -500,10 +500,17 @@ $(function () {
     
     
     var tryConvertUrl = function (url) {
-        if (url.indexOf('imgur.com') >= 0 || url.indexOf('/gallery/')) {
+        if (url.indexOf('imgur.com') >= 0 || url.indexOf('/gallery/') >= 0) {
             // special cases with imgur
             
-            if (url.indexOf('/a/') >= 0 || url.indexOf('/gallery/')) {
+            if(url.indexOf('gifv') >= 0)
+            {
+                if(url.indexOf('i.') == 0)
+                { url = url.replace('imgur.com', 'i.imgur.com') }
+                return url.replace('.gifv', '.gif');
+            }
+            
+            if (url.indexOf('/a/') >= 0 || url.indexOf('/gallery/') >= 0) {
                 // albums aren't supported yet
                 return '';
             }
@@ -513,7 +520,11 @@ $(function () {
             // E.g. http://imgur.com/r/aww/x9q6yW9
             return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
         }
-
+        
+        if(url.indexOf('gfycat.com') >=0)
+        {
+            return url.replace(/(www[.])?gfycat[.]com/, 'giant.gfycat.com') + '.gif'
+        }
         return '';
     }
     var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']

@@ -520,7 +520,11 @@ $(function () {
             // E.g. http://imgur.com/r/aww/x9q6yW9
             return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
         }
-
+        
+        if(url.indexOf('gfycat.com') >=0)
+        {
+            return url.replace(/(www[.])?gfycat[.]com/, 'giant.gfycat.com') + '.gif'
+        }
         return '';
     }
     var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']

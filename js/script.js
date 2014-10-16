@@ -500,7 +500,7 @@ $(function () {
     
     
     var tryConvertUrl = function (url) {
-        if (url.indexOf('imgur.com') >= 0 || url.indexOf('/gallery/')) {
+        if (url.indexOf('imgur.com') >= 0 || url.indexOf('/gallery/') >= 0) {
             // special cases with imgur
             
             if(url.indexOf('gifv') >= 0)
@@ -510,7 +510,7 @@ $(function () {
                 return url.replace('.gifv', '.gif');
             }
             
-            if (url.indexOf('/a/') >= 0 || url.indexOf('/gallery/')) {
+            if (url.indexOf('/a/') >= 0 || url.indexOf('/gallery/') >= 0) {
                 // albums aren't supported yet
                 return '';
             }

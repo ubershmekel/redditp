@@ -503,6 +503,13 @@ $(function () {
         if (url.indexOf('imgur.com') >= 0 || url.indexOf('/gallery/')) {
             // special cases with imgur
             
+            if(url.indexOf('gifv') >= 0)
+            {
+                if(url.indexOf('i.') == 0)
+                { url = url.replace('imgur.com', 'i.imgur.com') }
+                return url.replace('.gifv', '.gif');
+            }
+            
             if (url.indexOf('/a/') >= 0 || url.indexOf('/gallery/')) {
                 // albums aren't supported yet
                 return '';

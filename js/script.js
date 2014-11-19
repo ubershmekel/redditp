@@ -118,6 +118,22 @@ $(function () {
             nextSlide();
         }
     }
+    
+    function open_in_background(selector){
+        // as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
+        // works on latest chrome, safari and opera
+        var link = $(selector)[0];
+        
+        // Simulating a ctrl key won't trigger a background tab on IE and Firefox ( https://bugzilla.mozilla.org/show_bug.cgi?id=812202 )
+        // so we need to open a new window
+        if ( navigator.userAgent.match(/msie/i) || navigator.userAgent.match(/trident/i)  || navigator.userAgent.match(/firefox/i) ){
+            window.open(link.href,'_blank');
+        } else {
+            var mev = document.createEvent("MouseEvents");
+            mev.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, true, false, false, true, 0, null);
+            link.dispatchEvent(mev);
+        }
+    }
 
     $("#pictureSlider").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
@@ -305,6 +321,8 @@ $(function () {
     var ENTER = 13;
     var A_KEY = 65;
     var C_KEY = 67;
+    var I_KEY = 73;
+    var R_KEY = 82;
     var T_KEY = 84;
 
     
@@ -336,6 +354,12 @@ $(function () {
             case A_KEY:
                 $("#autoNextSlide").prop("checked", !$("#autoNextSlide").is(':checked'));
                 updateAutoNext();
+                break;
+            case I_KEY:
+                open_in_background("#navboxLink");
+                break;
+            case R_KEY:
+                open_in_background("#navboxCommentsLink");
                 break;
             case PAGEUP:
             case arrow.left:
@@ -476,10 +500,17 @@ $(function () {
     
     
     var tryConvertUrl = function (url) {
-        if (url.indexOf('imgur.com') >= 0) {
+        if (url.indexOf('imgur.com') >= 0 || url.indexOf('/gallery/')) {
             // special cases with imgur
             
-            if (url.indexOf('/a/') >= 0) {
+            if(url.indexOf('gifv') >= 0)
+            {
+                if(url.indexOf('i.') == 0)
+                { url = url.replace('imgur.com', 'i.imgur.com') }
+                return url.replace('.gifv', '.gif');
+            }
+            
+            if (url.indexOf('/a/') >= 0 || url.indexOf('/gallery/')) {
                 // albums aren't supported yet
                 return '';
             }

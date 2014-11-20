@@ -572,7 +572,7 @@ $(function () {
         // display alternate recommendations
         $('#recommend').css({'display':'block'});
     }
-
+    
     var getNextImages = function () {
         //if (noMoreToLoad){
         //    log("No more images to load, will rotate to start.");
@@ -619,7 +619,7 @@ $(function () {
             });
 
             verifyNsfwMakesSense()
-
+            
             if (!foundOneImage) {
                 log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(")
@@ -638,7 +638,7 @@ $(function () {
                 addNumberButton(numberButton);
             }
             loadingNextImages = false;
-
+            
         };
 
         // I still haven't been able to catch jsonp 404 events so the timeout

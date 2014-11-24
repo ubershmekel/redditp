@@ -277,7 +277,7 @@ $(function () {
         navboxUls.append(document.createTextNode(' '));
     }
 
-    var addImageSlide = function (url, title, commentsLink, over18) {
+    var addImageSlide = function (url, title, commentsLink, over18, video) {
         var pic = {
             "title": title,
             "cssclass": "clouds",
@@ -286,7 +286,8 @@ $(function () {
             "url": url,
             "urltext": 'View picture',
             "commentsLink": commentsLink,
-            "over18": over18
+            "over18": over18,
+            "isVideo": video
         }
 
         preLoadImages(pic.url);
@@ -458,20 +459,30 @@ $(function () {
         // Retrieve the accompanying photo based on the index
         var photo = photos[imageIndex];
 
-        // Create a new div and apply the CSS
-        var cssMap = Object();
-        cssMap['display'] = "none";
-        cssMap['background-image'] = "url(" + photo.image + ")";
-        cssMap['background-repeat'] = "no-repeat";
-        cssMap['background-size'] = "contain";
-        cssMap['background-position'] = "center";
+            // Create a new div and apply the CSS
+            var cssMap = Object();
+            cssMap['display'] = "none";
+        if(!photo.isVideo)
+            cssMap['background-image'] = "url(" + photo.image + ")";
+            cssMap['background-repeat'] = "no-repeat";
+            cssMap['background-size'] = "contain";
+            cssMap['background-position'] = "center";
 
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
         var divNode = $("<div />").css(cssMap).addClass(photo.cssclass);
+        if(photo.isVideo) {
+            var gfyid = photo.url.substr( 1+photo.url.lastIndexOf('/'));
+            if(gfyid.indexOf('#') != -1)
+                gfyid = gfyid.substr( 0,gfyid.indexOf('#'));
+            log(gfyid);
+            divNode.html('<img class="gfyitem" data-id="'+gfyid+'" />');
+        }
+
         //imgNode.appendTo(divNode);
         divNode.prependTo("#pictureSlider");
+        gfyCollection.init();
 
-        $("#pictureSlider div").fadeIn(animationSpeed);
+            $("#pictureSlider div").fadeIn(animationSpeed);
         var oldDiv = $("#pictureSlider div:not(:first)");
         oldDiv.fadeOut(animationSpeed, function () {
             oldDiv.remove();
@@ -614,14 +625,18 @@ $(function () {
 
                 if (goodImageUrl != '') {
                     foundOneImage = true;
-                    addImageSlide(goodImageUrl, title, commentsUrl, over18);
+                    addImageSlide(goodImageUrl, title, commentsUrl, over18,false);
+                }
+                if (imgUrl.indexOf('gfycat.com') >= 0){
+                    foundOneImage = true;
+                    addImageSlide(imgUrl, title, commentsUrl, over18,true);
                 }
             });
 
             verifyNsfwMakesSense()
             
             if (!foundOneImage) {
-                log(jsonUrl);
+                //log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(")
             }
 

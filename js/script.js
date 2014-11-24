@@ -489,13 +489,15 @@ $(function () {
                 var vid = $('.gfyitem > div').width('100%').height('100%');
                 vid.find('.gfyPreLoadCanvas').remove();
                 var v = vid.find('video').width('100%').height('100%');
-                if(v.length == 1)
+                if(v.length == 1){
+                    vid.find('.gfyPreLoadCanvas').remove();
                     if(shouldAutoNextSlide)
                         v.removeAttr('loop');
                     v[0].onended = function(e) {
                         if(shouldAutoNextSlide)
                             nextSlide();
                     };
+                }
             });
         }
 

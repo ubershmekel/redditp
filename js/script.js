@@ -484,8 +484,10 @@ $(function () {
         if(photo.isVideo){
             gfyCollection.init();
 
+            //ToDo: find a better solution!
             $(divNode).bind("DOMSubtreeModified", function() {
                 var vid = $('.gfyitem > div').width('100%').height('100%');
+                vid.find('.gfyPreLoadCanvas').remove();
                 var v = vid.find('video').width('100%').height('100%');
                 if(v.length == 1)
                     if(shouldAutoNextSlide)
@@ -695,7 +697,7 @@ $(function () {
             error: failedAjax,
             //complete: doneAjaxReq,
             404: failedAjax,
-            timeout: 5000
+            timeout: 30000
         });
     }
 

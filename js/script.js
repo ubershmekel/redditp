@@ -474,7 +474,7 @@ $(function () {
             var gfyid = photo.url.substr( 1+photo.url.lastIndexOf('/'));
             if(gfyid.indexOf('#') != -1)
                 gfyid = gfyid.substr( 0,gfyid.indexOf('#'));
-            divNode.html('<img class="gfyitem" data-id="'+gfyid+'" />');
+            divNode.html('<img class="gfyitem" data-id="'+gfyid+'" data-controls="false"/>');
         }
 
         //imgNode.appendTo(divNode);
@@ -483,18 +483,17 @@ $(function () {
         $("#pictureSlider div").fadeIn(animationSpeed);
         if(photo.isVideo){
             gfyCollection.init();
-
             //ToDo: find a better solution!
-            $(divNode).bind("DOMSubtreeModified", function() {
-                var vid = $('.gfyitem > div').width('100%').height('100%');
-                vid.find('.gfyPreLoadCanvas').remove();
-                var v = vid.find('video').width('100%').height('100%');
-                if(v.length == 1){
+            $(divNode).bind("DOMNodeInserted", function(e) {
+                if(e.target.tagName.toLowerCase() == "video") {
+                    var vid = $('.gfyitem > div').width('100%').height('100%');
                     vid.find('.gfyPreLoadCanvas').remove();
-                    if(shouldAutoNextSlide)
+                    var v = vid.find('video').width('100%').height('100%');
+                    vid.find('.gfyPreLoadCanvas').remove();
+                    if (shouldAutoNextSlide)
                         v.removeAttr('loop');
-                    v[0].onended = function(e) {
-                        if(shouldAutoNextSlide)
+                    v[0].onended = function (e) {
+                        if (shouldAutoNextSlide)
                             nextSlide();
                     };
                 }
@@ -699,7 +698,7 @@ $(function () {
             error: failedAjax,
             //complete: doneAjaxReq,
             404: failedAjax,
-            timeout: 30000
+            timeout: 5000
         });
     }
 

@@ -1,9 +1,9 @@
-redditp
-=======
+redditp - EXPERIMENTAL FORK
+===========================
 
-A full screen reddit presentation or slide show.
+If you want a stable slideshow experience visit [http://redditp.com](http://redditp.com).
 
-http://redditp.com
+If you're curious you can try the [experimental version](http://rawgit.com/smielke/d40bf41e6e263ff0e863/raw/376acb4e988ae04d8a8151caaadefbc468b046ad/redditp.html).
 
 Hotkeys
 -------
@@ -23,6 +23,8 @@ Features
 * /user/ , /domain/ , /me/ url's work.
 * Url's ending with ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
 * You can save the html file locally and use it, just make sure you add a separator e.g. the question mark in file:///c/myredditp.html?/r/gifs so the browser knows to pick up the right file and go to the right subreddit.
+* **Imgur album support /imgur/a/**
+* **gfycat.com support**
 
 Possible future features, depending on feedback:
 * Zoom/Pan for comics

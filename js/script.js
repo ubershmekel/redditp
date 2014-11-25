@@ -423,7 +423,7 @@ $(function () {
         // Set the active index to the used image index
         activeIndex = imageIndex;
 
-        if (isLastImage(activeIndex)) {
+        if (isLastImage(activeIndex) && subredditUrl.indexOf('/imgur') != 0) {
             getNextImages();
         }
     };
@@ -577,7 +577,7 @@ $(function () {
         // .htaccess
         // This is a good idea so we can give a quick 404 page when appropriate.
         
-        var regexS = "(/(?:(?:r/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
+        var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
         //log(results);
@@ -673,22 +673,6 @@ $(function () {
             
         };
 
-
-        /*
-        
-        // this and failedAjax occur on timeout, so remove this redundancy
-        
-        var doneAjaxReq = function(xhr, data) {
-            if (xhr.status == 0) {
-                // This is to handle 404's which don't fire the "error" event.
-                alert('Ajax completed with a bad status, maybe a bad url?')
-            } else {
-                //alert('done');
-            }
-            // else - success
-        };*/
-        
-        
         // I still haven't been able to catch jsonp 404 events so the timeout
         // is the current solution sadly.
         $.ajax({
@@ -699,6 +683,82 @@ $(function () {
             //complete: doneAjaxReq,
             404: failedAjax,
             timeout: 5000
+        });
+    }
+
+    var getImgurAlbum = function () {
+        var albumID = subredditUrl.match(/.*\/(.+?$)/)[1];
+        var jsonUrl = 'https://api.imgur.com/3/album/' + albumID;
+        //log(jsonUrl);
+        var failedAjax = function (data) {
+            alert("Failed ajax, maybe a bad url? Sorry about that :(");
+            failCleanup();
+        };
+        var handleData = function (data) {
+
+            console.log(data);
+
+            if (data.data.images.length == 0) {
+                alert("No data from this url :(");
+                return;
+            }
+
+
+
+            $.each(data.data.images, function (i, item) {
+                var imgUrl = item.link;
+                var title = item.title;
+                var over18 = item.nsfw;
+                var commentsUrl = "";
+
+                // ignore albums and things that don't seem like image files
+                var goodImageUrl = '';
+                if (isImageExtension(imgUrl)) {
+                    goodImageUrl = imgUrl;
+                } else {
+                    goodImageUrl = tryConvertUrl(imgUrl);
+                }
+
+                if (goodImageUrl != '') {
+                    foundOneImage = true;
+                    addImageSlide(goodImageUrl, title, commentsUrl, over18);
+                }
+            });
+
+            verifyNsfwMakesSense()
+
+            if (!foundOneImage) {
+                log(jsonUrl);
+                alert("Sorry, no displayable images found in that url :(")
+            }
+
+            // show the first image
+            if (activeIndex == -1) {
+                startAnimation(0);
+            }
+
+            log("No more pages to load from this subreddit, reloading the start");
+
+            // Show the user we're starting from the top
+            var numberButton = $("<span />").addClass("numberButton").text("-");
+            addNumberButton(numberButton);
+
+        loadingNextImages = false;
+
+
+    };
+
+        $.ajax({
+            url: jsonUrl,
+            dataType: 'json',
+            success: handleData,
+            error: failedAjax,
+            //complete: doneAjaxReq,
+            404: failedAjax,
+            timeout: 5000,
+            beforeSend : function(xhr) {
+                xhr.setRequestHeader('Authorization',
+                    'Client-ID ' + 'a5f33f2c60b59fa');}
         });
     }
 
@@ -764,5 +824,8 @@ $(function () {
     // if ever found even 1 image, don't show the error
     var foundOneImage = false;
 
-    getNextImages();
+    if(subredditUrl.indexOf('/imgur') == 0)
+        getImgurAlbum();
+    else
+        getNextImages();
 });

@@ -471,6 +471,7 @@ $(function () {
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
         var divNode = $("<div />").css(cssMap).addClass(photo.cssclass);
         if(photo.isVideo) {
+            clearTimeout(nextSlideTimeoutId);
             var gfyid = photo.url.substr( 1+photo.url.lastIndexOf('/'));
             if(gfyid.indexOf('#') != -1)
                 gfyid = gfyid.substr( 0,gfyid.indexOf('#'));

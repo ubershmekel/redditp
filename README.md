@@ -3,7 +3,7 @@ redditp - EXPERIMENTAL FORK
 
 If you want a stable slideshow experience visit [http://redditp.com](http://redditp.com).
 
-If you're curious you can try the [experimental version](http://rawgit.com/smielke/d40bf41e6e263ff0e863/raw/487a6b3d154a6dcafca1d53b2f7654b5ac563d3f/redditp.html).
+If you're curious you can try the [experimental version](http://smielke.github.io/redditp/#/domain/gfycat.com).
 
 Hotkeys
 -------

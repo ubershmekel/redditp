@@ -277,7 +277,7 @@ $(function () {
         navboxUls.append(document.createTextNode(' '));
     }
 
-    var addImageSlide = function (url, title, commentsLink, over18) {
+    var addImageSlide = function (url, title, commentsLink, over18, video) {
         var pic = {
             "title": title,
             "cssclass": "clouds",
@@ -286,7 +286,8 @@ $(function () {
             "url": url,
             "urltext": 'View picture',
             "commentsLink": commentsLink,
-            "over18": over18
+            "over18": over18,
+            "isVideo": video
         }
 
         preLoadImages(pic.url);
@@ -422,7 +423,7 @@ $(function () {
         // Set the active index to the used image index
         activeIndex = imageIndex;
 
-        if (isLastImage(activeIndex)) {
+        if (isLastImage(activeIndex) && subredditUrl.indexOf('/imgur') != 0) {
             getNextImages();
         }
     };
@@ -458,20 +459,48 @@ $(function () {
         // Retrieve the accompanying photo based on the index
         var photo = photos[imageIndex];
 
-        // Create a new div and apply the CSS
-        var cssMap = Object();
-        cssMap['display'] = "none";
-        cssMap['background-image'] = "url(" + photo.image + ")";
-        cssMap['background-repeat'] = "no-repeat";
-        cssMap['background-size'] = "contain";
-        cssMap['background-position'] = "center";
+            // Create a new div and apply the CSS
+            var cssMap = Object();
+            cssMap['display'] = "none";
+        if(!photo.isVideo)
+            cssMap['background-image'] = "url(" + photo.image + ")";
+            cssMap['background-repeat'] = "no-repeat";
+            cssMap['background-size'] = "contain";
+            cssMap['background-position'] = "center";
 
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
         var divNode = $("<div />").css(cssMap).addClass(photo.cssclass);
+        if(photo.isVideo) {
+            clearTimeout(nextSlideTimeoutId);
+            var gfyid = photo.url.substr( 1+photo.url.lastIndexOf('/'));
+            if(gfyid.indexOf('#') != -1)
+                gfyid = gfyid.substr( 0,gfyid.indexOf('#'));
+            divNode.html('<img class="gfyitem" data-id="'+gfyid+'" data-controls="false"/>');
+        }
+
         //imgNode.appendTo(divNode);
         divNode.prependTo("#pictureSlider");
 
         $("#pictureSlider div").fadeIn(animationSpeed);
+        if(photo.isVideo){
+            gfyCollection.init();
+            //ToDo: find a better solution!
+            $(divNode).bind("DOMNodeInserted", function(e) {
+                if(e.target.tagName.toLowerCase() == "video") {
+                    var vid = $('.gfyitem > div').width('100%').height('100%');
+                    vid.find('.gfyPreLoadCanvas').remove();
+                    var v = vid.find('video').width('100%').height('100%');
+                    vid.find('.gfyPreLoadCanvas').remove();
+                    if (shouldAutoNextSlide)
+                        v.removeAttr('loop');
+                    v[0].onended = function (e) {
+                        if (shouldAutoNextSlide)
+                            nextSlide();
+                    };
+                }
+            });
+        }
+
         var oldDiv = $("#pictureSlider div:not(:first)");
         oldDiv.fadeOut(animationSpeed, function () {
             oldDiv.remove();
@@ -549,7 +578,7 @@ $(function () {
         // .htaccess
         // This is a good idea so we can give a quick 404 page when appropriate.
         
-        var regexS = "(/(?:(?:r/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
+        var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
         //log(results);
@@ -614,14 +643,18 @@ $(function () {
 
                 if (goodImageUrl != '') {
                     foundOneImage = true;
-                    addImageSlide(goodImageUrl, title, commentsUrl, over18);
+                    addImageSlide(goodImageUrl, title, commentsUrl, over18,false);
+                }
+                if (imgUrl.indexOf('gfycat.com') >= 0){
+                    foundOneImage = true;
+                    addImageSlide(imgUrl, title, commentsUrl, over18,true);
                 }
             });
 
             verifyNsfwMakesSense()
             
             if (!foundOneImage) {
-                log(jsonUrl);
+                //log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(")
             }
 
@@ -641,22 +674,6 @@ $(function () {
             
         };
 
-
-        /*
-        
-        // this and failedAjax occur on timeout, so remove this redundancy
-        
-        var doneAjaxReq = function(xhr, data) {
-            if (xhr.status == 0) {
-                // This is to handle 404's which don't fire the "error" event.
-                alert('Ajax completed with a bad status, maybe a bad url?')
-            } else {
-                //alert('done');
-            }
-            // else - success
-        };*/
-        
-        
         // I still haven't been able to catch jsonp 404 events so the timeout
         // is the current solution sadly.
         $.ajax({
@@ -667,6 +684,82 @@ $(function () {
             //complete: doneAjaxReq,
             404: failedAjax,
             timeout: 5000
+        });
+    }
+
+    var getImgurAlbum = function () {
+        var albumID = subredditUrl.match(/.*\/(.+?$)/)[1];
+        var jsonUrl = 'https://api.imgur.com/3/album/' + albumID;
+        //log(jsonUrl);
+        var failedAjax = function (data) {
+            alert("Failed ajax, maybe a bad url? Sorry about that :(");
+            failCleanup();
+        };
+        var handleData = function (data) {
+
+            console.log(data);
+
+            if (data.data.images.length == 0) {
+                alert("No data from this url :(");
+                return;
+            }
+
+
+
+            $.each(data.data.images, function (i, item) {
+                var imgUrl = item.link;
+                var title = item.title;
+                var over18 = item.nsfw;
+                var commentsUrl = "";
+
+                // ignore albums and things that don't seem like image files
+                var goodImageUrl = '';
+                if (isImageExtension(imgUrl)) {
+                    goodImageUrl = imgUrl;
+                } else {
+                    goodImageUrl = tryConvertUrl(imgUrl);
+                }
+
+                if (goodImageUrl != '') {
+                    foundOneImage = true;
+                    addImageSlide(goodImageUrl, title, commentsUrl, over18);
+                }
+            });
+
+            verifyNsfwMakesSense()
+
+            if (!foundOneImage) {
+                log(jsonUrl);
+                alert("Sorry, no displayable images found in that url :(")
+            }
+
+            // show the first image
+            if (activeIndex == -1) {
+                startAnimation(0);
+            }
+
+            log("No more pages to load from this subreddit, reloading the start");
+
+            // Show the user we're starting from the top
+            var numberButton = $("<span />").addClass("numberButton").text("-");
+            addNumberButton(numberButton);
+
+        loadingNextImages = false;
+
+
+    };
+
+        $.ajax({
+            url: jsonUrl,
+            dataType: 'json',
+            success: handleData,
+            error: failedAjax,
+            //complete: doneAjaxReq,
+            404: failedAjax,
+            timeout: 5000,
+            beforeSend : function(xhr) {
+                xhr.setRequestHeader('Authorization',
+                    'Client-ID ' + 'a5f33f2c60b59fa');}
         });
     }
 
@@ -732,5 +825,8 @@ $(function () {
     // if ever found even 1 image, don't show the error
     var foundOneImage = false;
 
-    getNextImages();
+    if(subredditUrl.indexOf('/imgur') == 0)
+        getImgurAlbum();
+    else
+        getNextImages();
 });

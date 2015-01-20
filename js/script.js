@@ -21,7 +21,7 @@ var cookieDays = 300;
 
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
-var photos = []
+rp.photos = []
 
 // 0-based index to set which picture to show first
 // init to -1 until the first image is loaded
@@ -88,8 +88,8 @@ $(function () {
 
     function nextSlide() {
         if(!nsfw) {
-            for(var i = activeIndex + 1; i < photos.length; i++) {
-                if (!photos[i].over18) {
+            for(var i = activeIndex + 1; i < rp.photos.length; i++) {
+                if (!rp.photos[i].over18) {
                     return startAnimation(i)
                 }
             }
@@ -104,7 +104,7 @@ $(function () {
     function prevSlide() {
         if(!nsfw) {
             for(var i = activeIndex - 1; i > 0; i--) {
-                if (!photos[i].over18) {
+                if (!rp.photos[i].over18) {
                     return startAnimation(i)
                 }
             }
@@ -278,28 +278,42 @@ $(function () {
         navboxUls.append(document.createTextNode(' '));
     }
 
-    var addImageSlide = function (url, title, commentsLink, over18, video) {
+    var addImageSlide = function (pic) {
+        /*
         var pic = {
             "title": title,
-            "cssclass": "clouds",
-            "image": url,
-            "text": "",
             "url": url,
-            "urltext": 'View picture',
             "commentsLink": commentsLink,
             "over18": over18,
             "isVideo": video
         }
+        */
+        pic.isVideo = false;
+        if (pic.url.indexOf('gfycat.com') >= 0){
+            pic.isVideo = true;
+        } else if (isImageExtension(pic.url)) {
+            // simple image
+        } else {
+            var betterUrl = tryConvertUrl(pic.url);
+            if(betterUrl != '') {
+                pic.url = betterUrl;
+            } else if (rp.debug) {
+                console.log('failed: ' + pic.url);
+                return;
+            }
+        }
 
+        rp.foundOneImage = true;
+        
         preLoadImages(pic.url);
-        photos.push(pic);
+        rp.photos.push(pic);
 
-        var i = photos.length - 1;
+        var i = rp.photos.length - 1;
         var numberButton = $("<a />").html(i + 1)
             .data("index", i)
-            .attr("title", photos[i].title)
+            .attr("title", rp.photos[i].title)
             .attr("id", "numberButton" + (i + 1));
-        if(over18) {
+        if(pic.over18) {
             numberButton.addClass("over18");
         }
         numberButton.click(function () {
@@ -388,15 +402,15 @@ $(function () {
 
     var isLastImage = function(imageIndex) {
         if(nsfw) {
-            if(imageIndex == photos.length - 1) {
+            if(imageIndex == rp.photos.length - 1) {
                 return true
             } else {
                 return false
             }
         } else {
             // look for remaining sfw images
-            for(var i = imageIndex + 1; i < photos.length; i++) {
-                if(!photos[i].over18) {
+            for(var i = imageIndex + 1; i < rp.photos.length; i++) {
+                if(!rp.photos[i].over18) {
                     return false
                 }
             }
@@ -412,8 +426,8 @@ $(function () {
         resetNextSlideTimer();
 
         // If the same number has been chosen, or the index is outside the
-        // photos range, or we're already animating, do nothing
-        if (activeIndex == imageIndex || imageIndex > photos.length - 1 || imageIndex < 0 || isAnimating || photos.length == 0) {
+        // rp.photos range, or we're already animating, do nothing
+        if (activeIndex == imageIndex || imageIndex > rp.photos.length - 1 || imageIndex < 0 || isAnimating || rp.photos.length == 0) {
             return;
         }
 
@@ -425,7 +439,7 @@ $(function () {
         activeIndex = imageIndex;
 
         if (isLastImage(activeIndex) && rp.subredditUrl.indexOf('/imgur') != 0) {
-            getNextImages();
+            getRedditImages();
         }
     };
 
@@ -442,7 +456,7 @@ $(function () {
     // Animate the navigation box
     //
     var animateNavigationBox = function (imageIndex) {
-        var photo = photos[imageIndex];
+        var photo = rp.photos[imageIndex];
 
         $('#navboxTitle').html(photo.title);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
@@ -458,25 +472,25 @@ $(function () {
     var slideBackgroundPhoto = function (imageIndex) {
 
         // Retrieve the accompanying photo based on the index
-        var photo = photos[imageIndex];
+        var photo = rp.photos[imageIndex];
 
         // Create a new div and apply the CSS
         var cssMap = Object();
         cssMap['display'] = "none";
         if(!photo.isVideo) {
-            cssMap['background-image'] = "url(" + photo.image + ")";
+            cssMap['background-image'] = "url(" + photo.url + ")";
             cssMap['background-repeat'] = "no-repeat";
             cssMap['background-size'] = "contain";
             cssMap['background-position'] = "center";
         }
 
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
-        var divNode = $("<div />").css(cssMap).addClass(photo.cssclass);
+        var divNode = $("<div />").css(cssMap).addClass("clouds");
         if(photo.isVideo) {
             clearTimeout(nextSlideTimeoutId);
-            var gfyid = photo.url.substr( 1+photo.url.lastIndexOf('/'));
+            var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
             if(gfyid.indexOf('#') != -1)
-                gfyid = gfyid.substr( 0,gfyid.indexOf('#'));
+                gfyid = gfyid.substr(0, gfyid.indexOf('#'));
             divNode.html('<img class="gfyitem" data-id="'+gfyid+'" data-controls="false"/>');
         }
 
@@ -517,13 +531,13 @@ $(function () {
         // can cause strange bugs, let's help the user when over 80% of the
         // content is NSFW.
         var nsfwImages = 0
-        for(var i = 0; i < photos.length; i++) {
-            if(photos[i].over18) {
+        for(var i = 0; i < rp.photos.length; i++) {
+            if(rp.photos[i].over18) {
                 nsfwImages += 1
             }
         }
         
-        if(0.8 < nsfwImages * 1.0 / photos.length) {
+        if(0.8 < nsfwImages * 1.0 / rp.photos.length) {
             nsfw = true
             $("#nsfw").prop("checked", nsfw)
         }
@@ -592,7 +606,7 @@ $(function () {
     }
 
     var failCleanup = function() {
-        if (photos.length > 0) {
+        if (rp.photos.length > 0) {
             // already loaded images, don't ruin the existing experience
             return;
         }
@@ -604,7 +618,7 @@ $(function () {
         $('#recommend').css({'display':'block'});
     }
     
-    var getNextImages = function () {
+    var getRedditImages = function () {
         //if (noMoreToLoad){
         //    log("No more images to load, will rotate to start.");
         //    return;
@@ -622,7 +636,7 @@ $(function () {
         var handleData = function (data) {
             //redditData = data //global for debugging data
             // NOTE: if data.data.after is null then this causes us to start
-            // from the top on the next getNextImages which is fine.
+            // from the top on the next getRedditImages which is fine.
             after = "&after=" + data.data.after;
 
             if (data.data.children.length == 0) {
@@ -631,30 +645,12 @@ $(function () {
             }
 
             $.each(data.data.children, function (i, item) {
-                var imgUrl = item.data.url;
-                var title = item.data.title;
-                var over18 = item.data.over_18;
-                var commentsUrl = rp.redditBaseUrl + item.data.permalink;
-
-                // ignore albums and things that don't seem like image files
-                var goodImageUrl = '';
-                if (isImageExtension(imgUrl)) {
-                    goodImageUrl = imgUrl;
-                } else {
-                    goodImageUrl = tryConvertUrl(imgUrl);
-                }
-
-                if (goodImageUrl != '') {
-                    rp.foundOneImage = true;
-                    addImageSlide(goodImageUrl, title, commentsUrl, over18, false);
-                } else if (rp.debug) {
-                    console.log(imgUrl);
-                    console.log(goodImageUrl);
-                }
-                if (imgUrl.indexOf('gfycat.com') >= 0){
-                    rp.foundOneImage = true;
-                    addImageSlide(imgUrl, title, commentsUrl, over18,true);
-                }
+                addImageSlide({
+                    url: item.data.url,
+                    title: item.data.title,
+                    over18: item.data.over_18,
+                    commentsLink: rp.redditBaseUrl + item.data.permalink
+                });
             });
 
             verifyNsfwMakesSense()
@@ -711,25 +707,13 @@ $(function () {
                 return;
             }
 
-
             $.each(data.data.images, function (i, item) {
-                var imgUrl = item.link;
-                var title = item.title;
-                var over18 = item.nsfw;
-                var commentsUrl = "";
-
-                // ignore albums and things that don't seem like image files
-                var goodImageUrl = '';
-                if (isImageExtension(imgUrl)) {
-                    goodImageUrl = imgUrl;
-                } else {
-                    goodImageUrl = tryConvertUrl(imgUrl);
-                }
-
-                if (goodImageUrl != '') {
-                    rp.foundOneImage = true;
-                    addImageSlide(goodImageUrl, title, commentsUrl, over18);
-                }
+                addImageSlide({
+                    url: item.link,
+                    title: item.title,
+                    over18: item.nsfw,
+                    commentsLink: ""
+                });                
             });
 
             verifyNsfwMakesSense()
@@ -744,11 +728,11 @@ $(function () {
                 startAnimation(0);
             }
 
-            log("No more pages to load from this subreddit, reloading the start");
+            //log("No more pages to load from this subreddit, reloading the start");
 
             // Show the user we're starting from the top
-            var numberButton = $("<span />").addClass("numberButton").text("-");
-            addNumberButton(numberButton);
+            //var numberButton = $("<span />").addClass("numberButton").text("-");
+            //addNumberButton(numberButton);
 
             loadingNextImages = false;
         };
@@ -832,5 +816,5 @@ $(function () {
     if(rp.subredditUrl.indexOf('/imgur') == 0)
         getImgurAlbum(rp.subredditUrl);
     else
-        getNextImages();
+        getRedditImages();
 });

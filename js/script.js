@@ -297,8 +297,10 @@ $(function () {
             var betterUrl = tryConvertUrl(pic.url);
             if(betterUrl != '') {
                 pic.url = betterUrl;
-            } else if (rp.debug) {
-                console.log('failed: ' + pic.url);
+            } else {
+                if (rp.debug) {
+                    console.log('failed: ' + pic.url);
+                }
                 return;
             }
         }
@@ -653,7 +655,7 @@ $(function () {
                 });
             });
 
-            verifyNsfwMakesSense()
+            verifyNsfwMakesSense();
             
             if (!rp.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
@@ -684,7 +686,6 @@ $(function () {
             dataType: 'jsonp',
             success: handleData,
             error: failedAjax,
-            //complete: doneAjaxReq,
             404: failedAjax,
             timeout: 5000
         });
@@ -716,7 +717,7 @@ $(function () {
                 });                
             });
 
-            verifyNsfwMakesSense()
+            verifyNsfwMakesSense();
 
             if (!rp.foundOneImage) {
                 log(jsonUrl);
@@ -742,7 +743,6 @@ $(function () {
             dataType: 'json',
             success: handleData,
             error: failedAjax,
-            //complete: doneAjaxReq,
             404: failedAjax,
             timeout: 5000,
             beforeSend : function(xhr) {

@@ -221,6 +221,31 @@ $(function () {
         resetNextSlideTimer();
     }
 
+    var updateFullScreen = function () {
+	if ($("#fullscreen").is(':checked')) {
+	    var elem = document.getElementById("page");
+	    if (elem.requestFullscreen) {
+		elem.requestFullscreen();
+	    } else if (elem.msRequestFullscreen) {
+		elem.msRequestFullscreen();
+	    } else if (elem.mozRequestFullScreen) {
+		elem.mozRequestFullScreen();
+	    } else if (elem.webkitRequestFullscreen) {
+		elem.webkitRequestFullscreen();
+	    }
+	} else {
+	    if (document.exitFullscreen) {
+		document.exitFullscreen();
+	    } else if (document.msExitFullscreen) {
+		document.msExitFullscreen();
+	    } else if (document.mozCancelFullScreen) {
+		document.mozCancelFullScreen();
+	    } else if (document.webkitExitFullscreen) {
+		document.webkitExitFullscreen();
+	    }
+	}
+    }
+
     nsfwCookie = "nsfwCookie";
     var updateNsfw = function () {
         nsfw = $("#nsfw").is(':checked')
@@ -260,6 +285,7 @@ $(function () {
             timeToNextSlide = parseFloat(timeByCookie) * 1000;
             $('#timeToNextSlide').val(timeByCookie);
         }
+	$('#fullscreen').change(updateFullScreen);
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
         
@@ -339,6 +365,7 @@ $(function () {
     var ENTER = 13;
     var A_KEY = 65;
     var C_KEY = 67;
+    var F_KEY = 70;
     var I_KEY = 73;
     var R_KEY = 82;
     var T_KEY = 84;
@@ -379,6 +406,9 @@ $(function () {
             case R_KEY:
                 open_in_background("#navboxCommentsLink");
                 break;
+	    case F_KEY:
+                $("#fullscreen").click();
+		break;
             case PAGEUP:
             case arrow.left:
             case arrow.up:

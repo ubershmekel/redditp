@@ -593,26 +593,27 @@ $(function () {
     
     
     var tryConvertUrl = function (url) {
-        if (url.indexOf('imgur.com') >= 0 || url.indexOf('/gallery/')) {
-            // special cases with imgur
-            
-            if(url.indexOf('gifv') >= 0)
-            {
-                if(url.indexOf('i.') == 0)
-                { url = url.replace('imgur.com', 'i.imgur.com') }
-                return url.replace('.gifv', '.gif');
-            }
-            
-            if (url.indexOf('/a/') >= 0 || url.indexOf('/gallery/')) {
-                // albums aren't supported yet
-                return '';
-            }
-            // imgur is really nice and serves the image with whatever extension
-            // you give it. '.jpg' is arbitrary
-            // regexp removes /r/<sub>/ prefix if it exists
-            // E.g. http://imgur.com/r/aww/x9q6yW9
-            return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
-        }
+	if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
+	    // special cases with imgur
+
+	    if (url.indexOf('gifv') >= 0) {
+		if (url.indexOf('i.') == 0) {
+		    url = url.replace('imgur.com', 'i.imgur.com')
+		}
+		return url.replace('.gifv', '.gif');
+	    }
+
+	    if (url.indexOf('/a/') > 0 || url.indexOf('/gallery/') > 0) {
+		// albums aren't supported yet
+		//console.log('Unsupported gallery: ' + url);
+		return '';
+	    }
+	    // imgur is really nice and serves the image with whatever extension
+	    // you give it. '.jpg' is arbitrary
+	    // regexp removes /r/<sub>/ prefix if it exists
+	    // E.g. http://imgur.com/r/aww/x9q6yW9
+	    return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
+	}
 
         return '';
     }

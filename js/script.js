@@ -505,8 +505,10 @@ $(function () {
     //
     var animateNavigationBox = function (imageIndex) {
         var photo = rp.photos[imageIndex];
+	var subreddit = '/r/' + photo.subreddit;
 
         $('#navboxTitle').html(photo.title);
+	$('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
@@ -698,6 +700,7 @@ $(function () {
                     url: item.data.url,
                     title: item.data.title,
                     over18: item.data.over_18,
+		    subreddit: item.data.subreddit,
                     commentsLink: rp.redditBaseUrl + item.data.permalink
                 });
             });

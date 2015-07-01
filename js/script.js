@@ -246,6 +246,21 @@ $(function () {
 	}
     }
 
+    // This is really only needed to handle the case where the user
+    // presses ESC to exit fullscreen mode
+    var eventFullScreen = function () {
+	var checked = $("#fullscreen").is(':checked');
+	if (checked && 
+	    !document.fullscreenElement && // alternative standard method
+	    // current working methods
+	    !document.mozFullScreenElement &&
+	    !document.webkitFullscreenElement &&
+	    !document.msFullscreenElement) {
+	    // Clear checkbox
+	    $("#fullscreen").click();
+	}
+    }
+
     nsfwCookie = "nsfwCookie";
     var updateNsfw = function () {
         nsfw = $("#nsfw").is(':checked')
@@ -291,6 +306,7 @@ $(function () {
         
         $('#prevButton').click(prevSlide)
         $('#nextButton').click(nextSlide)
+	$(document).on('webkitfullscreenchange mozfullscreenchange fullscreenchange MSFullscreenChange', eventFullScreen);
     }
 
     var addNumberButton = function (numberButton) {

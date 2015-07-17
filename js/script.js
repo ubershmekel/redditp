@@ -301,6 +301,7 @@ $(function () {
             $('#timeToNextSlide').val(timeByCookie);
         }
 	$('#fullscreen').change(updateFullScreen);
+	eventFullScreen();
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
         

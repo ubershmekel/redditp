@@ -221,44 +221,30 @@ $(function () {
         resetNextSlideTimer();
     }
 
-    var updateFullScreen = function () {
-	if ($("#fullscreen").is(':checked')) {
-	    var elem = document.getElementById("page");
-	    if (elem.requestFullscreen) {
-		elem.requestFullscreen();
-	    } else if (elem.msRequestFullscreen) {
-		elem.msRequestFullscreen();
-	    } else if (elem.mozRequestFullScreen) {
-		elem.mozRequestFullScreen();
-	    } else if (elem.webkitRequestFullscreen) {
-		elem.webkitRequestFullscreen();
-	    }
-	} else {
-	    if (document.exitFullscreen) {
-		document.exitFullscreen();
-	    } else if (document.msExitFullscreen) {
-		document.msExitFullscreen();
-	    } else if (document.mozCancelFullScreen) {
-		document.mozCancelFullScreen();
-	    } else if (document.webkitExitFullscreen) {
-		document.webkitExitFullscreen();
-	    }
-	}
-    }
-
-    // This is really only needed to handle the case where the user
-    // presses ESC to exit fullscreen mode
-    var eventFullScreen = function () {
-	var checked = $("#fullscreen").is(':checked');
-	if (checked && 
-	    !document.fullscreenElement && // alternative standard method
-	    // current working methods
-	    !document.mozFullScreenElement &&
-	    !document.webkitFullscreenElement &&
-	    !document.msFullscreenElement) {
-	    // Clear checkbox
-	    $("#fullscreen").click();
-	}
+    var toggleFullScreen = function() {
+        var elem = document.getElementById('page')
+        if (document.fullscreenElement || // alternative standard method
+            document.mozFullScreenElement || document.webkitFullscreenElement || document.msFullscreenElement) { // current working methods
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            }
+        } else {
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                elem.msRequestFullscreen();
+            } else if (elem.mozRequestFullScreen) {
+                elem.mozRequestFullScreen();
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
+            }
+        }
     }
 
     nsfwCookie = "nsfwCookie";
@@ -300,14 +286,13 @@ $(function () {
             timeToNextSlide = parseFloat(timeByCookie) * 1000;
             $('#timeToNextSlide').val(timeByCookie);
         }
-	$('#fullscreen').change(updateFullScreen);
-	eventFullScreen();
+        
+        $('#fullScreenButton').click(toggleFullScreen);
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
         
         $('#prevButton').click(prevSlide)
         $('#nextButton').click(nextSlide)
-	$(document).on('webkitfullscreenchange mozfullscreenchange fullscreenchange MSFullscreenChange', eventFullScreen);
     }
 
     var addNumberButton = function (numberButton) {
@@ -423,9 +408,9 @@ $(function () {
             case R_KEY:
                 open_in_background("#navboxCommentsLink");
                 break;
-	    case F_KEY:
-                $("#fullscreen").click();
-		break;
+            case F_KEY:
+                toggleFullScreen();
+                break;
             case PAGEUP:
             case arrow.left:
             case arrow.up:
@@ -506,10 +491,10 @@ $(function () {
     //
     var animateNavigationBox = function (imageIndex) {
         var photo = rp.photos[imageIndex];
-	var subreddit = '/r/' + photo.subreddit;
+        var subreddit = '/r/' + photo.subreddit;
 
         $('#navboxTitle').html(photo.title);
-	$('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
+        $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
@@ -596,27 +581,28 @@ $(function () {
     
     
     var tryConvertUrl = function (url) {
-	if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
-	    // special cases with imgur
+        if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
+            // special cases with imgur
 
-	    if (url.indexOf('gifv') >= 0) {
-		if (url.indexOf('i.') == 0) {
-		    url = url.replace('imgur.com', 'i.imgur.com')
-		}
-		return url.replace('.gifv', '.gif');
-	    }
+            if (url.indexOf('gifv') >= 0) {
+                if (url.indexOf('i.') == 0) {
+                    url = url.replace('imgur.com', 'i.imgur.com')
+                }
+                return url.replace('.gifv', '.gif');
+            }
 
-	    if (url.indexOf('/a/') > 0 || url.indexOf('/gallery/') > 0) {
-		// albums aren't supported yet
-		//console.log('Unsupported gallery: ' + url);
-		return '';
-	    }
-	    // imgur is really nice and serves the image with whatever extension
-	    // you give it. '.jpg' is arbitrary
-	    // regexp removes /r/<sub>/ prefix if it exists
-	    // E.g. http://imgur.com/r/aww/x9q6yW9
-	    return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
-	}
+            if (url.indexOf('/a/') > 0 || url.indexOf('/gallery/') > 0) {
+                // albums aren't supported yet
+                //console.log('Unsupported gallery: ' + url);
+                return '';
+            }
+            
+            // imgur is really nice and serves the image with whatever extension
+            // you give it. '.jpg' is arbitrary
+            // regexp removes /r/<sub>/ prefix if it exists
+            // E.g. http://imgur.com/r/aww/x9q6yW9
+            return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
+        }
 
         return '';
     }
@@ -701,7 +687,7 @@ $(function () {
                     url: item.data.url,
                     title: item.data.title,
                     over18: item.data.over_18,
-		    subreddit: item.data.subreddit,
+                    subreddit: item.data.subreddit,
                     commentsLink: rp.redditBaseUrl + item.data.permalink
                 });
             });

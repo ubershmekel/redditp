@@ -18,7 +18,7 @@ if (!Array.indexOf) {
             }
         }
         return -1;
-    }
+    };
 }
 
 // IE doesn't have console.log and fails, wtf...

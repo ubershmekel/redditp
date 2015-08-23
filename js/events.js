@@ -26,7 +26,7 @@ var updateTimeToNextSlide = function () {
 };
 
 var toggleFullScreen = function() {
-    var elem = document.getElementById('page')
+    var elem = document.getElementById('page');
     if (document.fullscreenElement || // alternative standard method
         document.mozFullScreenElement || document.webkitFullscreenElement || document.msFullscreenElement) { // current working methods
         if (document.exitFullscreen) {

@@ -37,7 +37,7 @@ $(function () {
             navboxVisible = true;
             $('.fadeOnIdle').fadeTo('fast', 1);
             fadeoutTimer = setTimeout(fadeoutFunction, 2000);
-        })
+        });
     };
     // this fadeout was really inconvenient on mobile phones
     // and instead the minimize buttons should be used.
@@ -118,9 +118,9 @@ $(function () {
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
         
-        $('#prevButton').click(redditp.prevSlide)
-        $('#nextButton').click(redditp.nextSlide)
-    }
+        $('#prevButton').click(redditp.prevSlide);
+        $('#nextButton').click(redditp.nextSlide);
+    };
 
     var arrow = {
         left: 37,
@@ -183,12 +183,12 @@ $(function () {
             case PAGEUP:
             case arrow.left:
             case arrow.up:
-                return redditp.prevSlide()
+                return redditp.prevSlide();
             case PAGEDOWN:
             case arrow.right:
             case arrow.down:
             case SPACE:
-                return redditp.nextSlide()
+                return redditp.nextSlide();
         }
     });
 
@@ -204,7 +204,7 @@ $(function () {
 
             //console.log(data);
 
-            if (data.data.images.length == 0) {
+            if (data.data.images.length === 0) {
                 alert("No data from this url :(");
                 return;
             }
@@ -222,7 +222,7 @@ $(function () {
 
             if (!redditp.session.foundOneImage) {
                 log(jsonUrl);
-                alert("Sorry, no displayable images found in that url :(")
+                alert("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
@@ -250,7 +250,7 @@ $(function () {
                 xhr.setRequestHeader('Authorization',
                     'Client-ID ' + 'f2edd1ef8e66eaf');}
         });
-    }
+    };
 
     var updateSubredditName = function() {
         var getVarsQuestionMark;
@@ -277,7 +277,7 @@ $(function () {
         var displayedSubredditName = subredditName;
         // empirically tested capsize, TODO: make css rules to verify this is enough.
         // it would make the "nsfw" checkbox be on its own line :(
-        var capsize = 19
+        var capsize = 19;
         if(displayedSubredditName.length > capsize) {
             displayedSubredditName = displayedSubredditName.substr(0,capsize) + "&hellip;";
         }
@@ -292,7 +292,7 @@ $(function () {
     // if ever found even 1 image, don't show the error
     redditp.session.foundOneImage = false;
 
-    if(redditp.urls.subredditUrl().indexOf('/imgur') == 0)
+    if(redditp.urls.subredditUrl().indexOf('/imgur') === 0)
         getImgurAlbum(redditp.urls.subredditUrl);
     else
         redditp.getRedditImages();

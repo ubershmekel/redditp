@@ -18,7 +18,7 @@ redditp.settings = {
     animationSpeed: 1000,
     cookieDays: 300,
     timeToNextSlide: 6,
-    goodExtensions: ['.jpg', '.jpeg', '.gif', '.bmp', '.png'],
+    goodExtensions: ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
 };
 
 redditp.cookies = {
@@ -43,7 +43,7 @@ redditp.cookies = {
     _setCookie: function (c_name, value) {
         var exdate = new Date();
         exdate.setDate(exdate.getDate() + redditp.settings.cookieDays);
-        var c_value = escape(value) + ((redditp.settings.cookieDays == null) ? "" : "; expires=" + exdate.toUTCString());
+        var c_value = escape(value) + ((redditp.settings.cookieDays === null) ? "" : "; expires=" + exdate.toUTCString());
         document.cookie = c_name + "=" + c_value;
     },
     _getCookie: function (c_name, default_value) {
@@ -75,7 +75,7 @@ redditp.session = {
     // Reddit filter "After"
     after: "",
 
-    foundOneImage: false,
+    foundOneImage: false
 };
 
 redditp.urls = {
@@ -102,14 +102,14 @@ redditp.urls = {
         // .htaccess
         // This is a good idea so we can give a quick 404 page when appropriate.
         var decodeUrl = function (url) {
-            return decodeURIComponent(url.replace(/\+/g, " "))
-        }
+            return decodeURIComponent(url.replace(/\+/g, " "));
+        };
         
         var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
         //log(results);
-        if (results == null) {
+        if (results === null) {
             return ["", ""];
         } else {
             return [results[1], decodeUrl(results[2])];
@@ -139,8 +139,8 @@ redditp.urls = {
         }
         redditp.urls._getVars = redditp.urls._getRestOfUrl()[1];
         return redditp.urls._getVars;
-    },
-}
+    }
+};
 
 
 // Variable to store the images we need to set as background
@@ -164,7 +164,7 @@ redditp.animateNavigationBox = function (imageIndex) {
         } else {
             numberButton.removeClass('active');
         }
-    }
+    };
 
     var photo = redditp.photos[imageIndex];
     var subreddit = '/r/' + photo.subreddit;
@@ -186,14 +186,14 @@ redditp.resetNextSlideTimer = function () {
 
 redditp.clearTimeout = function (){
     clearTimeout(redditp.session.nextSlideTimeoutId);
-}
+};
 
 redditp.autoNextSlide = function () {
     if (redditp.cookies.getShouldAutoNextSlide()) {
         // startAnimation takes care of the setTimeout
         redditp.nextSlide();
     }
-}
+};
 
 //
 // Starts the animation, based on the image index
@@ -203,11 +203,11 @@ redditp.startAnimation = function (imageIndex) {
 
     // If the same number has been chosen, or the index is outside the
     // photos range, or we're already animating, do nothing
-    if (redditp.session.activeIndex == imageIndex 
-        || imageIndex > redditp.photos.length - 1 
-        || imageIndex < 0 
-        || redditp.session.isAnimating 
-        || redditp.photos.length == 0) {
+    if (redditp.session.activeIndex == imageIndex ||
+        imageIndex > redditp.photos.length - 1 ||
+        imageIndex < 0 ||
+        redditp.session.isAnimating ||
+        redditp.photos.length === 0) {
         return;
     }
 
@@ -218,8 +218,8 @@ redditp.startAnimation = function (imageIndex) {
     // Set the active index to the used image index
     redditp.session.activeIndex = imageIndex;
 
-    if (redditp._isLastImage(redditp.session.activeIndex) 
-        && redditp.urls.subredditUrl().indexOf('/imgur') != 0) {
+    if (redditp._isLastImage(redditp.session.activeIndex) &&
+        redditp.urls.subredditUrl().indexOf('/imgur') !== 0) {
         redditp.getRedditImages();
     }
 };
@@ -228,14 +228,16 @@ redditp.nextSlide = function() {
     if(!redditp.cookies.getNswf) {
         for(var i = redditp.session.activeIndex + 1; i < redditp.photos.length; i++) {
             if (!redditp.photos[i].over18) {
-                return redditp.startAnimation(i);
+                redditp.startAnimation(i);
+                return;
             }
         }
     }
     if (redditp._isLastImage(redditp.session.activeIndex) && !loadingNextImages) {
         // the only reason we got here and there aren't more pictures yet
         // is because there are no more images to load, start over
-        return redditp.startAnimation(0);
+        redditp.startAnimation(0);
+        return;
     }
     redditp.startAnimation(redditp.session.activeIndex + 1);
 };
@@ -244,7 +246,8 @@ redditp.prevSlide = function() {
     if(!redditp.cookies.getNswf) {
         for(var i = redditp.session.activeIndex - 1; i > 0; i--) {
             if (!redditp.photos[i].over18) {
-                return redditp.startAnimation(i);
+                redditp.startAnimation(i);
+                return;
             }
         }
     }
@@ -259,12 +262,12 @@ redditp.getRedditImages = function () {
 
     loadingNextImages = true;
 
-    var jsonUrl = redditp.urls.redditBaseUrl() 
-                + redditp.urls.subredditUrl() 
-                + ".json?jsonp=?" 
-                + redditp.session.after 
-                + "&" 
-                + redditp.urls.getVars();
+    var jsonUrl = redditp.urls.redditBaseUrl() +
+                redditp.urls.subredditUrl() +
+                ".json?jsonp=?" +
+                redditp.session.after +
+                "&" +
+                redditp.urls.getVars();
     console.log(jsonUrl);
     //log(jsonUrl);
     var failedAjax = function (data) {
@@ -277,7 +280,7 @@ redditp.getRedditImages = function () {
         // from the top on the next getRedditImages which is fine.
         redditp.session.after = "&after=" + data.data.after;
 
-        if (data.data.children.length == 0) {
+        if (data.data.children.length === 0) {
             alert("No data from this url :(");
             return;
         }
@@ -297,7 +300,7 @@ redditp.getRedditImages = function () {
         if (!redditp.session.foundOneImage) {
             // Note: the jsonp url may seem malformed but jquery fixes it.
             //log(jsonUrl);
-            alert("Sorry, no displayable images found in that url :(")
+            alert("Sorry, no displayable images found in that url :(");
         }
 
         // show the first image
@@ -305,7 +308,7 @@ redditp.getRedditImages = function () {
             redditp.startAnimation(0);
         }
 
-        if (data.data.after == null) {
+        if (data.data.after === null) {
             log("No more pages to load from this subreddit, reloading the start");
 
             // Show the user we're starting from the top
@@ -326,7 +329,7 @@ redditp.getRedditImages = function () {
         404: failedAjax,
         timeout: 5000
     });
-}
+};
 
 redditp.addImageSlide = function (pic) {
     /*
@@ -353,7 +356,7 @@ redditp.addImageSlide = function (pic) {
             //log("skipped bad extension: " + url);
             return false;
         }
-    }
+    };
 
     pic.isVideo = false;
     if (pic.url.indexOf('gfycat.com') >= 0){
@@ -362,7 +365,7 @@ redditp.addImageSlide = function (pic) {
         // simple image
     } else {
         var betterUrl = redditp._tryConvertUrl(pic.url);
-        if(betterUrl != '') {
+        if(betterUrl !== '') {
             pic.url = betterUrl;
         } else {
             if (redditp.settings.debug) {
@@ -390,13 +393,13 @@ redditp.addImageSlide = function (pic) {
     });
     numberButton.addClass("numberButton");
     redditp.addNumberButton(numberButton);
-}
+};
 
 redditp.verifyNsfwMakesSense = function() {
     // Cases when you forgot NSFW off but went to /r/nsfw
     // can cause strange bugs, let's help the user when over 80% of the
     // content is NSFW.
-    var nsfwImages = 0
+    var nsfwImages = 0;
     for(var i = 0; i < redditp.photos.length; i++) {
         if(redditp.photos[i].over18) {
             nsfwImages += 1
@@ -407,7 +410,7 @@ redditp.verifyNsfwMakesSense = function() {
         redditp.cookies.setNsfw(true);
         $("#nsfw").prop("checked", nsfw);
     }
-}
+};
 
 // Arguments are image paths relative to the current page.
 redditp.preLoadImages = function () {
@@ -428,7 +431,7 @@ redditp.addNumberButton = function (numberButton) {
 
     // so li's have a space between them and can word-wrap in the box
     navboxUls.append(document.createTextNode(' '));
-}
+};
 
 
 redditp.failCleanup = function() {
@@ -442,14 +445,14 @@ redditp.failCleanup = function() {
     
     // display alternate recommendations
     $('#recommend').css({'display':'block'});
-}
+};
 
 redditp._tryConvertUrl = function (url) {
     if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
         // special cases with imgur
 
         if (url.indexOf('gifv') >= 0) {
-            if (url.indexOf('i.') == 0) {
+            if (url.indexOf('i.') === 0) {
                 url = url.replace('imgur.com', 'i.imgur.com')
             }
             return url.replace('.gifv', '.gif');
@@ -469,7 +472,7 @@ redditp._tryConvertUrl = function (url) {
     }
 
     return '';
-}
+};
 
 //
 // Slides the background photos
@@ -494,8 +497,9 @@ redditp._slideBackgroundPhoto = function (imageIndex) {
     if(photo.isVideo) {
         clearTimeout(nextSlideTimeoutId);
         var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
-        if(gfyid.indexOf('#') != -1)
+        if(gfyid.indexOf('#') != -1) {
             gfyid = gfyid.substr(0, gfyid.indexOf('#'));
+        }
         divNode.html('<img class="gfyitem" data-id="'+gfyid+'" data-controls="false"/>');
     }
 
@@ -557,4 +561,4 @@ redditp._isLastImage = function(imageIndex) {
         }
         return true;
     }
-}
+};

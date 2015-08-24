@@ -311,6 +311,7 @@ $(function () {
         var pic = {
             "title": title,
             "url": url,
+            "original_url": url,
             "commentsLink": commentsLink,
             "over18": over18,
             "isVideo": video
@@ -510,6 +511,12 @@ $(function () {
         // Retrieve the accompanying photo based on the index
         var photo = rp.photos[imageIndex];
 
+        // Update Reddit button widget
+        $('#navboxWidget').html("<iframe src=\"//www.redditstatic.com/button/button1.html?url=" + 
+            encodeURIComponent(photo.original_url) +
+            "&newwindow=1" +
+            "\" height=\"22\" width=\"120\" scrolling='no' frameborder='0'></iframe>");
+
         // Create a new div and apply the CSS
         var cssMap = Object();
         cssMap['display'] = "none";
@@ -685,6 +692,7 @@ $(function () {
             $.each(data.data.children, function (i, item) {
                 addImageSlide({
                     url: item.data.url,
+                    original_url: item.data.url,
                     title: item.data.title,
                     over18: item.data.over_18,
                     subreddit: item.data.subreddit,

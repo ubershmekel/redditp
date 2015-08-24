@@ -43,7 +43,7 @@ redditp.cookies = {
     _setCookie: function (c_name, value) {
         var exdate = new Date();
         exdate.setDate(exdate.getDate() + redditp.settings.cookieDays);
-        var c_value = escape(value) + ((redditp.settings.cookieDays === null) ? "" : "; expires=" + exdate.toUTCString());
+        var c_value = encodeURIComponent(value) + ((redditp.settings.cookieDays === null) ? "" : "; expires=" + exdate.toUTCString());
         document.cookie = c_name + "=" + c_value;
     },
     _getCookie: function (c_name, default_value) {
@@ -54,7 +54,7 @@ redditp.cookies = {
             y = cookiesArray[i].substr(cookiesArray[i].indexOf("=") + 1);
             x = x.replace(/^\s+|\s+$/g, "");
             if (x == c_name) {
-                return unescape(y);
+                return decodeURIComponent(y);
             }
         }
         return default_value;
@@ -75,12 +75,14 @@ redditp.session = {
     // Reddit filter "After"
     after: "",
 
-    foundOneImage: false
+    foundOneImage: false,
+
+    loadingNextImages: false
 };
 
 redditp.urls = {
     _redditBaseUrl: null,
-    redditBaseUrl: function() {
+    getRedditBaseUrl: function() {
         if (redditp.urls._redditBaseUrl) {
             return redditp.urls._redditBaseUrl;
         }
@@ -92,8 +94,11 @@ redditp.urls = {
             // TODO: try "//" instead of specifying the protocol
         }
     
-        redditp.urls._redditBaseUrl = result;
+        redditp.urls.setRedditBaseUrl(result);
         return result;
+    },
+    setRedditBaseUrl: function(val) {
+        redditp.urls._redditBaseUrl = val;
     },
 
     _getRestOfUrl: function () {
@@ -117,7 +122,7 @@ redditp.urls = {
     },
 
     _subredditUrl: null,
-    subredditUrl: function() {
+    getSubredditUrl: function() {
         if (redditp.urls._subredditUrl) {
             return redditp.urls._subredditUrl;
         }
@@ -130,6 +135,9 @@ redditp.urls = {
 
         redditp.urls._subredditUrl = result;
         return result;
+    },
+    setSubredditUrl: function(val) {
+        redditp.urls._subredditUrl = val;
     },
 
     _getVars: null,
@@ -170,7 +178,7 @@ redditp.animateNavigationBox = function (imageIndex) {
     var subreddit = '/r/' + photo.subreddit;
 
     $('#navboxTitle').html(photo.title);
-    $('#navboxSubreddit').attr('href', redditp.session.redditBaseUrl + subreddit).html(subreddit);
+    $('#navboxSubreddit').attr('href', redditp.urls.getRedditBaseUrl() + subreddit).html(subreddit);
     $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
     $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
@@ -219,7 +227,7 @@ redditp.startAnimation = function (imageIndex) {
     redditp.session.activeIndex = imageIndex;
 
     if (redditp._isLastImage(redditp.session.activeIndex) &&
-        redditp.urls.subredditUrl().indexOf('/imgur') !== 0) {
+        redditp.urls.getSubredditUrl().indexOf('/imgur') !== 0) {
         redditp.getRedditImages();
     }
 };
@@ -233,7 +241,7 @@ redditp.nextSlide = function() {
             }
         }
     }
-    if (redditp._isLastImage(redditp.session.activeIndex) && !loadingNextImages) {
+    if (redditp._isLastImage(redditp.session.activeIndex) && !redditp.session.loadingNextImages) {
         // the only reason we got here and there aren't more pictures yet
         // is because there are no more images to load, start over
         redditp.startAnimation(0);
@@ -260,10 +268,10 @@ redditp.getRedditImages = function () {
     //    return;
     //}
 
-    loadingNextImages = true;
+    redditp.session.loadingNextImages = true;
 
-    var jsonUrl = redditp.urls.redditBaseUrl() +
-                redditp.urls.subredditUrl() +
+    var jsonUrl = redditp.urls.getRedditBaseUrl() +
+                redditp.urls.getSubredditUrl() +
                 ".json?jsonp=?" +
                 redditp.session.after +
                 "&" +
@@ -291,7 +299,7 @@ redditp.getRedditImages = function () {
                 title: item.data.title,
                 over18: item.data.over_18,
                 subreddit: item.data.subreddit,
-                commentsLink: redditp.urls.redditBaseUrl() + item.data.permalink
+                commentsLink: redditp.urls.getRedditBaseUrl() + item.data.permalink
             });
         });
 
@@ -315,7 +323,7 @@ redditp.getRedditImages = function () {
             var numberButton = $("<span />").addClass("numberButton").text("-");
             redditp.addNumberButton(numberButton);
         }
-        loadingNextImages = false;
+        redditp.session.loadingNextImages = false;
        
     };
 
@@ -402,13 +410,13 @@ redditp.verifyNsfwMakesSense = function() {
     var nsfwImages = 0;
     for(var i = 0; i < redditp.photos.length; i++) {
         if(redditp.photos[i].over18) {
-            nsfwImages += 1
+            nsfwImages += 1;
         }
     }
     
     if(0.8 < nsfwImages * 1.0 / redditp.photos.length) {
         redditp.cookies.setNsfw(true);
-        $("#nsfw").prop("checked", nsfw);
+        $("#nsfw").prop("checked", true);
     }
 };
 
@@ -453,7 +461,7 @@ redditp._tryConvertUrl = function (url) {
 
         if (url.indexOf('gifv') >= 0) {
             if (url.indexOf('i.') === 0) {
-                url = url.replace('imgur.com', 'i.imgur.com')
+                url = url.replace('imgur.com', 'i.imgur.com');
             }
             return url.replace('.gifv', '.gif');
         }
@@ -495,7 +503,7 @@ redditp._slideBackgroundPhoto = function (imageIndex) {
     //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
     var divNode = $("<div />").css(cssMap).addClass("clouds");
     if(photo.isVideo) {
-        clearTimeout(nextSlideTimeoutId);
+        redditp.clearTimeout();
         var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
         if(gfyid.indexOf('#') != -1) {
             gfyid = gfyid.substr(0, gfyid.indexOf('#'));

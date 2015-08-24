@@ -17,7 +17,7 @@ $(function () {
     $("#subredditUrl").text("Loading Reddit Slideshow");
     $("#navboxTitle").text("Loading Reddit Slideshow");
 
-    fadeoutWhenIdle = true;
+    var fadeoutWhenIdle = true;
     var setupFadeoutOnIdle = function () {
         $('.fadeOnIdle').fadeTo('fast', 0);
         var navboxVisible = false;
@@ -42,8 +42,6 @@ $(function () {
     // this fadeout was really inconvenient on mobile phones
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
-
-    var loadingNextImages = false;
 
     function open_in_background(selector){
         // as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
@@ -218,7 +216,7 @@ $(function () {
                 });                
             });
 
-            verifyNsfwMakesSense();
+            redditp.verifyNsfwMakesSense();
 
             if (!redditp.session.foundOneImage) {
                 log(jsonUrl);
@@ -236,7 +234,7 @@ $(function () {
             //var numberButton = $("<span />").addClass("numberButton").text("-");
             //addNumberButton(numberButton);
 
-            loadingNextImages = false;
+            redditp.session.loadingNextImages = false;
         };
 
         $.ajax({
@@ -261,17 +259,17 @@ $(function () {
         }
 
         var subredditName;
-        if (redditp.urls.subredditUrl() === "") {
-            redditp.urls.subredditUrl() = "/";
+        if (redditp.urls.getSubredditUrl() === "") {
+            redditp.urls.setSubredditUrl("/");
             subredditName = "reddit.com" + getVarsQuestionMark;
             //var options = ["/r/aww/", "/r/earthporn/", "/r/foodporn", "/r/pics"];
             //subredditUrl = options[Math.floor(Math.random() * options.length)];
         } else {
-            subredditName = redditp.urls.subredditUrl() + getVarsQuestionMark;
+            subredditName = redditp.urls.getSubredditUrl() + getVarsQuestionMark;
         }
         
 
-        var visitSubredditUrl = redditp.urls.redditBaseUrl() + redditp.urls.subredditUrl() + getVarsQuestionMark;
+        var visitSubredditUrl = redditp.urls.getRedditBaseUrl() + redditp.urls.getSubredditUrl() + getVarsQuestionMark;
         
         // truncate and display subreddit name in the control box
         var displayedSubredditName = subredditName;
@@ -292,8 +290,8 @@ $(function () {
     // if ever found even 1 image, don't show the error
     redditp.session.foundOneImage = false;
 
-    if(redditp.urls.subredditUrl().indexOf('/imgur') === 0)
-        getImgurAlbum(redditp.urls.subredditUrl);
+    if(redditp.urls.getSubredditUrl().indexOf('/imgur') === 0)
+        getImgurAlbum(redditp.urls.getSubredditUrl());
     else
         redditp.getRedditImages();
 });

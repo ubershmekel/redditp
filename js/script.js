@@ -28,29 +28,6 @@ rp.photos = [];
 var activeIndex = -1;
 
 
-// IE doesn't have indexOf, wtf...
-if (!Array.indexOf) {
-    Array.prototype.indexOf = function (obj) {
-        for (var i = 0; i < this.length; i++) {
-            if (this[i] == obj) {
-                return i;
-            }
-        }
-        return -1;
-    };
-}
-
-// IE doesn't have console.log and fails, wtf...
-// usage: log('inside coolFunc',this,arguments);
-// http://paulirish.com/2009/log-a-lightweight-wrapper-for-consolelog/
-window.log = function () {
-    log.history = log.history || []; // store logs to an array for reference
-    log.history.push(arguments);
-    if (this.console) {
-        console.log(Array.prototype.slice.call(arguments));
-    }
-};
-
 $(function () {
 
     $("#subredditUrl").text("Loading Reddit Slideshow");
@@ -327,7 +304,7 @@ $(function () {
                 pic.url = betterUrl;
             } else {
                 if (rp.debug) {
-                    console.log('failed: ' + pic.url);
+                    log('failed: ' + pic.url);
                 }
                 return;
             }
@@ -593,7 +570,7 @@ $(function () {
 
             if (url.indexOf('/a/') > 0 || url.indexOf('/gallery/') > 0) {
                 // albums aren't supported yet
-                //console.log('Unsupported gallery: ' + url);
+                //log('Unsupported gallery: ' + url);
                 return '';
             }
             
@@ -665,7 +642,7 @@ $(function () {
         loadingNextImages = true;
 
         var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
-        console.log(jsonUrl);
+        log(jsonUrl);
         //log(jsonUrl);
         var failedAjax = function (data) {
             alert("Failed ajax, maybe a bad url? Sorry about that :(");
@@ -738,7 +715,7 @@ $(function () {
         };
         var handleData = function (data) {
 
-            //console.log(data);
+            //log(data);
 
             if (data.data.images.length === 0) {
                 alert("No data from this url :(");

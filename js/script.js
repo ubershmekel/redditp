@@ -11,13 +11,17 @@
 
 // TODO: refactor all the globals to use the rp object's namespace.
 var rp = {};
-rp.debug = true;
 
-// Speed of the animation
-var animationSpeed = 1000;
-var shouldAutoNextSlide = true;
-var timeToNextSlide = 6 * 1000;
-var cookieDays = 300;
+rp.settings = {
+    debug: true,
+    // Speed of the animation
+    animationSpeed: 1000,
+    shouldAutoNextSlide: true,
+    timeToNextSlide: 6 * 1000,
+    cookieDays: 300,
+    goodExtensions: ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+};
+
 
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
@@ -91,7 +95,7 @@ $(function () {
 
     
     var autoNextSlide = function () {
-        if (shouldAutoNextSlide) {
+        if (rp.settings.shouldAutoNextSlide) {
             // startAnimation takes care of the setTimeout
             nextSlide();
         }
@@ -166,8 +170,8 @@ $(function () {
         }
     };
 
-    var setCookie = function (c_name, value, exdays) {
-        Cookies.set(c_name, value, { expires: exdays });
+    var setCookie = function (c_name, value) {
+        Cookies.set(c_name, value, { expires: rp.settings.cookieDays });
     };
 
     
@@ -178,13 +182,13 @@ $(function () {
 
     var resetNextSlideTimer = function () {
         clearTimeout(nextSlideTimeoutId);
-        nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
+        nextSlideTimeoutId = setTimeout(autoNextSlide, rp.settings.timeToNextSlide);
     };
 
     shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
     var updateAutoNext = function () {
-        shouldAutoNextSlide = $("#autoNextSlide").is(':checked');
-        setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
+        rp.settings.shouldAutoNextSlide = $("#autoNextSlide").is(':checked');
+        setCookie(shouldAutoNextSlideCookie, rp.settings.shouldAutoNextSlide);
         resetNextSlideTimer();
     };
 
@@ -217,7 +221,7 @@ $(function () {
     nsfwCookie = "nsfwCookie";
     var updateNsfw = function () {
         nsfw = $("#nsfw").is(':checked');
-        setCookie(nsfwCookie, nsfw, cookieDays);
+        setCookie(nsfwCookie, nsfw);
     };
 
     var initState = function () {
@@ -234,15 +238,15 @@ $(function () {
         if (autoByCookie === undefined) {
             updateAutoNext();
         } else {
-            shouldAutoNextSlide = (autoByCookie === "true");
-            $("#autoNextSlide").prop("checked", shouldAutoNextSlide);
+            rp.settings.shouldAutoNextSlide = (autoByCookie === "true");
+            $("#autoNextSlide").prop("checked", rp.settings.shouldAutoNextSlide);
         }
         $('#autoNextSlide').change(updateAutoNext);
 
         var updateTimeToNextSlide = function () {
             var val = $('#timeToNextSlide').val();
-            timeToNextSlide = parseFloat(val) * 1000;
-            setCookie(timeToNextSlideCookie, val, cookieDays);
+            rp.settings.timeToNextSlide = parseFloat(val) * 1000;
+            setCookie(timeToNextSlideCookie, val);
         };
 
         var timeToNextSlideCookie = "timeToNextSlideCookie";
@@ -250,7 +254,7 @@ $(function () {
         if (timeByCookie === undefined) {
             updateTimeToNextSlide();
         } else {
-            timeToNextSlide = parseFloat(timeByCookie) * 1000;
+            rp.settings.timeToNextSlide = parseFloat(timeByCookie) * 1000;
             $('#timeToNextSlide').val(timeByCookie);
         }
         
@@ -293,7 +297,7 @@ $(function () {
             if(betterUrl !== '') {
                 pic.url = betterUrl;
             } else {
-                if (rp.debug) {
+                if (rp.settings.debug) {
                     log('failed: ' + pic.url);
                 }
                 return;
@@ -500,7 +504,7 @@ $(function () {
         //imgNode.appendTo(divNode);
         divNode.prependTo("#pictureSlider");
 
-        $("#pictureSlider div").fadeIn(animationSpeed);
+        $("#pictureSlider div").fadeIn(rp.settings.animationSpeed);
         if(photo.isVideo){
             gfyCollection.init();
             //ToDo: find a better solution!
@@ -510,10 +514,10 @@ $(function () {
                     vid.find('.gfyPreLoadCanvas').remove();
                     var v = vid.find('video').width('100%').height('100%');
                     vid.find('.gfyPreLoadCanvas').remove();
-                    if (shouldAutoNextSlide)
+                    if (rp.settings.shouldAutoNextSlide)
                         v.removeAttr('loop');
                     v[0].onended = function (e) {
-                        if (shouldAutoNextSlide)
+                        if (rp.settings.shouldAutoNextSlide)
                             nextSlide();
                     };
                 }
@@ -521,7 +525,7 @@ $(function () {
         }
 
         var oldDiv = $("#pictureSlider div:not(:first)");
-        oldDiv.fadeOut(animationSpeed, function () {
+        oldDiv.fadeOut(rp.settings.animationSpeed, function () {
             oldDiv.remove();
             isAnimating = false;
         });
@@ -573,7 +577,6 @@ $(function () {
 
         return '';
     };
-    var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png'];
     var isImageExtension = function (url) {
         var dotLocation = url.lastIndexOf('.');
         if (dotLocation < 0) {
@@ -582,7 +585,7 @@ $(function () {
         }
         var extension = url.substring(dotLocation);
 
-        if (goodExtensions.indexOf(extension) >= 0) {
+        if (rp.settings.goodExtensions.indexOf(extension) >= 0) {
             return true;
         } else {
             //log("skipped bad extension: " + url);

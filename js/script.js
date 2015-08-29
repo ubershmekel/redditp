@@ -22,14 +22,28 @@ rp.settings = {
     goodExtensions: ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
 };
 
+rp.session = {
+    // 0-based index to set which picture to show first
+    // init to -1 until the first image is loaded
+    activeIndex: -1,
+    
+    // Variable to store if the animation is playing or not
+    isAnimating: false,
+
+    // Id of timer
+    nextSlideTimeoutId: null,
+
+    // Reddit filter "After"
+    after: "",
+
+    foundOneImage: false,
+
+    loadingNextImages: false
+};
 
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
 rp.photos = [];
-
-// 0-based index to set which picture to show first
-// init to -1 until the first image is loaded
-var activeIndex = -1;
 
 
 $(function () {
@@ -63,34 +77,30 @@ $(function () {
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
 
-    var nextSlideTimeoutId = null;
-
-    var loadingNextImages = false;
-
     function nextSlide() {
         if(!nsfw) {
-            for(var i = activeIndex + 1; i < rp.photos.length; i++) {
+            for(var i = rp.session.activeIndex + 1; i < rp.photos.length; i++) {
                 if (!rp.photos[i].over18) {
                     return startAnimation(i);
                 }
             }
         }
-        if (isLastImage(activeIndex) && !loadingNextImages) {
+        if (isLastImage(rp.session.activeIndex) && !rp.session.loadingNextImages) {
             // the only reason we got here and there aren't more pictures yet
             // is because there are no more images to load, start over
             return startAnimation(0);
         }
-        startAnimation(activeIndex + 1);
+        startAnimation(rp.session.activeIndex + 1);
     }
     function prevSlide() {
         if(!nsfw) {
-            for(var i = activeIndex - 1; i > 0; i--) {
+            for(var i = rp.session.activeIndex - 1; i > 0; i--) {
                 if (!rp.photos[i].over18) {
                     return startAnimation(i);
                 }
             }
         }
-        startAnimation(activeIndex - 1);
+        startAnimation(rp.session.activeIndex - 1);
     }
 
     
@@ -181,8 +191,8 @@ $(function () {
     };
 
     var resetNextSlideTimer = function () {
-        clearTimeout(nextSlideTimeoutId);
-        nextSlideTimeoutId = setTimeout(autoNextSlide, rp.settings.timeToNextSlide);
+        clearTimeout(rp.session.nextSlideTimeoutId);
+        rp.session.nextSlideTimeoutId = setTimeout(autoNextSlide, rp.settings.timeToNextSlide);
     };
 
     shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
@@ -304,7 +314,7 @@ $(function () {
             }
         }
 
-        rp.foundOneImage = true;
+        rp.session.foundOneImage = true;
         
         preLoadImages(pic.url);
         rp.photos.push(pic);
@@ -426,24 +436,23 @@ $(function () {
     // Starts the animation, based on the image index
     //
     // Variable to store if the animation is playing or not
-    var isAnimating = false;
     var startAnimation = function (imageIndex) {
         resetNextSlideTimer();
 
         // If the same number has been chosen, or the index is outside the
         // rp.photos range, or we're already animating, do nothing
-        if (activeIndex == imageIndex || imageIndex > rp.photos.length - 1 || imageIndex < 0 || isAnimating || rp.photos.length == 0) {
+        if (rp.session.activeIndex == imageIndex || imageIndex > rp.photos.length - 1 || imageIndex < 0 || rp.session.isAnimating || rp.photos.length == 0) {
             return;
         }
 
-        isAnimating = true;
+        rp.session.isAnimating = true;
         animateNavigationBox(imageIndex);
         slideBackgroundPhoto(imageIndex);
 
         // Set the active index to the used image index
-        activeIndex = imageIndex;
+        rp.session.activeIndex = imageIndex;
 
-        if (isLastImage(activeIndex) && rp.subredditUrl.indexOf('/imgur') != 0) {
+        if (isLastImage(rp.session.activeIndex) && rp.subredditUrl.indexOf('/imgur') != 0) {
             getRedditImages();
         }
     };
@@ -469,7 +478,7 @@ $(function () {
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
-        toggleNumberButton(activeIndex, false);
+        toggleNumberButton(rp.session.activeIndex, false);
         toggleNumberButton(imageIndex, true);
     };
 
@@ -494,7 +503,7 @@ $(function () {
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
         var divNode = $("<div />").css(cssMap).addClass("clouds");
         if(photo.isVideo) {
-            clearTimeout(nextSlideTimeoutId);
+            clearTimeout(rp.session.nextSlideTimeoutId);
             var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
             if(gfyid.indexOf('#') != -1)
                 gfyid = gfyid.substr(0, gfyid.indexOf('#'));
@@ -527,7 +536,7 @@ $(function () {
         var oldDiv = $("#pictureSlider div:not(:first)");
         oldDiv.fadeOut(rp.settings.animationSpeed, function () {
             oldDiv.remove();
-            isAnimating = false;
+            rp.session.isAnimating = false;
         });
     };
 
@@ -632,9 +641,9 @@ $(function () {
         //    return;
         //}
 
-        loadingNextImages = true;
+        rp.session.loadingNextImages = true;
 
-        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
+        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
         log(jsonUrl);
         //log(jsonUrl);
         var failedAjax = function (data) {
@@ -645,7 +654,7 @@ $(function () {
             //redditData = data //global for debugging data
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getRedditImages which is fine.
-            after = "&after=" + data.data.after;
+            rp.session.after = "&after=" + data.data.after;
 
             if (data.data.children.length === 0) {
                 alert("No data from this url :(");
@@ -664,14 +673,14 @@ $(function () {
 
             verifyNsfwMakesSense();
             
-            if (!rp.foundOneImage) {
+            if (!rp.session.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
                 //log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
-            if (activeIndex == -1) {
+            if (rp.session.activeIndex == -1) {
                 startAnimation(0);
             }
 
@@ -682,7 +691,7 @@ $(function () {
                 var numberButton = $("<span />").addClass("numberButton").text("-");
                 addNumberButton(numberButton);
             }
-            loadingNextImages = false;
+            rp.session.loadingNextImages = false;
             
         };
 
@@ -726,13 +735,13 @@ $(function () {
 
             verifyNsfwMakesSense();
 
-            if (!rp.foundOneImage) {
+            if (!rp.session.foundOneImage) {
                 log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
-            if (activeIndex == -1) {
+            if (rp.session.activeIndex == -1) {
                 startAnimation(0);
             }
 
@@ -742,7 +751,7 @@ $(function () {
             //var numberButton = $("<span />").addClass("numberButton").text("-");
             //addNumberButton(numberButton);
 
-            loadingNextImages = false;
+            rp.session.loadingNextImages = false;
         };
 
         $.ajax({
@@ -812,13 +821,12 @@ $(function () {
     }
 
     var getVars;
-    var after = "";
     
     initState();
     setupUrls();
 
     // if ever found even 1 image, don't show the error
-    rp.foundOneImage = false;
+    rp.session.foundOneImage = false;
 
     if(rp.subredditUrl.indexOf('/imgur') == 0)
         getImgurAlbum(rp.subredditUrl);

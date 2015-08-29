@@ -167,23 +167,13 @@ $(function () {
     };
 
     var setCookie = function (c_name, value, exdays) {
-        var exdate = new Date();
-        exdate.setDate(exdate.getDate() + exdays);
-        var c_value = escape(value) + ((exdays === null) ? "" : "; expires=" + exdate.toUTCString());
-        document.cookie = c_name + "=" + c_value;
+        Cookies.set(c_name, value, { expires: exdays });
     };
 
+    
     var getCookie = function (c_name) {
-        var i, x, y;
-        var cookiesArray = document.cookie.split(";");
-        for (i = 0; i < cookiesArray.length; i++) {
-            x = cookiesArray[i].substr(0, cookiesArray[i].indexOf("="));
-            y = cookiesArray[i].substr(cookiesArray[i].indexOf("=") + 1);
-            x = x.replace(/^\s+|\s+$/g, "");
-            if (x == c_name) {
-                return unescape(y);
-            }
-        }
+        // undefined in case nothing found
+        return Cookies.get(c_name);
     };
 
     var resetNextSlideTimer = function () {
@@ -232,7 +222,7 @@ $(function () {
 
     var initState = function () {
         var nsfwByCookie = getCookie(nsfwCookie);
-        if (nsfwByCookie == undefined) {
+        if (nsfwByCookie === undefined) {
             nsfw = true;
         } else {
             nsfw = (nsfwByCookie === "true");
@@ -241,7 +231,7 @@ $(function () {
         $('#nsfw').change(updateNsfw);
 
         var autoByCookie = getCookie(shouldAutoNextSlideCookie);
-        if (autoByCookie == undefined) {
+        if (autoByCookie === undefined) {
             updateAutoNext();
         } else {
             shouldAutoNextSlide = (autoByCookie === "true");
@@ -257,7 +247,7 @@ $(function () {
 
         var timeToNextSlideCookie = "timeToNextSlideCookie";
         timeByCookie = getCookie(timeToNextSlideCookie);
-        if (timeByCookie == undefined) {
+        if (timeByCookie === undefined) {
             updateTimeToNextSlide();
         } else {
             timeToNextSlide = parseFloat(timeByCookie) * 1000;

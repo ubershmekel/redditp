@@ -45,6 +45,9 @@ rp.session = {
 // which also includes some text and url's.
 rp.photos = [];
 
+// maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
+rp.cache = [];
+
 
 $(function () {
 
@@ -168,15 +171,13 @@ $(function () {
         }
     });
 
-    // maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
-    var cache = [];
     // Arguments are image paths relative to the current page.
     var preLoadImages = function () {
         var args_len = arguments.length;
         for (var i = args_len; i--;) {
             var cacheImage = document.createElement('img');
             cacheImage.src = arguments[i];
-            cache.push(cacheImage);
+            rp.cache.push(cacheImage);
         }
     };
 

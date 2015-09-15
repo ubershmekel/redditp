@@ -324,7 +324,7 @@ $(function () {
         }
         */
         pic.isVideo = false;
-        if (pic.url.indexOf('gfycat.com') >= 0){
+        if (pic.url.indexOf('gfycat.com') >= 0) {
             pic.isVideo = true;
         } else if (isImageExtension(pic.url)) {
             // simple image
@@ -509,6 +509,27 @@ $(function () {
         toggleNumberButton(imageIndex, true);
     };
 
+    var failCleanup = function() {
+        if (rp.photos.length > 0) {
+            // already loaded images, don't ruin the existing experience
+            return;
+        }
+
+        // remove "loading" title
+        $('#navboxTitle').text('');
+
+        // display alternate recommendations
+        $('#recommend').css({'display':'block'});
+    };
+
+    var failedAjax = function (xhr, ajaxOptions, thrownError) {
+        console.log(xhr);
+        console.log(ajaxOptions);
+        console.log(thrownError);
+        alert("Failed ajax, maybe a bad url? Sorry about that :(\n" + xhr.responseText + "\n");
+        failCleanup();
+    };
+
     //
     // Slides the background photos
     //
@@ -528,47 +549,71 @@ $(function () {
         }
 
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
-        var divNode = $("<div />").css(cssMap).addClass("clouds");
         if(photo.isVideo) {
             clearTimeout(nextSlideTimeoutId);
             var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
-            if(gfyid.indexOf('#') != -1)
+            if (gfyid.indexOf('#') != -1)
                 gfyid = gfyid.substr(0, gfyid.indexOf('#'));
-            divNode.html('<img class="gfyitem" data-id="'+gfyid+'" data-controls="false"/>');
+
+            var jsonUrl = "https://gfycat.com/cajax/get/" + gfyid;
+
+            var handleData = function (data) {
+                var divNode = $("<div />").css(cssMap).addClass("clouds");
+
+                divNode.html('<video id="gfyvid" class="gfyVid" preload="auto" '+
+                             'poster="http://thumbs.gfycat.com/'+gfyid+'-poster.jpg" '+
+                             'muted="muted" loop="" autoplay="" style="width: 100%; height: 100%;"> '+
+                             '<source type="video/webm" src="'+data.gfyItem.webmUrl+'"></source>'+
+                             '<source type="video/mp4" src="'+data.gfyItem.mp4Url+'"></source></video>');
+
+                var video = divNode.children('video')[0];
+                $(video).bind("loadedmetadata", function(e) {
+                        var duration = e.target.duration;
+                        if (rp.debug)
+                            console.log("video metadata.duration: "+duration);
+                        duration += 0.5;
+                        if (shouldAutoNextSlide && duration > timeToNextSlide)
+                            resetNextSlideTimer(duration.toFixed());
+                    });
+
+                divNode.prependTo("#pictureSlider");
+                $("#pictureSlider div").fadeIn(animationSpeed);
+                $('#gfyvid').load();
+
+                var oldDiv = $("#pictureSlider div:not(:first)");
+                oldDiv.fadeOut(animationSpeed, function () {
+                        oldDiv.remove();
+                        isAnimating = false;
+                    });
+
+            };
+
+            $.ajax({
+                url: jsonUrl,
+                dataType: 'json',
+                success: handleData,
+                error: failedAjax,
+                404: failedAjax,
+                jsonp: false,
+                timeout: 5000,
+                crossDomain: true
+                });
+
+        } else {
+            var divNode = $("<div />").css(cssMap).addClass("clouds");
+
+            divNode.prependTo("#pictureSlider");
+            $("#pictureSlider div").fadeIn(animationSpeed);
+
+            var oldDiv = $("#pictureSlider div:not(:first)");
+            oldDiv.fadeOut(animationSpeed, function () {
+                    oldDiv.remove();
+                    isAnimating = false;
+                });
         }
-
-        //imgNode.appendTo(divNode);
-        divNode.prependTo("#pictureSlider");
-
-        $("#pictureSlider div").fadeIn(animationSpeed);
-        if(photo.isVideo){
-            gfyCollection.init();
-            //ToDo: find a better solution!
-            $(divNode).bind("DOMNodeInserted", function(e) {
-                if(e.target.tagName.toLowerCase() == "video") {
-                    var vid = $('.gfyitem > div').width('100%').height('100%');
-                    vid.find('.gfyPreLoadCanvas').remove();
-                    var v = vid.find('video').width('100%').height('100%');
-                    vid.find('.gfyPreLoadCanvas').remove();
-                    if (shouldAutoNextSlide)
-                        v.removeAttr('loop');
-                    v[0].onended = function (e) {
-                        if (shouldAutoNextSlide)
-                            nextSlide();
-                    };
-                }
-            });
-        }
-
-        var oldDiv = $("#pictureSlider div:not(:first)");
-        oldDiv.fadeOut(animationSpeed, function () {
-            oldDiv.remove();
-            isAnimating = false;
-        });
     };
 
-    
-    
+
     var verifyNsfwMakesSense = function() {
         // Cases when you forgot NSFW off but went to /r/nsfw
         // can cause strange bugs, let's help the user when over 80% of the
@@ -650,19 +695,6 @@ $(function () {
         }
     };
 
-    var failCleanup = function() {
-        if (rp.photos.length > 0) {
-            // already loaded images, don't ruin the existing experience
-            return;
-        }
-        
-        // remove "loading" title
-        $('#navboxTitle').text('');
-        
-        // display alternate recommendations
-        $('#recommend').css({'display':'block'});
-    };
-    
     var getRedditImages = function () {
         //if (noMoreToLoad){
         //    log("No more images to load, will rotate to start.");
@@ -674,11 +706,7 @@ $(function () {
         var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
         console.log(jsonUrl);
         //log(jsonUrl);
-        var failedAjax = function (data) {
-            alert("Failed ajax, maybe a bad url? Sorry about that :(");
-            failCleanup();
-        };
-        var handleData = function (data) {
+         var handleData = function (data) {
             //redditData = data //global for debugging data
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getRedditImages which is fine.
@@ -739,10 +767,7 @@ $(function () {
         var albumID = url.match(/.*\/(.+?$)/)[1];
         var jsonUrl = 'https://api.imgur.com/3/album/' + albumID;
         //log(jsonUrl);
-        var failedAjax = function (data) {
-            alert("Failed ajax, maybe a bad url? Sorry about that :(");
-            failCleanup();
-        };
+
         var handleData = function (data) {
 
             //console.log(data);

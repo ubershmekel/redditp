@@ -112,19 +112,19 @@ $(function () {
         startAnimation(activeIndex - 1);
     }
 
-    
+
     var autoNextSlide = function () {
         if (shouldAutoNextSlide) {
             // startAnimation takes care of the setTimeout
             nextSlide();
         }
     };
-    
+
     function open_in_background(selector){
         // as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
         // works on latest chrome, safari and opera
         var link = $(selector)[0];
-        
+
         // Simulating a ctrl key won't trigger a background tab on IE and Firefox ( https://bugzilla.mozilla.org/show_bug.cgi?id=812202 )
         // so we need to open a new window
         if ( navigator.userAgent.match(/msie/i) || navigator.userAgent.match(/trident/i)  || navigator.userAgent.match(/firefox/i) ){
@@ -341,7 +341,7 @@ $(function () {
         }
 
         rp.foundOneImage = true;
-        
+
         preLoadImages(pic.url);
         rp.photos.push(pic);
 
@@ -379,7 +379,7 @@ $(function () {
     var R_KEY = 82;
     var T_KEY = 84;
 
-    
+
     // Register keyboard events on the whole document
     $(document).keyup(function (e) {
         if(e.ctrlKey) {
@@ -624,14 +624,14 @@ $(function () {
                 nsfwImages += 1;
             }
         }
-        
+
         if(0.8 < nsfwImages * 1.0 / rp.photos.length) {
             nsfw = true;
             $("#nsfw").prop("checked", nsfw);
         }
     };
-    
-    
+
+
     var tryConvertUrl = function (url) {
         if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
             // special cases with imgur
@@ -648,7 +648,7 @@ $(function () {
                 //console.log('Unsupported gallery: ' + url);
                 return '';
             }
-            
+
             // imgur is really nice and serves the image with whatever extension
             // you give it. '.jpg' is arbitrary
             // regexp removes /r/<sub>/ prefix if it exists
@@ -683,7 +683,7 @@ $(function () {
         // Detect predefined reddit url paths. If you modify this be sure to fix
         // .htaccess
         // This is a good idea so we can give a quick 404 page when appropriate.
-        
+
         var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
@@ -728,7 +728,7 @@ $(function () {
             });
 
             verifyNsfwMakesSense();
-            
+
             if (!rp.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
                 //log(jsonUrl);
@@ -748,7 +748,7 @@ $(function () {
                 addNumberButton(numberButton);
             }
             loadingNextImages = false;
-            
+
         };
 
         // I still haven't been able to catch jsonp 404 events so the timeout
@@ -783,7 +783,7 @@ $(function () {
                     title: item.title,
                     over18: item.nsfw,
                     commentsLink: ""
-                });                
+                });
             });
 
             verifyNsfwMakesSense();
@@ -825,7 +825,7 @@ $(function () {
         //log(rp.urlData)
         rp.subredditUrl = rp.urlData[0];
         getVars = rp.urlData[1];
-        
+
         if (getVars.length > 0) {
             getVarsQuestionMark = "?" + getVars;
         } else {
@@ -846,10 +846,10 @@ $(function () {
         } else {
             subredditName = rp.subredditUrl + getVarsQuestionMark;
         }
-        
+
 
         var visitSubredditUrl = rp.redditBaseUrl + rp.subredditUrl + getVarsQuestionMark;
-        
+
         // truncate and display subreddit name in the control box
         var displayedSubredditName = subredditName;
         // empirically tested capsize, TODO: make css rules to verify this is enough.
@@ -862,10 +862,6 @@ $(function () {
 
         document.title = "redditP - " + subredditName;
     };
-    
-    
-
-    
     rp.redditBaseUrl = "http://www.reddit.com";
     if (location.protocol === 'https:') {
         // page is secure
@@ -875,7 +871,7 @@ $(function () {
 
     var getVars;
     var after = "";
-    
+
     initState();
     setupUrls();
 
@@ -886,4 +882,4 @@ $(function () {
         getImgurAlbum(rp.subredditUrl);
     else
         getRedditImages();
-});
+    });

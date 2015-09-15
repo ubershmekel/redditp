@@ -16,7 +16,7 @@ rp.debug = true;
 // Speed of the animation
 var animationSpeed = 1000;
 var shouldAutoNextSlide = true;
-var timeToNextSlide = 6 * 1000;
+var timeToNextSlide = 6;
 var cookieDays = 300;
 
 // Variable to store the images we need to set as background
@@ -209,9 +209,16 @@ $(function () {
         }
     };
 
-    var resetNextSlideTimer = function () {
+    var resetNextSlideTimer = function (timeout) {
+	if (timeout === undefined) {
+	    timeout = timeToNextSlide;
+	}
+	timeout *= 1000;
+	if (rp.debug) {
+	    console.log('set timeout (ms): ' + timeout);
+	}
         clearTimeout(nextSlideTimeoutId);
-        nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
+        nextSlideTimeoutId = setTimeout(autoNextSlide, timeout);
     };
 
     shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
@@ -274,7 +281,7 @@ $(function () {
 
         var updateTimeToNextSlide = function () {
             var val = $('#timeToNextSlide').val();
-            timeToNextSlide = parseFloat(val) * 1000;
+            timeToNextSlide = parseFloat(val);
             setCookie(timeToNextSlideCookie, val, cookieDays);
         };
 
@@ -283,7 +290,7 @@ $(function () {
         if (timeByCookie == undefined) {
             updateTimeToNextSlide();
         } else {
-            timeToNextSlide = parseFloat(timeByCookie) * 1000;
+            timeToNextSlide = parseFloat(timeByCookie);
             $('#timeToNextSlide').val(timeByCookie);
         }
         

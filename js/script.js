@@ -16,7 +16,7 @@ rp.debug = true;
 // Speed of the animation
 var animationSpeed = 1000;
 var shouldAutoNextSlide = true;
-var timeToNextSlide = 6 * 1000;
+var timeToNextSlide = 6;
 var cookieDays = 300;
 
 // Variable to store the images we need to set as background
@@ -112,19 +112,19 @@ $(function () {
         startAnimation(activeIndex - 1);
     }
 
-    
+
     var autoNextSlide = function () {
         if (shouldAutoNextSlide) {
             // startAnimation takes care of the setTimeout
             nextSlide();
         }
     };
-    
+
     function open_in_background(selector){
         // as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
         // works on latest chrome, safari and opera
         var link = $(selector)[0];
-        
+
         // Simulating a ctrl key won't trigger a background tab on IE and Firefox ( https://bugzilla.mozilla.org/show_bug.cgi?id=812202 )
         // so we need to open a new window
         if ( navigator.userAgent.match(/msie/i) || navigator.userAgent.match(/trident/i)  || navigator.userAgent.match(/firefox/i) ){
@@ -209,9 +209,16 @@ $(function () {
         }
     };
 
-    var resetNextSlideTimer = function () {
+    var resetNextSlideTimer = function (timeout) {
+	if (timeout === undefined) {
+	    timeout = timeToNextSlide;
+	}
+	timeout *= 1000;
+	if (rp.debug) {
+	    console.log('set timeout (ms): ' + timeout);
+	}
         clearTimeout(nextSlideTimeoutId);
-        nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
+        nextSlideTimeoutId = setTimeout(autoNextSlide, timeout);
     };
 
     shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
@@ -274,7 +281,7 @@ $(function () {
 
         var updateTimeToNextSlide = function () {
             var val = $('#timeToNextSlide').val();
-            timeToNextSlide = parseFloat(val) * 1000;
+            timeToNextSlide = parseFloat(val);
             setCookie(timeToNextSlideCookie, val, cookieDays);
         };
 
@@ -283,7 +290,7 @@ $(function () {
         if (timeByCookie == undefined) {
             updateTimeToNextSlide();
         } else {
-            timeToNextSlide = parseFloat(timeByCookie) * 1000;
+            timeToNextSlide = parseFloat(timeByCookie);
             $('#timeToNextSlide').val(timeByCookie);
         }
         
@@ -317,7 +324,7 @@ $(function () {
         }
         */
         pic.isVideo = false;
-        if (pic.url.indexOf('gfycat.com') >= 0){
+        if (pic.url.indexOf('gfycat.com') >= 0) {
             pic.isVideo = true;
         } else if (isImageExtension(pic.url)) {
             // simple image
@@ -334,7 +341,7 @@ $(function () {
         }
 
         rp.foundOneImage = true;
-        
+
         preLoadImages(pic.url);
         rp.photos.push(pic);
 
@@ -372,7 +379,7 @@ $(function () {
     var R_KEY = 82;
     var T_KEY = 84;
 
-    
+
     // Register keyboard events on the whole document
     $(document).keyup(function (e) {
         if(e.ctrlKey) {
@@ -502,6 +509,27 @@ $(function () {
         toggleNumberButton(imageIndex, true);
     };
 
+    var failCleanup = function() {
+        if (rp.photos.length > 0) {
+            // already loaded images, don't ruin the existing experience
+            return;
+        }
+
+        // remove "loading" title
+        $('#navboxTitle').text('');
+
+        // display alternate recommendations
+        $('#recommend').css({'display':'block'});
+    };
+
+    var failedAjax = function (xhr, ajaxOptions, thrownError) {
+        console.log(xhr);
+        console.log(ajaxOptions);
+        console.log(thrownError);
+        alert("Failed ajax, maybe a bad url? Sorry about that :(\n" + xhr.responseText + "\n");
+        failCleanup();
+    };
+
     //
     // Slides the background photos
     //
@@ -521,47 +549,71 @@ $(function () {
         }
 
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
-        var divNode = $("<div />").css(cssMap).addClass("clouds");
         if(photo.isVideo) {
             clearTimeout(nextSlideTimeoutId);
             var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
-            if(gfyid.indexOf('#') != -1)
+            if (gfyid.indexOf('#') != -1)
                 gfyid = gfyid.substr(0, gfyid.indexOf('#'));
-            divNode.html('<img class="gfyitem" data-id="'+gfyid+'" data-controls="false"/>');
+
+            var jsonUrl = "https://gfycat.com/cajax/get/" + gfyid;
+
+            var handleData = function (data) {
+                var divNode = $("<div />").css(cssMap).addClass("clouds");
+
+                divNode.html('<video id="gfyvid" class="gfyVid" preload="auto" '+
+                             'poster="http://thumbs.gfycat.com/'+gfyid+'-poster.jpg" '+
+                             'muted="muted" loop="" autoplay="" style="width: 100%; height: 100%;"> '+
+                             '<source type="video/webm" src="'+data.gfyItem.webmUrl+'"></source>'+
+                             '<source type="video/mp4" src="'+data.gfyItem.mp4Url+'"></source></video>');
+
+                var video = divNode.children('video')[0];
+                $(video).bind("loadedmetadata", function(e) {
+                        var duration = e.target.duration;
+                        if (rp.debug)
+                            console.log("video metadata.duration: "+duration);
+                        duration += 0.5;
+                        if (shouldAutoNextSlide && duration > timeToNextSlide)
+                            resetNextSlideTimer(duration.toFixed());
+                    });
+
+                divNode.prependTo("#pictureSlider");
+                $("#pictureSlider div").fadeIn(animationSpeed);
+                $('#gfyvid').load();
+
+                var oldDiv = $("#pictureSlider div:not(:first)");
+                oldDiv.fadeOut(animationSpeed, function () {
+                        oldDiv.remove();
+                        isAnimating = false;
+                    });
+
+            };
+
+            $.ajax({
+                url: jsonUrl,
+                dataType: 'json',
+                success: handleData,
+                error: failedAjax,
+                404: failedAjax,
+                jsonp: false,
+                timeout: 5000,
+                crossDomain: true
+                });
+
+        } else {
+            var divNode = $("<div />").css(cssMap).addClass("clouds");
+
+            divNode.prependTo("#pictureSlider");
+            $("#pictureSlider div").fadeIn(animationSpeed);
+
+            var oldDiv = $("#pictureSlider div:not(:first)");
+            oldDiv.fadeOut(animationSpeed, function () {
+                    oldDiv.remove();
+                    isAnimating = false;
+                });
         }
-
-        //imgNode.appendTo(divNode);
-        divNode.prependTo("#pictureSlider");
-
-        $("#pictureSlider div").fadeIn(animationSpeed);
-        if(photo.isVideo){
-            gfyCollection.init();
-            //ToDo: find a better solution!
-            $(divNode).bind("DOMNodeInserted", function(e) {
-                if(e.target.tagName.toLowerCase() == "video") {
-                    var vid = $('.gfyitem > div').width('100%').height('100%');
-                    vid.find('.gfyPreLoadCanvas').remove();
-                    var v = vid.find('video').width('100%').height('100%');
-                    vid.find('.gfyPreLoadCanvas').remove();
-                    if (shouldAutoNextSlide)
-                        v.removeAttr('loop');
-                    v[0].onended = function (e) {
-                        if (shouldAutoNextSlide)
-                            nextSlide();
-                    };
-                }
-            });
-        }
-
-        var oldDiv = $("#pictureSlider div:not(:first)");
-        oldDiv.fadeOut(animationSpeed, function () {
-            oldDiv.remove();
-            isAnimating = false;
-        });
     };
 
-    
-    
+
     var verifyNsfwMakesSense = function() {
         // Cases when you forgot NSFW off but went to /r/nsfw
         // can cause strange bugs, let's help the user when over 80% of the
@@ -572,14 +624,14 @@ $(function () {
                 nsfwImages += 1;
             }
         }
-        
+
         if(0.8 < nsfwImages * 1.0 / rp.photos.length) {
             nsfw = true;
             $("#nsfw").prop("checked", nsfw);
         }
     };
-    
-    
+
+
     var tryConvertUrl = function (url) {
         if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
             // special cases with imgur
@@ -596,7 +648,7 @@ $(function () {
                 //console.log('Unsupported gallery: ' + url);
                 return '';
             }
-            
+
             // imgur is really nice and serves the image with whatever extension
             // you give it. '.jpg' is arbitrary
             // regexp removes /r/<sub>/ prefix if it exists
@@ -631,7 +683,7 @@ $(function () {
         // Detect predefined reddit url paths. If you modify this be sure to fix
         // .htaccess
         // This is a good idea so we can give a quick 404 page when appropriate.
-        
+
         var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
@@ -643,19 +695,6 @@ $(function () {
         }
     };
 
-    var failCleanup = function() {
-        if (rp.photos.length > 0) {
-            // already loaded images, don't ruin the existing experience
-            return;
-        }
-        
-        // remove "loading" title
-        $('#navboxTitle').text('');
-        
-        // display alternate recommendations
-        $('#recommend').css({'display':'block'});
-    };
-    
     var getRedditImages = function () {
         //if (noMoreToLoad){
         //    log("No more images to load, will rotate to start.");
@@ -667,11 +706,7 @@ $(function () {
         var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
         console.log(jsonUrl);
         //log(jsonUrl);
-        var failedAjax = function (data) {
-            alert("Failed ajax, maybe a bad url? Sorry about that :(");
-            failCleanup();
-        };
-        var handleData = function (data) {
+         var handleData = function (data) {
             //redditData = data //global for debugging data
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getRedditImages which is fine.
@@ -693,7 +728,7 @@ $(function () {
             });
 
             verifyNsfwMakesSense();
-            
+
             if (!rp.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
                 //log(jsonUrl);
@@ -713,7 +748,7 @@ $(function () {
                 addNumberButton(numberButton);
             }
             loadingNextImages = false;
-            
+
         };
 
         // I still haven't been able to catch jsonp 404 events so the timeout
@@ -732,10 +767,7 @@ $(function () {
         var albumID = url.match(/.*\/(.+?$)/)[1];
         var jsonUrl = 'https://api.imgur.com/3/album/' + albumID;
         //log(jsonUrl);
-        var failedAjax = function (data) {
-            alert("Failed ajax, maybe a bad url? Sorry about that :(");
-            failCleanup();
-        };
+
         var handleData = function (data) {
 
             //console.log(data);
@@ -751,7 +783,7 @@ $(function () {
                     title: item.title,
                     over18: item.nsfw,
                     commentsLink: ""
-                });                
+                });
             });
 
             verifyNsfwMakesSense();
@@ -793,7 +825,7 @@ $(function () {
         //log(rp.urlData)
         rp.subredditUrl = rp.urlData[0];
         getVars = rp.urlData[1];
-        
+
         if (getVars.length > 0) {
             getVarsQuestionMark = "?" + getVars;
         } else {
@@ -814,10 +846,10 @@ $(function () {
         } else {
             subredditName = rp.subredditUrl + getVarsQuestionMark;
         }
-        
+
 
         var visitSubredditUrl = rp.redditBaseUrl + rp.subredditUrl + getVarsQuestionMark;
-        
+
         // truncate and display subreddit name in the control box
         var displayedSubredditName = subredditName;
         // empirically tested capsize, TODO: make css rules to verify this is enough.
@@ -830,10 +862,6 @@ $(function () {
 
         document.title = "redditP - " + subredditName;
     };
-    
-    
-
-    
     rp.redditBaseUrl = "http://www.reddit.com";
     if (location.protocol === 'https:') {
         // page is secure
@@ -843,7 +871,7 @@ $(function () {
 
     var getVars;
     var after = "";
-    
+
     initState();
     setupUrls();
 
@@ -854,4 +882,4 @@ $(function () {
         getImgurAlbum(rp.subredditUrl);
     else
         getRedditImages();
-});
+    });

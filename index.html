@@ -41,14 +41,14 @@
                 </li>
                 <li>
                     <input class="checkbox" type="checkbox" name="nsfw" id="nsfw" value="Auto" checked />
-                    <label class="checkbox over18" for="nsfw"> nsfw</label>
+                    <label class="checkbox over18" for="nsfw">nsfw</label>
                     <img src="/images/fullscreen.png" id="fullScreenButton" alt="Fullscreen" />
                 </li>
             </ul>
             <ul class="nbmenu">
                 <li>
                     <input class="checkbox" type="checkbox" name="autoNextSlide" id="autoNextSlide" value="Auto" checked />
-                    <label class="checkbox" for="autoNextSlide"> Auto-next</label>
+                    <label class="checkbox" for="autoNextSlide">Auto-next</label>
                     every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2" /> seconds
                 </li>
                 <li>
@@ -72,9 +72,13 @@
         <h2 id='navboxTitle'>
             <noscript>Javascript is required for redditp to work :(</noscript>
         </h2>
-        <h3><a id='navboxSubreddit' href="http://www.reddit.com">
+        <div><a id="navboxSubreddit" class="info" href="http://www.reddit.com">
             <noscript>Javascript is required for redditp to work :(</noscript>
-        </a></h3>
+        </a></div>
+        <div><a id="navboxAuthor" class="info" href="http://www.reddit.com">
+            <noscript>Javascript is required for redditp to work :(</noscript>
+        </a></div>
+        <div id="navboxExtra" class="info"></div>
     </div>        
 
     <div id="recommend" style="display:none; text-align: center; margin: 10px; color: rgb(170, 170, 170);">

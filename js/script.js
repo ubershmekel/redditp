@@ -18,6 +18,7 @@ var animationSpeed = 1000;
 var shouldAutoNextSlide = true;
 var timeToNextSlide = 6;
 var cookieDays = 300;
+var imgur_client_id = 'f2edd1ef8e66eaf';
 
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
@@ -210,13 +211,13 @@ $(function () {
     };
 
     var resetNextSlideTimer = function (timeout) {
-	if (timeout === undefined) {
-	    timeout = timeToNextSlide;
-	}
-	timeout *= 1000;
-	if (rp.debug) {
-	    console.log('set timeout (ms): ' + timeout);
-	}
+        if (timeout === undefined) {
+            timeout = timeToNextSlide;
+        }
+        timeout *= 1000;
+        if (rp.debug) {
+            console.log('set timeout (ms): ' + timeout);
+        }
         clearTimeout(nextSlideTimeoutId);
         nextSlideTimeoutId = setTimeout(autoNextSlide, timeout);
     };
@@ -293,11 +294,11 @@ $(function () {
             timeToNextSlide = parseFloat(timeByCookie);
             $('#timeToNextSlide').val(timeByCookie);
         }
-        
+
         $('#fullScreenButton').click(toggleFullScreen);
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
-        
+
         $('#prevButton').click(prevSlide);
         $('#nextButton').click(nextSlide);
     };
@@ -320,16 +321,23 @@ $(function () {
             "url": url,
             "commentsLink": commentsLink,
             "over18": over18,
-            "isVideo": video
+            "isVideo": video,
+            subreddit: optional,
+            author: optional,
+            extra: optional,
         }
         */
         pic.isVideo = false;
-        if (pic.url.indexOf('gfycat.com') >= 0) {
+
+        if (pic.url.indexOf('gfycat.com') >= 0 ||
+            pic.url.indexOf('streamable.com') >= 0 ||
+            pic.url.indexOf('vid.me') >= 0 ) {
             pic.isVideo = true;
+
         } else if (isImageExtension(pic.url)) {
             // simple image
         } else {
-            var betterUrl = tryConvertUrl(pic.url);
+            var betterUrl = tryConvertPic(pic);
             if(betterUrl !== '') {
                 pic.url = betterUrl;
             } else {
@@ -354,7 +362,10 @@ $(function () {
             numberButton.addClass("over18");
         }
         numberButton.click(function () {
-            showImage($(this));
+                // Retrieve the index we need to use
+                var imageIndex = $(this).data("index");
+
+                startAnimation(imageIndex);
         });
         numberButton.addClass("numberButton");
         addNumberButton(numberButton);
@@ -430,17 +441,6 @@ $(function () {
         }
     });
 
-
-    //
-    // Shows an image and plays the animation
-    //
-    var showImage = function (docElem) {
-        // Retrieve the index we need to use
-        var imageIndex = docElem.data("index");
-
-        startAnimation(imageIndex);
-    };
-
     var isLastImage = function(imageIndex) {
         if(nsfw) {
             if(imageIndex == rp.photos.length - 1) {
@@ -499,9 +499,14 @@ $(function () {
     var animateNavigationBox = function (imageIndex) {
         var photo = rp.photos[imageIndex];
         var subreddit = '/r/' + photo.subreddit;
+        var author = '/u/' + photo.author;
 
         $('#navboxTitle').html(photo.title);
-        $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
+        if (photo.subreddit !== undefined && photo.subreddit !== null)
+            $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
+        if (photo.author !== undefined)
+            $('#navboxAuthor').attr('href', rp.redditBaseUrl + author).html(author);
+        $('#navboxExtra').html((photo.extra !== undefined) ?photo.extra :"");
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
@@ -541,30 +546,43 @@ $(function () {
         // Create a new div and apply the CSS
         var cssMap = Object();
         cssMap['display'] = "none";
-        if(!photo.isVideo) {
-            cssMap['background-image'] = "url(" + photo.url + ")";
+
+        var showImage = function(url) {
+            cssMap['background-image'] = "url(" + url + ")";
             cssMap['background-repeat'] = "no-repeat";
             cssMap['background-size'] = "contain";
             cssMap['background-position'] = "center";
+
+            var divNode = $("<div />").css(cssMap).addClass("clouds");
+
+            divNode.prependTo("#pictureSlider");
+            $("#pictureSlider div").fadeIn(animationSpeed);
+
+            var oldDiv = $("#pictureSlider div:not(:first)");
+            oldDiv.fadeOut(animationSpeed, function () {
+                    oldDiv.remove();
+                    isAnimating = false;
+                });
         }
 
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
         if(photo.isVideo) {
             clearTimeout(nextSlideTimeoutId);
-            var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
-            if (gfyid.indexOf('#') != -1)
-                gfyid = gfyid.substr(0, gfyid.indexOf('#'));
+            var shortid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
+            if (shortid.indexOf('#') != -1)
+                shortid = shortid.substr(0, shortid.indexOf('#'));
 
-            var jsonUrl = "https://gfycat.com/cajax/get/" + gfyid;
 
-            var handleData = function (data) {
+            // Called with showVideo({'thumbnail': jpgurl, 'mp4': mp4url, 'webm': webmurl})
+            var showVideo = function(data) {
                 var divNode = $("<div />").css(cssMap).addClass("clouds");
 
                 divNode.html('<video id="gfyvid" class="gfyVid" preload="auto" '+
-                             'poster="http://thumbs.gfycat.com/'+gfyid+'-poster.jpg" '+
+                             'poster="'+data.thumbnail+'" '+
                              'muted="muted" loop="" autoplay="" style="width: 100%; height: 100%;"> '+
-                             '<source type="video/webm" src="'+data.gfyItem.webmUrl+'"></source>'+
-                             '<source type="video/mp4" src="'+data.gfyItem.mp4Url+'"></source></video>');
+                             ((data.webm !== undefined) ?'<source type="video/webm" src="'+data.webm+'"></source>' :'') +
+                             ((data.mp4 !== undefined) ?'<source type="video/mp4" src="'+data.mp4+'"></source>' :'') +
+                             '</video>');
 
                 var video = divNode.children('video')[0];
                 $(video).bind("loadedmetadata", function(e) {
@@ -574,6 +592,8 @@ $(function () {
                         duration += 0.5;
                         if (shouldAutoNextSlide && duration > timeToNextSlide)
                             resetNextSlideTimer(duration.toFixed());
+                        else
+                            resetNextSlideTimer(timeToNextSlide);
                     });
 
                 divNode.prependTo("#pictureSlider");
@@ -585,8 +605,47 @@ $(function () {
                         oldDiv.remove();
                         isAnimating = false;
                     });
-
             };
+
+            var jsonUrl;
+            var handleData;
+            if (photo.url.indexOf('gfycat.com') >= 0) {
+
+                jsonUrl = "https://gfycat.com/cajax/get/" + shortid;
+
+                handleData = function (data) {
+                    if (typeof data.gfyItem != "undefined")
+                        showVideo({'thumbnail': 'http://thumbs.gfycat.com/'+shortid+'-poster.jpg',
+                                    'webm': data.gfyItem.webmUrl,
+                                    'mp4':  data.gfyItem.mp4Url});
+                    else
+                        showImage(photo.thumbnail);
+                };
+            } else if (photo.url.indexOf('vid.me') >= 0) {
+                jsonUrl = 'https://api.vid.me/videoByUrl/' + shortid;
+                handleData = function (data) {
+                    if (data.video.state == 'success')
+                        showVideo({'thumbnail': data.video.thumbnail_url,
+                                    'mp4':  data.video.complete_url });
+                    else
+                        showImage(photo.thumbnail);
+                };
+
+            } else if (photo.url.indexOf('streamable.com') >= 0) {
+
+                // jsonUrl = "https://api.streamable.com/videos/" + shortid;
+                // We can cheat since we know the URLs
+
+                showVideo({'thumbnail': "//cdn.streamable.com/image/"+shortid+".jpg",
+                            'webm': "//cdn.streamable.com/video/webm/"+shortid+".webm",
+                            'mp4':  "//cdn.streamable.com/video/mp4/"+shortid+".mp4",
+                            });
+                return;
+
+            } else {
+                console.log('Unknown video site ', photo.url);
+                return;
+            }
 
             $.ajax({
                 url: jsonUrl,
@@ -600,16 +659,7 @@ $(function () {
                 });
 
         } else {
-            var divNode = $("<div />").css(cssMap).addClass("clouds");
-
-            divNode.prependTo("#pictureSlider");
-            $("#pictureSlider div").fadeIn(animationSpeed);
-
-            var oldDiv = $("#pictureSlider div:not(:first)");
-            oldDiv.fadeOut(animationSpeed, function () {
-                    oldDiv.remove();
-                    isAnimating = false;
-                });
+            showImage(photo.url);
         }
     };
 
@@ -632,7 +682,8 @@ $(function () {
     };
 
 
-    var tryConvertUrl = function (url) {
+    var tryConvertPic = function (pic) {
+        var url = pic.url;
         if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
             // special cases with imgur
 
@@ -643,10 +694,45 @@ $(function () {
                 return url.replace('.gifv', '.gif');
             }
 
-            if (url.indexOf('/a/') > 0 || url.indexOf('/gallery/') > 0) {
-                // albums aren't supported yet
-                //console.log('Unsupported gallery: ' + url);
-                return '';
+            if (url.indexOf('/a/') > 0 ||
+                url.indexOf('/gallery/') > 0) {
+
+                var shortid;
+                var jsonUrl;
+                var result;
+
+                if (! imgur_client_id) {
+                    //console.log('imgur_client_id unset in config.js');
+                    return '';
+                }
+
+                if (url.indexOf('/a/') > 0) {
+                    shortid = url.substr(1 + url.lastIndexOf('/'));
+                    jsonUrl = "https://api.imgur.com/3/album/" + shortid;
+                } else if (url.indexOf('/gallery/') > 0) {
+                    //console.log('Unsupported gallery: ' + url);
+                    return '';
+                }
+
+                $.ajax({
+                    url: jsonUrl,
+                    headers: { Authorization: "Client-ID "+ imgur_client_id },
+                    dataType: 'json',
+                    success: function (data) { result = data },
+                    error: failedAjax,
+                    404: failedAjax,
+                    jsonp: false,
+                    timeout: 5000,
+                    crossDomain: true,
+                    async: false
+                    });
+
+                pic.extra = '<a href="/imgur/a/'+shortid+'">[ALBUM]</a>';
+
+                if (result.data.images[0].animated)
+                    return result.data.images[0].gifv.replace('.gifv', '.gif');
+                else
+                    return result.data.images[0].link;
             }
 
             // imgur is really nice and serves the image with whatever extension
@@ -655,7 +741,7 @@ $(function () {
             // E.g. http://imgur.com/r/aww/x9q6yW9
             return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
         }
-
+        //console.log("Not understood url: "+url);
         return '';
     };
     var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png'];
@@ -684,7 +770,7 @@ $(function () {
         // .htaccess
         // This is a good idea so we can give a quick 404 page when appropriate.
 
-        var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:user/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
+        var regexS = "(/(?:(?:r/)|(?:v/)|(?:imgur/a/)|(?:user/)|(?:domain/)|(?:search)|(?:me))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
         //log(results);
@@ -703,7 +789,7 @@ $(function () {
 
         loadingNextImages = true;
 
-        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
+        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?" + getVars + after;
         console.log(jsonUrl);
         //log(jsonUrl);
          var handleData = function (data) {
@@ -723,9 +809,11 @@ $(function () {
                     title: item.data.title,
                     over18: item.data.over_18,
                     subreddit: item.data.subreddit,
+                    author: item.data.author,
+                    thumbnail: item.data.thumbnail,
                     commentsLink: rp.redditBaseUrl + item.data.permalink
+                    });
                 });
-            });
 
             verifyNsfwMakesSense();
 
@@ -755,11 +843,13 @@ $(function () {
         // is the current solution sadly.
         $.ajax({
             url: jsonUrl,
-            dataType: 'jsonp',
+            dataType: 'json',
             success: handleData,
             error: failedAjax,
             404: failedAjax,
-            timeout: 5000
+            jsonp: false,
+            timeout: 5000,
+            crossDomain: true
         });
     };
 
@@ -779,10 +869,17 @@ $(function () {
 
             $.each(data.data.images, function (i, item) {
                 addImageSlide({
-                    url: item.link,
-                    title: item.title,
+                    url: (item.animated) ?item.gifv :item.link,
+                    title: (item.title !== undefined) ?item.title :"",
                     over18: item.nsfw,
-                    commentsLink: ""
+                    commentsLink: data.data.link,
+                    subreddit: data.data.section,
+                    isVideo: item.animated,
+                    /* author: data.data.account_url, */
+                    extra: (data.data.account_url !== null) 
+                            ?'<a href="http://imgur.com/user/'+data.data.account_url+
+                            '">/user/'+data.data.account_url+'</a>'
+                            :undefined,
                 });
             });
 
@@ -814,9 +911,7 @@ $(function () {
             error: failedAjax,
             404: failedAjax,
             timeout: 5000,
-            beforeSend : function(xhr) {
-                xhr.setRequestHeader('Authorization',
-                    'Client-ID ' + 'f2edd1ef8e66eaf');}
+            headers: { Authorization: 'Client-ID ' + imgur_client_id },
         });
     };
 

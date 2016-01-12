@@ -8,13 +8,13 @@ http://redditp.com
 Hotkeys
 -------
 
-* a - toggles auto-next (play/pause)
+* a/space - toggles auto-next (play/pause)
 * t - collapse/uncollapse title
 * c - collapse/uncollapse controls
 * i - open image in a new tab
-* r - open comments in a new tab 
+* r - open comments in a new tab
 * f - toggle full screen mode
-* Arrow keys, pgup/pgdown, spacebar change slides
+* Arrow keys, pgup/pgdown change slides
 * Swipe gestures on phones
 
 Features

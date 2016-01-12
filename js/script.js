@@ -416,6 +416,7 @@ $(function () {
             case T_KEY:
                 $('#titleDiv .collapser').click();
                 break;
+            case SPACE:
             case A_KEY:
                 $("#autoNextSlide").prop("checked", !$("#autoNextSlide").is(':checked'));
                 updateAutoNext();
@@ -436,7 +437,6 @@ $(function () {
             case PAGEDOWN:
             case arrow.right:
             case arrow.down:
-            case SPACE:
                 return nextSlide();
         }
     });

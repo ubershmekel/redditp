@@ -729,10 +729,8 @@ $(function () {
 
                 pic.extra = '<a href="/imgur/a/'+shortid+'">[ALBUM]</a>';
 
-                if (result.data.images[0].animated)
-                    return result.data.images[0].gifv.replace('.gifv', '.gif');
-                else
-                    return result.data.images[0].link;
+                // If this is animated it will return the animated gif
+                return "http://i.imgur.com/"+result.data.cover+".jpg";
             }
 
             // imgur is really nice and serves the image with whatever extension

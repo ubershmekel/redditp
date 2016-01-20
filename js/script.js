@@ -255,6 +255,20 @@ $(function () {
         }
     };
 
+    var isVideoMuted = function() {
+        return $("#mute").is(':checked');
+    }
+
+    var updateVideoMute = function() {
+        var vid = $('#gfyvid');
+        var videoMuted = isVideoMuted();
+        if (vid !== undefined)
+            if (videoMuted)
+                vid.prop('muted', true);
+            else
+                vid.prop('muted', false);
+    };
+
     nsfwCookie = "nsfwCookie";
     var updateNsfw = function () {
         nsfw = $("#nsfw").is(':checked');
@@ -271,13 +285,15 @@ $(function () {
         }
         $('#nsfw').change(updateNsfw);
 
+        updateVideoMute();
+        $('#mute').change(updateVideoMute);
+
         var autoByCookie = getCookie(shouldAutoNextSlideCookie);
-        if (autoByCookie == undefined) {
-            updateAutoNext();
-        } else {
+        if (autoByCookie !== undefined) {
             shouldAutoNextSlide = (autoByCookie === "true");
             $("#autoNextSlide").prop("checked", shouldAutoNextSlide);
         }
+        updateAutoNext();
         $('#autoNextSlide').change(updateAutoNext);
 
         var updateTimeToNextSlide = function () {
@@ -387,6 +403,7 @@ $(function () {
     var C_KEY = 67;
     var F_KEY = 70;
     var I_KEY = 73;
+    var M_KEY = 77;
     var R_KEY = 82;
     var T_KEY = 84;
 
@@ -426,6 +443,9 @@ $(function () {
                 break;
             case R_KEY:
                 open_in_background("#navboxCommentsLink");
+                break;
+            case M_KEY:
+                $('#mute').click();
                 break;
             case F_KEY:
                 toggleFullScreen();
@@ -579,13 +599,14 @@ $(function () {
 
                 divNode.html('<video id="gfyvid" class="gfyVid" preload="auto" '+
                              'poster="'+data.thumbnail+'" '+
-                             'muted="muted" loop="" autoplay="" style="width: 100%; height: 100%;"> '+
+                             ((isVideoMuted()) ?'muted="muted" ' :'')+
+                             'loop="" autoplay="" style="width: 100%; height: 100%;"> '+
                              ((data.webm !== undefined) ?'<source type="video/webm" src="'+data.webm+'"></source>' :'') +
                              ((data.mp4 !== undefined) ?'<source type="video/mp4" src="'+data.mp4+'"></source>' :'') +
                              '</video>');
 
                 var video = divNode.children('video')[0];
-                $(video).bind("loadedmetadata", function(e) {
+                $(video).bind("loadeddata", function(e) {
                         var duration = e.target.duration;
                         if (rp.debug)
                             console.log("video metadata.duration: "+duration);
@@ -618,29 +639,37 @@ $(function () {
                         showVideo({'thumbnail': 'http://thumbs.gfycat.com/'+shortid+'-poster.jpg',
                                     'webm': data.gfyItem.webmUrl,
                                     'mp4':  data.gfyItem.mp4Url});
-                    else
+                    else {
                         showImage(photo.thumbnail);
+                        resetNextSlideTimer();
+                    }
                 };
+
             } else if (photo.url.indexOf('vid.me') >= 0) {
                 jsonUrl = 'https://api.vid.me/videoByUrl/' + shortid;
                 handleData = function (data) {
                     if (data.video.state == 'success')
                         showVideo({'thumbnail': data.video.thumbnail_url,
                                     'mp4':  data.video.complete_url });
-                    else
-                        showImage(photo.thumbnail);
+                    else {
+                        log("vid.me failed to load "+shortid+". state:"+data.video.state);
+                        showImage(data.video.thumbnail_url);
+                        resetNextSlideTimer();
+                    }
                 };
 
             } else if (photo.url.indexOf('streamable.com') >= 0) {
 
-                // jsonUrl = "https://api.streamable.com/videos/" + shortid;
-                // We can cheat since we know the URLs
+                jsonUrl = "https://api.streamable.com/videos/" + shortid;
 
-                showVideo({'thumbnail': "//cdn.streamable.com/image/"+shortid+".jpg",
-                            'webm': "//cdn.streamable.com/video/webm/"+shortid+".webm",
-                            'mp4':  "//cdn.streamable.com/video/mp4/"+shortid+".mp4",
-                            });
-                return;
+                handleData = function(data) {
+                    var viddata = {'thumbnail': data.thumnail_url };
+                    if (data.files.mp4 !== undefined)
+                        viddata.mp4 = data.files.mp4.url;
+                    if (data.files.webm !== undefined)
+                        viddata.webm = data.files.webm.url;
+                    showVideo(viddata);
+                };
 
             } else {
                 console.log('Unknown video site ', photo.url);
@@ -653,7 +682,6 @@ $(function () {
                 success: handleData,
                 error: failedAjax,
                 404: failedAjax,
-                jsonp: false,
                 timeout: 5000,
                 crossDomain: true
                 });
@@ -684,9 +712,9 @@ $(function () {
 
     var tryConvertPic = function (pic) {
         var url = pic.url;
-        if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
-            // special cases with imgur
 
+        /** IMGUR **/
+        if (url.indexOf('imgur.com') > 0) {
             if (url.indexOf('gifv') >= 0) {
                 if (url.indexOf('i.') === 0) {
                     url = url.replace('imgur.com', 'i.imgur.com');
@@ -730,7 +758,10 @@ $(function () {
                 pic.extra = '<a href="/imgur/a/'+shortid+'">[ALBUM]</a>';
 
                 // If this is animated it will return the animated gif
-                return "http://i.imgur.com/"+result.data.cover+".jpg";
+                if (result.data.cover !== null)
+                    return "http://i.imgur.com/"+result.data.cover+".jpg";
+                else
+                    return result.data.images[0].link;
             }
 
             // imgur is really nice and serves the image with whatever extension
@@ -739,7 +770,8 @@ $(function () {
             // E.g. http://imgur.com/r/aww/x9q6yW9
             return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
         }
-        //console.log("Not understood url: "+url);
+        //log("Not understood url: "+url);
+
         return '';
     };
     var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png'];

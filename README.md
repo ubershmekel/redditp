@@ -14,6 +14,7 @@ Hotkeys
 * i - open image in a new tab
 * r - open comments in a new tab
 * f - toggle full screen mode
+* m - unmute/mute videos
 * Arrow keys, pgup/pgdown change slides
 * Swipe gestures on phones
 

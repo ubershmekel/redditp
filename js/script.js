@@ -1,4 +1,4 @@
-/*
+/* -*- mode: javascript; indent-tabs-mode: nil -*-
   Author: Yuval Greenfield (http://uberpython.wordpress.com) 
  
   You can save the HTML file and use it locally btw like so:

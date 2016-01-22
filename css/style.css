@@ -64,7 +64,7 @@ a:hover {
 #controlsDiv {position: absolute; bottom: 0; left: 0;right: 0;}
 #titleDiv {position: absolute; top: 0;left: 0;right: 0;}
 .navbox h2 { padding: 10px 20px 10px 10px; font: bold 20px Helvetica, Arial, Sans-serif; }
-.navbox h3 { padding:  0px 20px 10px 10px; font: bold 12px Helvetica, Arial, Sans-serif; }
+.navbox .info { margin:  0px 10px 10px 10px; font: bold 12px Helvetica, Arial, Sans-serif; float: left}
 .navbox p { padding:20px 20px 20px 20px; font-family: "Segoe UI","HelveticaNeue-Light","Helvetica Neue Light","Helvetica Neue",Arial,Tahoma,Verdana,sans-serif; font-size:13px; color:#111; }
 .navbox p.bottom { position:absolute; bottom:5px; right:5px; }
 
@@ -121,6 +121,35 @@ label.checkbox { font-weight: bold; }
     
     opacity: 0.8;
     cursor: hand; cursor: pointer;
+}
+
+input[type=checkbox] {
+    display: none;
+}
+
+input[type=checkbox]:checked + label {
+   color: red;
+}
+
+.demoSpan1:before{
+        content:'';
+        height:0;
+        width:0;
+        display:block;
+        border:10px transparent solid;
+        border-right-width:0;
+        border-left-color:#333;
+        position:absolute;
+        top:10px;
+        left:16px;
+        color: white;
+}
+.demoSpan1:checked{
+        color: red;
+}
+
+#timeToNextSlide {
+    text-align: center;
 }
 
 #fullScreenButton {

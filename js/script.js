@@ -543,6 +543,10 @@ $(function () {
                     vid.find('.gfyPreLoadCanvas').remove();
                     var v = vid.find('video').width('100%').height('100%');
                     vid.find('.gfyPreLoadCanvas').remove();
+
+                    // swap mp4 and webm, so that browsers prefer webm
+                    v.first().find('.webmsource').after(v.first().find('.mp4source'))
+
                     if (shouldAutoNextSlide)
                         v.removeAttr('loop');
                     v[0].onended = function (e) {

@@ -18,7 +18,12 @@ var animationSpeed = 1000;
 var shouldAutoNextSlide = true;
 var timeToNextSlide = 6;
 var cookieDays = 300;
-var imgur_client_id = 'f2edd1ef8e66eaf';
+
+// Sites that can be enabled when they turn on CORS or support jsonp
+rp.use = { eroshare: false, };
+
+rp.api_key = {tumblr: 'sVRWGhAGTVlP042sOgkZ0oaznmUOzD8BRiRwAm5ELlzEaz4kwU',
+              imgur:  'f2edd1ef8e66eaf', };
 
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
@@ -135,6 +140,10 @@ $(function () {
             mev.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, true, false, false, true, 0, null);
             link.dispatchEvent(mev);
         }
+    }
+
+    var hostnameOf = function(url) {
+        return $('<a>').prop('href', url).prop('hostname');
     }
 
     $("#pictureSlider").touchwipe({
@@ -348,14 +357,20 @@ $(function () {
         }
         */
         pic.isVideo = false;
+        hostname = hostnameOf(pic.url);
 
-        if (pic.url.indexOf('gfycat.com') >= 0 ||
-            pic.url.indexOf('streamable.com') >= 0 ||
-            pic.url.indexOf('vid.me') >= 0 ) {
+        if (isImageExtension(pic.url)) {
+            // simple image
+        } else if (isVideoExtension(pic.url) ||
+                   hostname.indexOf('gfycat.com') >= 0 ||
+                   hostname.indexOf('streamable.com') >= 0 ||
+                   hostname.indexOf('vid.me') >= 0 ||
+                   hostname.indexOf('tumblr.com') >= 0 ||
+                   (hostname.indexOf('eroshare.com') >= 0 && rp.use.eroshare) ||
+                   pic.url.indexOf('webm.land/w/') >= 0
+                   ) {
             pic.isVideo = true;
 
-        } else if (isImageExtension(pic.url)) {
-            // simple image
         } else {
             var betterUrl = tryConvertPic(pic);
             if(betterUrl !== '') {
@@ -589,110 +604,177 @@ $(function () {
                 });
         }
 
-        //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
-        if(photo.isVideo) {
-            clearTimeout(nextSlideTimeoutId);
-            var shortid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
-            if (shortid.indexOf('#') != -1)
-                shortid = shortid.substr(0, shortid.indexOf('#'));
+        if (!photo.isVideo) {
+            showImage(photo.url);
+            return
+        }
 
+        clearTimeout(nextSlideTimeoutId);
 
-            // Called with showVideo({'thumbnail': jpgurl, 'mp4': mp4url, 'webm': webmurl})
-            var showVideo = function(data) {
-                var divNode = $("<div />").css(cssMap).addClass("clouds");
+        var shortid;
 
-                divNode.html('<video id="gfyvid" class="gfyVid" preload="auto" '+
-                             'poster="'+data.thumbnail+'" '+
-                             ((isVideoMuted()) ?'muted="muted" ' :'')+
-                             'loop="" autoplay="" style="width: 100%; height: 100%;"> '+
-                             ((data.webm !== undefined) ?'<source type="video/webm" src="'+data.webm+'"></source>' :'') +
-                             ((data.mp4 !== undefined) ?'<source type="video/mp4" src="'+data.mp4+'"></source>' :'') +
-                             '</video>');
+        // chomp off last char if it ends in '/'
+        if (photo.url.charAt(photo.url.length-1) == '/') {
+            surl = photo.url.substr(0, photo.url.length-1);
+            shortid = surl.substr(1 + surl.lastIndexOf('/'));
 
-                var video = divNode.children('video')[0];
-                $(video).bind("loadeddata", function(e) {
-                        var duration = e.target.duration;
-                        if (rp.debug)
-                            console.log("video metadata.duration: "+duration);
-                        duration += 0.5;
-                        if (shouldAutoNextSlide && duration > timeToNextSlide)
-                            resetNextSlideTimer(duration.toFixed());
-                        else
-                            resetNextSlideTimer(timeToNextSlide);
-                    });
+        } else
+            shortid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
 
-                divNode.prependTo("#pictureSlider");
-                $("#pictureSlider div").fadeIn(animationSpeed);
-                $('#gfyvid').load();
+        if (shortid.indexOf('#') != -1)
+            shortid = shortid.substr(0, shortid.indexOf('#'));
 
-                var oldDiv = $("#pictureSlider div:not(:first)");
-                oldDiv.fadeOut(animationSpeed, function () {
-                        oldDiv.remove();
-                        isAnimating = false;
-                    });
-            };
-
-            var jsonUrl;
-            var handleData;
-            if (photo.url.indexOf('gfycat.com') >= 0) {
-
-                jsonUrl = "https://gfycat.com/cajax/get/" + shortid;
-
-                handleData = function (data) {
-                    if (typeof data.gfyItem != "undefined")
-                        showVideo({'thumbnail': 'http://thumbs.gfycat.com/'+shortid+'-poster.jpg',
-                                    'webm': data.gfyItem.webmUrl,
-                                    'mp4':  data.gfyItem.mp4Url});
-                    else {
-                        showImage(photo.thumbnail);
-                        resetNextSlideTimer();
-                    }
-                };
-
-            } else if (photo.url.indexOf('vid.me') >= 0) {
-                jsonUrl = 'https://api.vid.me/videoByUrl/' + shortid;
-                handleData = function (data) {
-                    if (data.video.state == 'success')
-                        showVideo({'thumbnail': data.video.thumbnail_url,
-                                    'mp4':  data.video.complete_url });
-                    else {
-                        log("vid.me failed to load "+shortid+". state:"+data.video.state);
-                        showImage(data.video.thumbnail_url);
-                        resetNextSlideTimer();
-                    }
-                };
-
-            } else if (photo.url.indexOf('streamable.com') >= 0) {
-
-                jsonUrl = "https://api.streamable.com/videos/" + shortid;
-
-                handleData = function(data) {
-                    var viddata = {'thumbnail': data.thumnail_url };
-                    if (data.files.mp4 !== undefined)
-                        viddata.mp4 = data.files.mp4.url;
-                    if (data.files.webm !== undefined)
-                        viddata.webm = data.files.webm.url;
-                    showVideo(viddata);
-                };
-
-            } else {
-                console.log('Unknown video site ', photo.url);
-                return;
-            }
-
-            $.ajax({
-                url: jsonUrl,
-                dataType: 'json',
-                success: handleData,
-                error: failedAjax,
-                404: failedAjax,
-                timeout: 5000,
-                crossDomain: true
+        // Called with showVideo({'thumbnail': jpgurl, 'mp4': mp4url, 'webm': webmurl})
+        var showVideo = function(data) {
+            var divNode = $("<div />").css(cssMap).addClass("clouds");
+            
+            divNode.html('<video id="gfyvid" class="gfyVid" preload="auto" '+
+                         ((data.thumbnail !== undefined) ?'poster="'+data.thumbnail+'" ' :'')+
+                         ((isVideoMuted()) ?'muted="muted" ' :'')+
+                         'loop="" autoplay="" style="width: 100%; height: 100%;"> '+
+                         ((data.webm !== undefined) ?'<source type="video/webm" src="'+data.webm+'"></source>' :'') +
+                         ((data.mp4 !== undefined) ?'<source type="video/mp4" src="'+data.mp4+'"></source>' :'') +
+                         '</video>');
+            
+            var video = divNode.children('video')[0];
+            $(video).bind("loadeddata", function(e) {
+                    var duration = e.target.duration;
+                    if (rp.debug)
+                        console.log("video metadata.duration: "+duration);
+                    duration += 0.5;
+                    if (shouldAutoNextSlide && duration > timeToNextSlide)
+                        resetNextSlideTimer(duration.toFixed());
+                    else
+                        resetNextSlideTimer(timeToNextSlide);
                 });
 
+            divNode.prependTo("#pictureSlider");
+            $("#pictureSlider div").fadeIn(animationSpeed);
+            $('#gfyvid').load();
+
+            var oldDiv = $("#pictureSlider div:not(:first)");
+            oldDiv.fadeOut(animationSpeed, function () {
+                    oldDiv.remove();
+                    isAnimating = false;
+                });
+        };
+
+        var jsonUrl;
+        var dataType = 'json';
+        var handleData;
+        var hostname = hostnameOf(photo.url);
+        if (hostname.indexOf('gfycat.com') >= 0) {
+
+            jsonUrl = "https://gfycat.com/cajax/get/" + shortid;
+
+            handleData = function (data) {
+                if (typeof data.gfyItem != "undefined")
+                    showVideo({'thumbnail': 'http://thumbs.gfycat.com/'+shortid+'-poster.jpg',
+                                'webm': data.gfyItem.webmUrl,
+                                'mp4':  data.gfyItem.mp4Url});
+                else {
+                    showImage(photo.thumbnail);
+                    resetNextSlideTimer();
+                }
+            };
+
+        } else if (hostname.indexOf('vid.me') >= 0) {
+            jsonUrl = 'https://api.vid.me/videoByUrl/' + shortid;
+            handleData = function (data) {
+                if (data.video.state == 'success')
+                    showVideo({'thumbnail': data.video.thumbnail_url,
+                                'mp4':  data.video.complete_url });
+                else {
+                    log("vid.me failed to load "+shortid+". state:"+data.video.state);
+                    showImage(data.video.thumbnail_url);
+                    resetNextSlideTimer();
+                }
+            };
+
+        } else if (hostname.indexOf('eroshare.com') > 0 && rp.use.eroshare) {
+
+            jsonUrl = "https://c1.eroshare.com/api/v1/albums/" + shortid + ".json";
+
+            handleData = function (data) {
+                if (data.type == "Image") {
+                    showImage(result.items[0].url_full_protocol);
+                    resetNextSlideTimer();                        
+                } else if (data.type == "Video")
+                    showVideo({'thumbnail': result.items[0].url_thumb,
+                                'mp4':  result.items[0].url_mp4 });
+                if (data.items > 1)
+                    $('#navboxExtra').html('<a href="/eroshare/'+shortid+'">[ALBUM]</a>');
+            }
+
+        } else if (hostname.indexOf('streamable.com') >= 0) {
+
+            jsonUrl = "https://api.streamable.com/videos/" + shortid;
+
+            handleData = function(data) {
+                var viddata = {'thumbnail': data.thumnail_url };
+                if (data.files.mp4 !== undefined)
+                    viddata.mp4 = data.files.mp4.url;
+                if (data.files.webm !== undefined)
+                    viddata.webm = data.files.webm.url;
+                showVideo(viddata);
+            };
+
+        } else if (photo.url.indexOf('webm.land/w/') >= 0) {
+            showVideo({'webm': 'http://webm.land/media/'+shortid+".webm"});
+            return;
+
+        } else if (isVideoExtension(photo.url)) {
+            var extention = photo.url.substr(1 + photo.url.lastIndexOf('.'));
+            var vid = {};
+            vid[extention] = photo.url;
+            showVideo(vid);
+            return;
+
+        } else if (hostname.indexOf('tumblr.com') >= 0) {
+            var a = photo.url.split('/');
+            if (a[-1] == "")
+                a.pop();
+
+            a.pop(); // remove "pretty" name of post
+            shortid = a.pop();
+
+            jsonUrl = 'https://api.tumblr.com/v2/blog/'+hostname+'/posts?api_key='+rp.api_key.tumblr+'&id='+shortid;
+            dataType = 'jsonp';
+
+            handleData = function(data) {
+                var post = data.response.posts[0];
+
+                if (post.type == "photo") {
+                    // if (post.photos.length > 1) 
+                    // $('#navboxExtra').html('<a href="/tumblr/'+hostname+'/'+shortid+'">[ALBUM]</a>');
+
+                    showImage(post.photos[0].original_size.url);
+                    resetNextSlideTimer();
+                } else if (post.type == 'video') {
+                    var vid = { thumbnail: post.thumbnail_url };
+                    if (post.video_url.indexOf('.mp4') > 0)
+                        vid.mp4 = post.video_url;
+                    else if (post.video_url.indexOf('.webm') > 0)
+                        vid.webm = post.video_url;
+                    showVideo(vid);
+                }
+            } 
+
         } else {
-            showImage(photo.url);
+            console.log('Unknown video site ', hostname);
+            return;
         }
+
+        $.ajax({
+            url: jsonUrl,
+                 dataType: dataType,
+                 success: handleData,
+                 error: failedAjax,
+                 404: failedAjax,
+                 timeout: 5000,
+                 crossDomain: true
+                 });
+
     };
 
 
@@ -716,11 +798,12 @@ $(function () {
 
     var tryConvertPic = function (pic) {
         var url = pic.url;
+        var hostname = hostnameOf(url);
 
         /** IMGUR **/
-        if (url.indexOf('imgur.com') > 0) {
+        if (hostname.indexOf('imgur.com') >= 0) {
             if (url.indexOf('gifv') >= 0) {
-                if (url.indexOf('i.') === 0) {
+                if (hostname.indexOf('i.') !== 0) {
                     url = url.replace('imgur.com', 'i.imgur.com');
                 }
                 return url.replace('.gifv', '.gif');
@@ -733,8 +816,7 @@ $(function () {
                 var jsonUrl;
                 var result;
 
-                if (! imgur_client_id) {
-                    //console.log('imgur_client_id unset in config.js');
+                if (! rp.api_key.imgur) {
                     return '';
                 }
 
@@ -748,7 +830,7 @@ $(function () {
 
                 $.ajax({
                     url: jsonUrl,
-                    headers: { Authorization: "Client-ID "+ imgur_client_id },
+                    headers: { Authorization: "Client-ID "+ rp.api_key.imgur },
                     dataType: 'json',
                     success: function (data) { result = data },
                     error: failedAjax,
@@ -772,13 +854,19 @@ $(function () {
             // you give it. '.jpg' is arbitrary
             // regexp removes /r/<sub>/ prefix if it exists
             // E.g. http://imgur.com/r/aww/x9q6yW9
-            return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
+            if (hostname.indexOf('i.') !== 0)
+                url = url.replace('imgur.com', 'i.imgur.com');
+
+            if (url.indexOf("/r/") >= 0)
+                return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
+            else
+                return url+".jpg";
         }
         //log("Not understood url: "+url);
 
         return '';
     };
-    var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png'];
+    var goodImageExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png'];
     var isImageExtension = function (url) {
         var dotLocation = url.lastIndexOf('.');
         if (dotLocation < 0) {
@@ -787,7 +875,24 @@ $(function () {
         }
         var extension = url.substring(dotLocation);
 
-        if (goodExtensions.indexOf(extension) >= 0) {
+        if (goodImageExtensions.indexOf(extension) >= 0) {
+            return true;
+        } else {
+            //log("skipped bad extension: " + url);
+            return false;
+        }
+    };
+
+    var goodVideoExtensions = ['.webm', '.mp4'];
+    var isVideoExtension = function (url) {
+        var dotLocation = url.lastIndexOf('.');
+        if (dotLocation < 0) {
+            log("skipped no dot: " + url);
+            return false;
+        }
+        var extension = url.substring(dotLocation);
+
+        if (goodVideoExtensions.indexOf(extension) >= 0) {
             return true;
         } else {
             //log("skipped bad extension: " + url);

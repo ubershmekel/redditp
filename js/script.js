@@ -225,6 +225,10 @@ $(function () {
     shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
     var updateAutoNext = function () {
         shouldAutoNextSlide = $("#autoNextSlide").is(':checked');
+        if (shouldAutoNextSlide)
+            $('#controlsDiv .collapser').css({color: 'red'});
+        else
+            $('#controlsDiv .collapser').css({color: ""});
         setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
         resetNextSlideTimer();
     };

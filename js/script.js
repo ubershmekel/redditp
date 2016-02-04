@@ -541,10 +541,14 @@ $(function () {
         var author = '/u/' + photo.author;
 
         $('#navboxTitle').html(photo.title);
-        if (photo.subreddit !== undefined && photo.subreddit !== null)
+        if (photo.subreddit !== undefined && photo.subreddit !== null) {
             $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
-        if (photo.author !== undefined)
+            $('#navboxSubredditP').attr('href', subreddit).text('[P]');
+        }
+        if (photo.author !== undefined) {
             $('#navboxAuthor').attr('href', rp.redditBaseUrl + author).html(author);
+            $('#navboxAuthorP').attr('href', '/user/'+photo.author+'/submitted').text('[P]');
+        }
         $('#navboxExtra').html((photo.extra !== undefined) ?photo.extra :"");
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
@@ -841,7 +845,8 @@ $(function () {
                     async: false
                     });
 
-                pic.extra = '<a href="/imgur/a/'+shortid+'">[ALBUM]</a>';
+                if (result.images > 1)
+                    pic.extra = '<a href="/imgur/a/'+shortid+'">[ALBUM]</a>';
 
                 // If this is animated it will return the animated gif
                 if (result.data.cover !== null)
@@ -1050,7 +1055,7 @@ $(function () {
             error: failedAjax,
             404: failedAjax,
             timeout: 5000,
-            headers: { Authorization: 'Client-ID ' + imgur_client_id },
+            headers: { Authorization: 'Client-ID ' + rp.api_key.imgur },
         });
     };
 

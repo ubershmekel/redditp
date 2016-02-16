@@ -145,6 +145,9 @@ $(function () {
     var hostnameOf = function(url) {
         return $('<a>').prop('href', url).prop('hostname');
     }
+    var pathnameOf = function(url) {
+        return $('<a>').prop('href', url).prop('pathname');
+    }
 
     $("#pictureSlider").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
@@ -825,8 +828,9 @@ $(function () {
                 }
 
                 if (url.indexOf('/a/') > 0) {
-                    shortid = url.substr(1 + url.lastIndexOf('/'));
+                    shortid = pathnameOf(url).split("/")[2];
                     jsonUrl = "https://api.imgur.com/3/album/" + shortid;
+
                 } else if (url.indexOf('/gallery/') > 0) {
                     //console.log('Unsupported gallery: ' + url);
                     return '';
@@ -845,7 +849,7 @@ $(function () {
                     async: false
                     });
 
-                if (result.images > 1)
+                if (result.data.images_count > 1)
                     pic.extra = '<a href="/imgur/a/'+shortid+'">[ALBUM]</a>';
 
                 // If this is animated it will return the animated gif

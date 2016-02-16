@@ -31,4 +31,9 @@ Possible future features, depending on feedback:
 * Support for /r/random and /r/randnsfw virtual subreddits. These'll be tricky unless I cheat as they contain redirects.
 * Offline access support, though I don't know if this is even possible actually (caching external image resources).
 
+Depends on
+----------
+
+* [js-cookie](https://github.com/js-cookie/js-cookie) for managing cookies
+
 Made by Ubershmekel http://uberpython.wordpress.com/

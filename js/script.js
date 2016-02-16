@@ -11,45 +11,43 @@
 
 // TODO: refactor all the globals to use the rp object's namespace.
 var rp = {};
-rp.debug = true;
 
-// Speed of the animation
-var animationSpeed = 1000;
-var shouldAutoNextSlide = true;
-var timeToNextSlide = 6 * 1000;
-var cookieDays = 300;
+rp.settings = {
+    debug: true,
+    // Speed of the animation
+    animationSpeed: 1000,
+    shouldAutoNextSlide: true,
+    timeToNextSlide: 6 * 1000,
+    cookieDays: 300,
+    goodExtensions: ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+};
+
+rp.session = {
+    // 0-based index to set which picture to show first
+    // init to -1 until the first image is loaded
+    activeIndex: -1,
+    
+    // Variable to store if the animation is playing or not
+    isAnimating: false,
+
+    // Id of timer
+    nextSlideTimeoutId: null,
+
+    // Reddit filter "After"
+    after: "",
+
+    foundOneImage: false,
+
+    loadingNextImages: false
+};
 
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
 rp.photos = [];
 
-// 0-based index to set which picture to show first
-// init to -1 until the first image is loaded
-var activeIndex = -1;
+// maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
+rp.cache = [];
 
-
-// IE doesn't have indexOf, wtf...
-if (!Array.indexOf) {
-    Array.prototype.indexOf = function (obj) {
-        for (var i = 0; i < this.length; i++) {
-            if (this[i] == obj) {
-                return i;
-            }
-        }
-        return -1;
-    };
-}
-
-// IE doesn't have console.log and fails, wtf...
-// usage: log('inside coolFunc',this,arguments);
-// http://paulirish.com/2009/log-a-lightweight-wrapper-for-consolelog/
-window.log = function () {
-    log.history = log.history || []; // store logs to an array for reference
-    log.history.push(arguments);
-    if (this.console) {
-        console.log(Array.prototype.slice.call(arguments));
-    }
-};
 
 $(function () {
 
@@ -82,39 +80,35 @@ $(function () {
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
 
-    var nextSlideTimeoutId = null;
-
-    var loadingNextImages = false;
-
     function nextSlide() {
         if(!nsfw) {
-            for(var i = activeIndex + 1; i < rp.photos.length; i++) {
+            for(var i = rp.session.activeIndex + 1; i < rp.photos.length; i++) {
                 if (!rp.photos[i].over18) {
                     return startAnimation(i);
                 }
             }
         }
-        if (isLastImage(activeIndex) && !loadingNextImages) {
+        if (isLastImage(rp.session.activeIndex) && !rp.session.loadingNextImages) {
             // the only reason we got here and there aren't more pictures yet
             // is because there are no more images to load, start over
             return startAnimation(0);
         }
-        startAnimation(activeIndex + 1);
+        startAnimation(rp.session.activeIndex + 1);
     }
     function prevSlide() {
         if(!nsfw) {
-            for(var i = activeIndex - 1; i > 0; i--) {
+            for(var i = rp.session.activeIndex - 1; i > 0; i--) {
                 if (!rp.photos[i].over18) {
                     return startAnimation(i);
                 }
             }
         }
-        startAnimation(activeIndex - 1);
+        startAnimation(rp.session.activeIndex - 1);
     }
 
     
     var autoNextSlide = function () {
-        if (shouldAutoNextSlide) {
+        if (rp.settings.shouldAutoNextSlide) {
             // startAnimation takes care of the setTimeout
             nextSlide();
         }
@@ -169,47 +163,35 @@ $(function () {
         }
     });
 
-    // maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
-    var cache = [];
     // Arguments are image paths relative to the current page.
     var preLoadImages = function () {
         var args_len = arguments.length;
         for (var i = args_len; i--;) {
             var cacheImage = document.createElement('img');
             cacheImage.src = arguments[i];
-            cache.push(cacheImage);
+            rp.cache.push(cacheImage);
         }
     };
 
-    var setCookie = function (c_name, value, exdays) {
-        var exdate = new Date();
-        exdate.setDate(exdate.getDate() + exdays);
-        var c_value = escape(value) + ((exdays === null) ? "" : "; expires=" + exdate.toUTCString());
-        document.cookie = c_name + "=" + c_value;
+    var setCookie = function (c_name, value) {
+        Cookies.set(c_name, value, { expires: rp.settings.cookieDays });
     };
 
+    
     var getCookie = function (c_name) {
-        var i, x, y;
-        var cookiesArray = document.cookie.split(";");
-        for (i = 0; i < cookiesArray.length; i++) {
-            x = cookiesArray[i].substr(0, cookiesArray[i].indexOf("="));
-            y = cookiesArray[i].substr(cookiesArray[i].indexOf("=") + 1);
-            x = x.replace(/^\s+|\s+$/g, "");
-            if (x == c_name) {
-                return unescape(y);
-            }
-        }
+        // undefined in case nothing found
+        return Cookies.get(c_name);
     };
 
     var resetNextSlideTimer = function () {
-        clearTimeout(nextSlideTimeoutId);
-        nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
+        clearTimeout(rp.session.nextSlideTimeoutId);
+        rp.session.nextSlideTimeoutId = setTimeout(autoNextSlide, rp.settings.timeToNextSlide);
     };
 
     shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
     var updateAutoNext = function () {
-        shouldAutoNextSlide = $("#autoNextSlide").is(':checked');
-        setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
+        rp.settings.shouldAutoNextSlide = $("#autoNextSlide").is(':checked');
+        setCookie(shouldAutoNextSlideCookie, rp.settings.shouldAutoNextSlide);
         resetNextSlideTimer();
     };
 
@@ -242,12 +224,12 @@ $(function () {
     nsfwCookie = "nsfwCookie";
     var updateNsfw = function () {
         nsfw = $("#nsfw").is(':checked');
-        setCookie(nsfwCookie, nsfw, cookieDays);
+        setCookie(nsfwCookie, nsfw);
     };
 
     var initState = function () {
         var nsfwByCookie = getCookie(nsfwCookie);
-        if (nsfwByCookie == undefined) {
+        if (nsfwByCookie === undefined) {
             nsfw = true;
         } else {
             nsfw = (nsfwByCookie === "true");
@@ -256,26 +238,26 @@ $(function () {
         $('#nsfw').change(updateNsfw);
 
         var autoByCookie = getCookie(shouldAutoNextSlideCookie);
-        if (autoByCookie == undefined) {
+        if (autoByCookie === undefined) {
             updateAutoNext();
         } else {
-            shouldAutoNextSlide = (autoByCookie === "true");
-            $("#autoNextSlide").prop("checked", shouldAutoNextSlide);
+            rp.settings.shouldAutoNextSlide = (autoByCookie === "true");
+            $("#autoNextSlide").prop("checked", rp.settings.shouldAutoNextSlide);
         }
         $('#autoNextSlide').change(updateAutoNext);
 
         var updateTimeToNextSlide = function () {
             var val = $('#timeToNextSlide').val();
-            timeToNextSlide = parseFloat(val) * 1000;
-            setCookie(timeToNextSlideCookie, val, cookieDays);
+            rp.settings.timeToNextSlide = parseFloat(val) * 1000;
+            setCookie(timeToNextSlideCookie, val);
         };
 
         var timeToNextSlideCookie = "timeToNextSlideCookie";
         timeByCookie = getCookie(timeToNextSlideCookie);
-        if (timeByCookie == undefined) {
+        if (timeByCookie === undefined) {
             updateTimeToNextSlide();
         } else {
-            timeToNextSlide = parseFloat(timeByCookie) * 1000;
+            rp.settings.timeToNextSlide = parseFloat(timeByCookie) * 1000;
             $('#timeToNextSlide').val(timeByCookie);
         }
         
@@ -318,14 +300,14 @@ $(function () {
             if(betterUrl !== '') {
                 pic.url = betterUrl;
             } else {
-                if (rp.debug) {
-                    console.log('failed: ' + pic.url);
+                if (rp.settings.debug) {
+                    log('failed: ' + pic.url);
                 }
                 return;
             }
         }
 
-        rp.foundOneImage = true;
+        rp.session.foundOneImage = true;
         
         preLoadImages(pic.url);
         rp.photos.push(pic);
@@ -447,24 +429,23 @@ $(function () {
     // Starts the animation, based on the image index
     //
     // Variable to store if the animation is playing or not
-    var isAnimating = false;
     var startAnimation = function (imageIndex) {
         resetNextSlideTimer();
 
         // If the same number has been chosen, or the index is outside the
         // rp.photos range, or we're already animating, do nothing
-        if (activeIndex == imageIndex || imageIndex > rp.photos.length - 1 || imageIndex < 0 || isAnimating || rp.photos.length == 0) {
+        if (rp.session.activeIndex == imageIndex || imageIndex > rp.photos.length - 1 || imageIndex < 0 || rp.session.isAnimating || rp.photos.length == 0) {
             return;
         }
 
-        isAnimating = true;
+        rp.session.isAnimating = true;
         animateNavigationBox(imageIndex);
         slideBackgroundPhoto(imageIndex);
 
         // Set the active index to the used image index
-        activeIndex = imageIndex;
+        rp.session.activeIndex = imageIndex;
 
-        if (isLastImage(activeIndex) && rp.subredditUrl.indexOf('/imgur') != 0) {
+        if (isLastImage(rp.session.activeIndex) && rp.subredditUrl.indexOf('/imgur') != 0) {
             getRedditImages();
         }
     };
@@ -490,7 +471,7 @@ $(function () {
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
-        toggleNumberButton(activeIndex, false);
+        toggleNumberButton(rp.session.activeIndex, false);
         toggleNumberButton(imageIndex, true);
     };
 
@@ -515,7 +496,7 @@ $(function () {
         //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
         var divNode = $("<div />").css(cssMap).addClass("clouds");
         if(photo.isVideo) {
-            clearTimeout(nextSlideTimeoutId);
+            clearTimeout(rp.session.nextSlideTimeoutId);
             var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
             if(gfyid.indexOf('#') != -1)
                 gfyid = gfyid.substr(0, gfyid.indexOf('#'));
@@ -525,7 +506,7 @@ $(function () {
         //imgNode.appendTo(divNode);
         divNode.prependTo("#pictureSlider");
 
-        $("#pictureSlider div").fadeIn(animationSpeed);
+        $("#pictureSlider div").fadeIn(rp.settings.animationSpeed);
         if(photo.isVideo){
             gfyCollection.init();
             //ToDo: find a better solution!
@@ -535,10 +516,10 @@ $(function () {
                     vid.find('.gfyPreLoadCanvas').remove();
                     var v = vid.find('video').width('100%').height('100%');
                     vid.find('.gfyPreLoadCanvas').remove();
-                    if (shouldAutoNextSlide)
+                    if (rp.settings.shouldAutoNextSlide)
                         v.removeAttr('loop');
                     v[0].onended = function (e) {
-                        if (shouldAutoNextSlide)
+                        if (rp.settings.shouldAutoNextSlide)
                             nextSlide();
                     };
                 }
@@ -546,9 +527,9 @@ $(function () {
         }
 
         var oldDiv = $("#pictureSlider div:not(:first)");
-        oldDiv.fadeOut(animationSpeed, function () {
+        oldDiv.fadeOut(rp.settings.animationSpeed, function () {
             oldDiv.remove();
-            isAnimating = false;
+            rp.session.isAnimating = false;
         });
     };
 
@@ -585,7 +566,7 @@ $(function () {
 
             if (url.indexOf('/a/') > 0 || url.indexOf('/gallery/') > 0) {
                 // albums aren't supported yet
-                //console.log('Unsupported gallery: ' + url);
+                //log('Unsupported gallery: ' + url);
                 return '';
             }
             
@@ -598,7 +579,6 @@ $(function () {
 
         return '';
     };
-    var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png'];
     var isImageExtension = function (url) {
         var dotLocation = url.lastIndexOf('.');
         if (dotLocation < 0) {
@@ -607,7 +587,7 @@ $(function () {
         }
         var extension = url.substring(dotLocation);
 
-        if (goodExtensions.indexOf(extension) >= 0) {
+        if (rp.settings.goodExtensions.indexOf(extension) >= 0) {
             return true;
         } else {
             //log("skipped bad extension: " + url);
@@ -654,10 +634,10 @@ $(function () {
         //    return;
         //}
 
-        loadingNextImages = true;
+        rp.session.loadingNextImages = true;
 
-        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + after + "&" + getVars;
-        console.log(jsonUrl);
+        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
+        log(jsonUrl);
         //log(jsonUrl);
         var failedAjax = function (data) {
             alert("Failed ajax, maybe a bad url? Sorry about that :(");
@@ -667,7 +647,7 @@ $(function () {
             //redditData = data //global for debugging data
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getRedditImages which is fine.
-            after = "&after=" + data.data.after;
+            rp.session.after = "&after=" + data.data.after;
 
             if (data.data.children.length === 0) {
                 alert("No data from this url :(");
@@ -686,14 +666,14 @@ $(function () {
 
             verifyNsfwMakesSense();
             
-            if (!rp.foundOneImage) {
+            if (!rp.session.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
                 //log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
-            if (activeIndex == -1) {
+            if (rp.session.activeIndex == -1) {
                 startAnimation(0);
             }
 
@@ -704,7 +684,7 @@ $(function () {
                 var numberButton = $("<span />").addClass("numberButton").text("-");
                 addNumberButton(numberButton);
             }
-            loadingNextImages = false;
+            rp.session.loadingNextImages = false;
             
         };
 
@@ -730,7 +710,7 @@ $(function () {
         };
         var handleData = function (data) {
 
-            //console.log(data);
+            //log(data);
 
             if (data.data.images.length === 0) {
                 alert("No data from this url :(");
@@ -748,13 +728,13 @@ $(function () {
 
             verifyNsfwMakesSense();
 
-            if (!rp.foundOneImage) {
+            if (!rp.session.foundOneImage) {
                 log(jsonUrl);
                 alert("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
-            if (activeIndex == -1) {
+            if (rp.session.activeIndex == -1) {
                 startAnimation(0);
             }
 
@@ -764,7 +744,7 @@ $(function () {
             //var numberButton = $("<span />").addClass("numberButton").text("-");
             //addNumberButton(numberButton);
 
-            loadingNextImages = false;
+            rp.session.loadingNextImages = false;
         };
 
         $.ajax({
@@ -834,13 +814,12 @@ $(function () {
     }
 
     var getVars;
-    var after = "";
     
     initState();
     setupUrls();
 
     // if ever found even 1 image, don't show the error
-    rp.foundOneImage = false;
+    rp.session.foundOneImage = false;
 
     if(rp.subredditUrl.indexOf('/imgur') == 0)
         getImgurAlbum(rp.subredditUrl);

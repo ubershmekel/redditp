@@ -477,21 +477,40 @@ $(function () {
     //
     var slideBackgroundPhoto = function (imageIndex) {
 
+
         // Retrieve the accompanying photo based on the index
         var photo = rp.photos[imageIndex];
 
         // Create a new div and apply the CSS
-        var cssMap = Object();
-        cssMap['display'] = "none";
+        var divNode = $("<div />")
         if(!photo.isVideo) {
-            cssMap['background-image'] = "url(" + photo.url + ")";
-            cssMap['background-repeat'] = "no-repeat";
-            cssMap['background-size'] = "contain";
-            cssMap['background-position'] = "center";
+           
+            if(photo.url.search(/^http.*imgur.*gif$/) > -1) {
+               // prefer gifv over gif
+               photo.url = photo.url.replace(/.gif$/, '.webm')
+
+               var videoTagStr  = '<video autoplay loop poster="true" width="100%" height="100%">'
+                   videoTagStr += '  <source src="' + photo.url + '" type="video/webm">'
+                   videoTagStr += '</video>'
+
+               divNode.append(videoTagStr)
+            
+            }
+            else {
+              var cssMap = Object();
+              cssMap['display'] = "none";
+              cssMap['background-image'] = "url(" + photo.url + ")";
+              cssMap['background-repeat'] = "no-repeat";
+              cssMap['background-size'] = "contain";
+              cssMap['background-position'] = "center";
+
+              divNode.css(cssMap).addClass("clouds");
+            
+            }
+              
         }
 
-        //var imgNode = $("<img />").attr("src", photo.image).css({opacity:"0", width: "100%", height:"100%"});
-        var divNode = $("<div />").css(cssMap).addClass("clouds");
+
         if(photo.isVideo) {
             clearTimeout(rp.session.nextSlideTimeoutId);
             var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
@@ -513,6 +532,10 @@ $(function () {
                     vid.find('.gfyPreLoadCanvas').remove();
                     var v = vid.find('video').width('100%').height('100%');
                     vid.find('.gfyPreLoadCanvas').remove();
+
+                    // swap mp4 and webm, so that browsers prefer webm
+                    v.first().find('.webmsource').after(v.first().find('.mp4source'))
+
                     if (rp.settings.shouldAutoNextSlide)
                         v.removeAttr('loop');
                     v[0].onended = function (e) {

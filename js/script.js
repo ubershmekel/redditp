@@ -296,6 +296,7 @@ $(function () {
         gfycat: 'gfycat',
         gifv: 'gifv'
     }
+    
     var addImageSlide = function (pic) {
         /*
         var pic = {
@@ -307,10 +308,16 @@ $(function () {
         }
         */
         pic.type = imageTypes.image;
+        // Replace HTTP with HTTPS on gfycat and imgur to avoid this:
+        //      Mixed Content: The page at 'https://redditp.com/r/gifs' was loaded over HTTPS, but requested an insecure video 'http://i.imgur.com/LzsnbNU.webm'. This content should also be served over HTTPS.
+        var http_prefix = 'http://';
+        var https_prefix = 'https://';
         if (pic.url.indexOf('gfycat.com') >= 0) {
             pic.type = imageTypes.gfycat;
+            pic.url = pic.url.replace(http_prefix, https_prefix);
         } else if (pic.url.search(/^http.*imgur.*gifv?$/) > -1) {
             pic.type = imageTypes.gifv;
+            pic.url = pic.url.replace(http_prefix, https_prefix);
         } else if (isImageExtension(pic.url)) {
             // simple image
         } else {
@@ -529,7 +536,7 @@ $(function () {
     var createDiv = function(imageIndex) {
         // Retrieve the accompanying photo based on the index
         var photo = rp.photos[imageIndex];
-        log("Creating div for " + imageIndex + " - " + photo.url);
+        //log("Creating div for " + imageIndex + " - " + photo.url);
 
         // Create a new div and apply the CSS
         var divNode = $("<div />");

@@ -951,10 +951,17 @@ $(function () {
                 return;
             }
 
+            var re = /(.*?)(\/r\/\w*)\s*\/?([\)\]\}]?)$/;
             $.each(data.data.children, function (i, item) {
+                    var title = item.data.title.replace(re, "$1<a href='"+rp.redditBaseUrl+
+                                                        "$2'>$2</a> <a href='$2'>[P]</a>$3");
+                    if (title.length == 0) {
+                        title = item.data.title;
+                    }
+
                 addImageSlide({
                     url: item.data.url,
-                    title: item.data.title,
+                    title: title,
                     over18: item.data.over_18,
                     subreddit: item.data.subreddit,
                     author: item.data.author,

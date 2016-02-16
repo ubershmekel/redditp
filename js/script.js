@@ -21,7 +21,7 @@ var cookieDays = 300;
 
 // Variable to store the images we need to set as background
 // which also includes some text and url's.
-rp.photos = []
+rp.photos = [];
 
 // 0-based index to set which picture to show first
 // init to -1 until the first image is loaded
@@ -37,7 +37,7 @@ if (!Array.indexOf) {
             }
         }
         return -1;
-    }
+    };
 }
 
 // IE doesn't have console.log and fails, wtf...
@@ -76,7 +76,7 @@ $(function () {
             navboxVisible = true;
             $('.fadeOnIdle').fadeTo('fast', 1);
             fadeoutTimer = setTimeout(fadeoutFunction, 2000);
-        })
+        });
     };
     // this fadeout was really inconvenient on mobile phones
     // and instead the minimize buttons should be used.
@@ -90,7 +90,7 @@ $(function () {
         if(!nsfw) {
             for(var i = activeIndex + 1; i < rp.photos.length; i++) {
                 if (!rp.photos[i].over18) {
-                    return startAnimation(i)
+                    return startAnimation(i);
                 }
             }
         }
@@ -105,7 +105,7 @@ $(function () {
         if(!nsfw) {
             for(var i = activeIndex - 1; i > 0; i--) {
                 if (!rp.photos[i].over18) {
-                    return startAnimation(i)
+                    return startAnimation(i);
                 }
             }
         }
@@ -118,7 +118,7 @@ $(function () {
             // startAnimation takes care of the setTimeout
             nextSlide();
         }
-    }
+    };
     
     function open_in_background(selector){
         // as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
@@ -184,9 +184,9 @@ $(function () {
     var setCookie = function (c_name, value, exdays) {
         var exdate = new Date();
         exdate.setDate(exdate.getDate() + exdays);
-        var c_value = escape(value) + ((exdays == null) ? "" : "; expires=" + exdate.toUTCString());
+        var c_value = escape(value) + ((exdays === null) ? "" : "; expires=" + exdate.toUTCString());
         document.cookie = c_name + "=" + c_value;
-    }
+    };
 
     var getCookie = function (c_name) {
         var i, x, y;
@@ -204,17 +204,17 @@ $(function () {
     var resetNextSlideTimer = function () {
         clearTimeout(nextSlideTimeoutId);
         nextSlideTimeoutId = setTimeout(autoNextSlide, timeToNextSlide);
-    }
+    };
 
     shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
     var updateAutoNext = function () {
-        shouldAutoNextSlide = $("#autoNextSlide").is(':checked')
+        shouldAutoNextSlide = $("#autoNextSlide").is(':checked');
         setCookie(shouldAutoNextSlideCookie, shouldAutoNextSlide, cookieDays);
         resetNextSlideTimer();
-    }
+    };
 
     var toggleFullScreen = function() {
-        var elem = document.getElementById('page')
+        var elem = document.getElementById('page');
         if (document.fullscreenElement || // alternative standard method
             document.mozFullScreenElement || document.webkitFullscreenElement || document.msFullscreenElement) { // current working methods
             if (document.exitFullscreen) {
@@ -237,13 +237,13 @@ $(function () {
                 elem.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
             }
         }
-    }
+    };
 
     nsfwCookie = "nsfwCookie";
     var updateNsfw = function () {
-        nsfw = $("#nsfw").is(':checked')
+        nsfw = $("#nsfw").is(':checked');
         setCookie(nsfwCookie, nsfw, cookieDays);
-    }
+    };
 
     var initState = function () {
         var nsfwByCookie = getCookie(nsfwCookie);
@@ -265,10 +265,10 @@ $(function () {
         $('#autoNextSlide').change(updateAutoNext);
 
         var updateTimeToNextSlide = function () {
-            var val = $('#timeToNextSlide').val()
+            var val = $('#timeToNextSlide').val();
             timeToNextSlide = parseFloat(val) * 1000;
             setCookie(timeToNextSlideCookie, val, cookieDays);
-        }
+        };
 
         var timeToNextSlideCookie = "timeToNextSlideCookie";
         timeByCookie = getCookie(timeToNextSlideCookie);
@@ -283,9 +283,9 @@ $(function () {
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
         
-        $('#prevButton').click(prevSlide)
-        $('#nextButton').click(nextSlide)
-    }
+        $('#prevButton').click(prevSlide);
+        $('#nextButton').click(nextSlide);
+    };
 
     var addNumberButton = function (numberButton) {
         var navboxUls = $(".navbox ul");
@@ -296,7 +296,7 @@ $(function () {
 
         // so li's have a space between them and can word-wrap in the box
         navboxUls.append(document.createTextNode(' '));
-    }
+    };
 
     var addImageSlide = function (pic) {
         /*
@@ -315,7 +315,7 @@ $(function () {
             // simple image
         } else {
             var betterUrl = tryConvertUrl(pic.url);
-            if(betterUrl != '') {
+            if(betterUrl !== '') {
                 pic.url = betterUrl;
             } else {
                 if (rp.debug) {
@@ -343,7 +343,7 @@ $(function () {
         });
         numberButton.addClass("numberButton");
         addNumberButton(numberButton);
-    }
+    };
 
     var arrow = {
         left: 37,
@@ -406,12 +406,12 @@ $(function () {
             case PAGEUP:
             case arrow.left:
             case arrow.up:
-                return prevSlide()
+                return prevSlide();
             case PAGEDOWN:
             case arrow.right:
             case arrow.down:
             case SPACE:
-                return nextSlide()
+                return nextSlide();
         }
     });
 
@@ -429,20 +429,20 @@ $(function () {
     var isLastImage = function(imageIndex) {
         if(nsfw) {
             if(imageIndex == rp.photos.length - 1) {
-                return true
+                return true;
             } else {
-                return false
+                return false;
             }
         } else {
             // look for remaining sfw images
             for(var i = imageIndex + 1; i < rp.photos.length; i++) {
                 if(!rp.photos[i].over18) {
-                    return false
+                    return false;
                 }
             }
-            return true
+            return true;
         }
-    }
+    };
     //
     // Starts the animation, based on the image index
     //
@@ -476,7 +476,7 @@ $(function () {
         } else {
             numberButton.removeClass('active');
         }
-    }
+    };
 
     //
     // Animate the navigation box
@@ -558,18 +558,18 @@ $(function () {
         // Cases when you forgot NSFW off but went to /r/nsfw
         // can cause strange bugs, let's help the user when over 80% of the
         // content is NSFW.
-        var nsfwImages = 0
+        var nsfwImages = 0;
         for(var i = 0; i < rp.photos.length; i++) {
             if(rp.photos[i].over18) {
-                nsfwImages += 1
+                nsfwImages += 1;
             }
         }
         
         if(0.8 < nsfwImages * 1.0 / rp.photos.length) {
-            nsfw = true
-            $("#nsfw").prop("checked", nsfw)
+            nsfw = true;
+            $("#nsfw").prop("checked", nsfw);
         }
-    }
+    };
     
     
     var tryConvertUrl = function (url) {
@@ -577,8 +577,8 @@ $(function () {
             // special cases with imgur
 
             if (url.indexOf('gifv') >= 0) {
-                if (url.indexOf('i.') == 0) {
-                    url = url.replace('imgur.com', 'i.imgur.com')
+                if (url.indexOf('i.') === 0) {
+                    url = url.replace('imgur.com', 'i.imgur.com');
                 }
                 return url.replace('.gifv', '.gif');
             }
@@ -597,8 +597,8 @@ $(function () {
         }
 
         return '';
-    }
-    var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+    };
+    var goodExtensions = ['.jpg', '.jpeg', '.gif', '.bmp', '.png'];
     var isImageExtension = function (url) {
         var dotLocation = url.lastIndexOf('.');
         if (dotLocation < 0) {
@@ -613,11 +613,11 @@ $(function () {
             //log("skipped bad extension: " + url);
             return false;
         }
-    }
+    };
 
     var decodeUrl = function (url) {
-        return decodeURIComponent(url.replace(/\+/g, " "))
-    }
+        return decodeURIComponent(url.replace(/\+/g, " "));
+    };
     rp.getRestOfUrl = function () {
         // Separate to before the question mark and after
         // Detect predefined reddit url paths. If you modify this be sure to fix
@@ -628,12 +628,12 @@ $(function () {
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
         //log(results);
-        if (results == null) {
+        if (results === null) {
             return ["", ""];
         } else {
             return [results[1], decodeUrl(results[2])];
         }
-    }
+    };
 
     var failCleanup = function() {
         if (rp.photos.length > 0) {
@@ -646,7 +646,7 @@ $(function () {
         
         // display alternate recommendations
         $('#recommend').css({'display':'block'});
-    }
+    };
     
     var getRedditImages = function () {
         //if (noMoreToLoad){
@@ -669,7 +669,7 @@ $(function () {
             // from the top on the next getRedditImages which is fine.
             after = "&after=" + data.data.after;
 
-            if (data.data.children.length == 0) {
+            if (data.data.children.length === 0) {
                 alert("No data from this url :(");
                 return;
             }
@@ -689,7 +689,7 @@ $(function () {
             if (!rp.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
                 //log(jsonUrl);
-                alert("Sorry, no displayable images found in that url :(")
+                alert("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
@@ -718,7 +718,7 @@ $(function () {
             404: failedAjax,
             timeout: 5000
         });
-    }
+    };
 
     var getImgurAlbum = function (url) {
         var albumID = url.match(/.*\/(.+?$)/)[1];
@@ -732,7 +732,7 @@ $(function () {
 
             //console.log(data);
 
-            if (data.data.images.length == 0) {
+            if (data.data.images.length === 0) {
                 alert("No data from this url :(");
                 return;
             }
@@ -750,7 +750,7 @@ $(function () {
 
             if (!rp.foundOneImage) {
                 log(jsonUrl);
-                alert("Sorry, no displayable images found in that url :(")
+                alert("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
@@ -778,13 +778,13 @@ $(function () {
                 xhr.setRequestHeader('Authorization',
                     'Client-ID ' + 'f2edd1ef8e66eaf');}
         });
-    }
+    };
 
     var setupUrls = function() {
         rp.urlData = rp.getRestOfUrl();
         //log(rp.urlData)
-        rp.subredditUrl = rp.urlData[0]
-        getVars = rp.urlData[1]
+        rp.subredditUrl = rp.urlData[0];
+        getVars = rp.urlData[1];
         
         if (getVars.length > 0) {
             getVarsQuestionMark = "?" + getVars;
@@ -793,9 +793,9 @@ $(function () {
         }
 
         // Remove .compact as it interferes with .json (we got "/r/all/.compact.json" which doesn't work).
-        rp.subredditUrl = rp.subredditUrl.replace(/.compact/, "")
+        rp.subredditUrl = rp.subredditUrl.replace(/.compact/, "");
         // Consolidate double slashes to avoid r/all/.compact/ -> r/all//
-        rp.subredditUrl = rp.subredditUrl.replace(/\/{2,}/, "/")
+        rp.subredditUrl = rp.subredditUrl.replace(/\/{2,}/, "/");
 
         var subredditName;
         if (rp.subredditUrl === "") {
@@ -814,14 +814,14 @@ $(function () {
         var displayedSubredditName = subredditName;
         // empirically tested capsize, TODO: make css rules to verify this is enough.
         // it would make the "nsfw" checkbox be on its own line :(
-        var capsize = 19
+        var capsize = 19;
         if(displayedSubredditName.length > capsize) {
             displayedSubredditName = displayedSubredditName.substr(0,capsize) + "&hellip;";
         }
         $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + displayedSubredditName + "</a>");
 
         document.title = "redditP - " + subredditName;
-    }
+    };
     
     
 

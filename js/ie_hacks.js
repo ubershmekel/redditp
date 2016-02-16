@@ -1,13 +1,3 @@
-/*
-  Author: Yuval Greenfield (http://uberpython.wordpress.com) 
- 
-  You can save the HTML file and use it locally btw like so:
-    file:///wherever/index.html?/r/aww
- 
-  Favicon by Double-J designs http://www.iconfinder.com/icondetails/68600/64/_icon
-  HTML based on http://demo.marcofolio.net/fullscreen_image_slider/
-  Author of slideshow base :      Marco Kuiper (http://www.marcofolio.net/)
-*/
 
 // IE doesn't have indexOf, wtf...
 if (!Array.indexOf) {

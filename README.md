@@ -31,9 +31,11 @@ Possible future features, depending on feedback:
 * Support for /r/random and /r/randnsfw virtual subreddits. These'll be tricky unless I cheat as they contain redirects.
 * Offline access support, though I don't know if this is even possible actually (caching external image resources).
 
-Depends on
+Credits
 ----------
 
+* Ubershmekel http://yuvalg.com/
 * [js-cookie](https://github.com/js-cookie/js-cookie) for managing cookies
-
-Made by Ubershmekel http://uberpython.wordpress.com/
+* Favicon by Double-J designs http://www.iconfinder.com/icondetails/68600/64/_icon
+* Slideshow based on http://demo.marcofolio.net/fullscreen_image_slider/
+* Author of slideshow base: Marco Kuiper (http://www.marcofolio.net/)

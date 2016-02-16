@@ -44,7 +44,7 @@ rp.session = {
 rp.photos = [];
 
 // maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
-rp.cache = [];
+rp.cache = {};
 
 
 $(function () {
@@ -78,23 +78,31 @@ $(function () {
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
 
-    function nextSlide() {
-        if(!nsfw) {
-            for(var i = rp.session.activeIndex + 1; i < rp.photos.length; i++) {
+    var getNextSlideIndex = function(currentIndex) {
+        if(!rp.settings.nsfw) {
+            // Skip any nsfw if you should
+            for(var i = currentIndex + 1; i < rp.photos.length; i++) {
                 if (!rp.photos[i].over18) {
-                    return startAnimation(i);
+                    return i;
                 }
             }
         }
-        if (isLastImage(rp.session.activeIndex) && !rp.session.loadingNextImages) {
-            // the only reason we got here and there aren't more pictures yet
+        if (isLastImage(getNextSlideIndex) && !rp.session.loadingNextImages) {
+            // The only reason we got here and there aren't more pictures yet
             // is because there are no more images to load, start over
-            return startAnimation(0);
+            return 0;
         }
-        startAnimation(rp.session.activeIndex + 1);
+        // Just go to the next slide, this should be the common case
+        return currentIndex + 1;
     }
+
+    function nextSlide() {
+        var next = getNextSlideIndex(rp.session.activeIndex);
+        startAnimation(next);
+    }
+    
     function prevSlide() {
-        if(!nsfw) {
+        if(!rp.settings.nsfw) {
             for(var i = rp.session.activeIndex - 1; i > 0; i--) {
                 if (!rp.photos[i].over18) {
                     return startAnimation(i);
@@ -167,10 +175,10 @@ $(function () {
         for (var i = args_len; i--;) {
             var cacheImage = document.createElement('img');
             cacheImage.src = arguments[i];
-            rp.cache.push(cacheImage);
+            // Chrome makes the web request without keeping a copy of the image.
+            //rp.cache.push(cacheImage);
         }
     };
-
 
     var cookieNames = {
         nsfwCookie: "nsfwCookie",
@@ -282,6 +290,12 @@ $(function () {
         navboxUls.append(document.createTextNode(' '));
     };
 
+
+    var imageTypes = {
+        image: 'image',
+        gfycat: 'gfycat',
+        gifv: 'gifv'
+    }
     var addImageSlide = function (pic) {
         /*
         var pic = {
@@ -292,9 +306,11 @@ $(function () {
             "isVideo": video
         }
         */
-        pic.isVideo = false;
-        if (pic.url.indexOf('gfycat.com') >= 0){
-            pic.isVideo = true;
+        pic.type = imageTypes.image;
+        if (pic.url.indexOf('gfycat.com') >= 0) {
+            pic.type = imageTypes.gfycat;
+        } else if (pic.url.search(/^http.*imgur.*gifv?$/) > -1) {
+            pic.type = imageTypes.gifv;
         } else if (isImageExtension(pic.url)) {
             // simple image
         } else {
@@ -311,7 +327,10 @@ $(function () {
 
         rp.session.foundOneImage = true;
         
-        preLoadImages(pic.url);
+        // Do not preload all images, this is just not performant.
+        // Especially in gif or high-res subreddits where each image can be 50 MB.
+        // My high-end desktop browser was unresponsive at times.
+        //preLoadImages(pic.url);
         rp.photos.push(pic);
 
         var i = rp.photos.length - 1;
@@ -411,7 +430,7 @@ $(function () {
     };
 
     var isLastImage = function(imageIndex) {
-        if(nsfw) {
+        if(rp.settings.nsfw) {
             if(imageIndex == rp.photos.length - 1) {
                 return true;
             } else {
@@ -427,6 +446,15 @@ $(function () {
             return true;
         }
     };
+    
+    var preloadNextImage = function(imageIndex) {
+        var next = getNextSlideIndex(imageIndex);
+        // Always clear cache - no need for memory bloat.
+        // We only keep the next image preloaded.
+        rp.cache = {};
+        rp.cache[next] = createDiv(next);
+    };
+    
     //
     // Starts the animation, based on the image index
     //
@@ -443,6 +471,7 @@ $(function () {
         rp.session.isAnimating = true;
         animateNavigationBox(imageIndex);
         slideBackgroundPhoto(imageIndex);
+        preloadNextImage(imageIndex);
 
         // Set the active index to the used image index
         rp.session.activeIndex = imageIndex;
@@ -481,81 +510,69 @@ $(function () {
     // Slides the background photos
     //
     var slideBackgroundPhoto = function (imageIndex) {
-
-
-        // Retrieve the accompanying photo based on the index
-        var photo = rp.photos[imageIndex];
-
-        // Create a new div and apply the CSS
-        var divNode = $("<div />")
-        if(!photo.isVideo) {
-           
-            if(photo.url.search(/^http.*imgur.*gif$/) > -1) {
-               // prefer gifv over gif
-               photo.url = photo.url.replace(/.gif$/, '.webm')
-
-               var videoTagStr  = '<video autoplay loop poster="true" width="100%" height="100%">'
-                   videoTagStr += '  <source src="' + photo.url + '" type="video/webm">'
-                   videoTagStr += '</video>'
-
-               divNode.append(videoTagStr)
-            
-            }
-            else {
-              var cssMap = Object();
-              cssMap['display'] = "none";
-              cssMap['background-image'] = "url(" + photo.url + ")";
-              cssMap['background-repeat'] = "no-repeat";
-              cssMap['background-size'] = "contain";
-              cssMap['background-position'] = "center";
-
-              divNode.css(cssMap).addClass("clouds");
-            
-            }
-              
+        var divNode;
+        if (rp.cache[imageIndex] === undefined) {
+            divNode = createDiv(imageIndex);
+        } else {
+            divNode = rp.cache[imageIndex];
         }
 
-
-        if(photo.isVideo) {
-            clearTimeout(rp.session.nextSlideTimeoutId);
-            var gfyid = photo.url.substr(1 + photo.url.lastIndexOf('/'));
-            if(gfyid.indexOf('#') != -1)
-                gfyid = gfyid.substr(0, gfyid.indexOf('#'));
-            divNode.html('<img class="gfyitem" data-id="'+gfyid+'" data-controls="false"/>');
-        }
-
-        //imgNode.appendTo(divNode);
         divNode.prependTo("#pictureSlider");
-
         $("#pictureSlider div").fadeIn(rp.settings.animationSpeed);
-        if(photo.isVideo){
-            gfyCollection.init();
-            //ToDo: find a better solution!
-            $(divNode).bind("DOMNodeInserted", function(e) {
-                if(e.target.tagName.toLowerCase() == "video") {
-                    var vid = $('.gfyitem > div').width('100%').height('100%');
-                    vid.find('.gfyPreLoadCanvas').remove();
-                    var v = vid.find('video').width('100%').height('100%');
-                    vid.find('.gfyPreLoadCanvas').remove();
-
-                    // swap mp4 and webm, so that browsers prefer webm
-                    v.first().find('.webmsource').after(v.first().find('.mp4source'))
-
-                    if (rp.settings.shouldAutoNextSlide)
-                        v.removeAttr('loop');
-                    v[0].onended = function (e) {
-                        if (rp.settings.shouldAutoNextSlide)
-                            nextSlide();
-                    };
-                }
-            });
-        }
-
         var oldDiv = $("#pictureSlider div:not(:first)");
         oldDiv.fadeOut(rp.settings.animationSpeed, function () {
             oldDiv.remove();
             rp.session.isAnimating = false;
         });
+    }
+    
+    var createDiv = function(imageIndex) {
+        // Retrieve the accompanying photo based on the index
+        var photo = rp.photos[imageIndex];
+        log("Creating div for " + imageIndex + " - " + photo.url);
+
+        // Create a new div and apply the CSS
+        var divNode = $("<div />");
+        if(photo.type === imageTypes.gifv) {
+            // prefer gifv over gif
+            photo.url = photo.url.replace(/.gifv?$/, '.webm')
+
+            var videoTagStr  = '<video autoplay loop poster="true" width="100%" height="100%">'
+                videoTagStr += '  <source src="' + photo.url + '" type="video/webm">'
+                videoTagStr += '</video>'
+
+            divNode.append(videoTagStr)
+            
+        } else if (photo.type === imageTypes.image) {
+            // An actual image. Not a video/gif.
+            // `preLoadImages` because making a div with a background css does not cause chrome
+            // to preload it :/
+            preLoadImages(photo.url);
+            var cssMap = Object();
+            cssMap['display'] = "none";
+            cssMap['background-image'] = "url(" + photo.url + ")";
+            cssMap['background-repeat'] = "no-repeat";
+            cssMap['background-size'] = "contain";
+            cssMap['background-position'] = "center";
+
+            divNode.css(cssMap).addClass("clouds");
+            
+        } else if(photo.type == imageTypes.gfycat) {
+            clearTimeout(rp.session.nextSlideTimeoutId);
+            embedit.embed(photo.url, function(elem) {
+                divNode.append(elem);
+                elem.width('100%').height('100%');
+                // Loop or auto next slide
+                if (rp.settings.shouldAutoNextSlide)
+                    $(elem).removeAttr('loop');
+                elem.onended = function (e) {
+                    if (rp.settings.shouldAutoNextSlide)
+                        nextSlide();
+                }
+            });
+        }
+        
+        return divNode;
     };
 
     
@@ -572,7 +589,7 @@ $(function () {
         }
         
         if(0.8 < nsfwImages * 1.0 / rp.photos.length) {
-            nsfw = true;
+            rp.settings.nsfw = true;
             $("#nsfw").prop("checked", nsfw);
         }
     };

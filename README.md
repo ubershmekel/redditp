@@ -8,13 +8,14 @@ http://redditp.com
 Hotkeys
 -------
 
-* a - toggles auto-next (play/pause)
+* a/space - toggles auto-next (play/pause)
 * t - collapse/uncollapse title
 * c - collapse/uncollapse controls
 * i - open image in a new tab
-* r - open comments in a new tab 
+* r - open comments in a new tab
 * f - toggle full screen mode
-* Arrow keys, pgup/pgdown, spacebar change slides
+* m - unmute/mute videos
+* Arrow keys, pgup/pgdown change slides
 * Swipe gestures on phones
 
 Features
@@ -27,7 +28,6 @@ Features
 
 Possible future features, depending on feedback:
 * Zoom/Pan for comics
-* Imgur albums support
 * Support for /r/random and /r/randnsfw virtual subreddits. These'll be tricky unless I cheat as they contain redirects.
 * Offline access support, though I don't know if this is even possible actually (caching external image resources).
 

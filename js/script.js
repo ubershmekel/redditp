@@ -16,7 +16,8 @@ rp.settings = {
     shouldAutoNextSlide: true,
     timeToNextSlide: 6 * 1000,
     cookieDays: 300,
-    goodExtensions: ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+    goodExtensions: ['.jpg', '.jpeg', '.gif', '.bmp', '.png'],
+    nsfw: true
 };
 
 rp.session = {
@@ -170,6 +171,13 @@ $(function () {
         }
     };
 
+
+    var cookieNames = {
+        nsfwCookie: "nsfwCookie",
+        shouldAutoNextSlideCookie: "shouldAutoNextSlideCookie",
+        timeToNextSlideCookie: "timeToNextSlideCookie"
+    };
+
     var setCookie = function (c_name, value) {
         Cookies.set(c_name, value, { expires: rp.settings.cookieDays });
     };
@@ -185,10 +193,9 @@ $(function () {
         rp.session.nextSlideTimeoutId = setTimeout(autoNextSlide, rp.settings.timeToNextSlide);
     };
 
-    shouldAutoNextSlideCookie = "shouldAutoNextSlideCookie";
     var updateAutoNext = function () {
         rp.settings.shouldAutoNextSlide = $("#autoNextSlide").is(':checked');
-        setCookie(shouldAutoNextSlideCookie, rp.settings.shouldAutoNextSlide);
+        setCookie(cookieNames.shouldAutoNextSlideCookie, rp.settings.shouldAutoNextSlide);
         resetNextSlideTimer();
     };
 
@@ -218,23 +225,22 @@ $(function () {
         }
     };
 
-    nsfwCookie = "nsfwCookie";
     var updateNsfw = function () {
-        nsfw = $("#nsfw").is(':checked');
-        setCookie(nsfwCookie, nsfw);
+        rp.settings.nsfw = $("#nsfw").is(':checked');
+        setCookie(cookieNames.nsfwCookie, rp.settings.nsfw);
     };
 
     var initState = function () {
-        var nsfwByCookie = getCookie(nsfwCookie);
+        var nsfwByCookie = getCookie(cookieNames.nsfwCookie);
         if (nsfwByCookie === undefined) {
-            nsfw = true;
+            rp.settings.nsfw = true;
         } else {
-            nsfw = (nsfwByCookie === "true");
-            $("#nsfw").prop("checked", nsfw);
+            rp.settings.nsfw = (nsfwByCookie === "true");
+            $("#nsfw").prop("checked", rp.settings.nsfw);
         }
         $('#nsfw').change(updateNsfw);
 
-        var autoByCookie = getCookie(shouldAutoNextSlideCookie);
+        var autoByCookie = getCookie(cookieNames.shouldAutoNextSlideCookie);
         if (autoByCookie === undefined) {
             updateAutoNext();
         } else {
@@ -246,11 +252,10 @@ $(function () {
         var updateTimeToNextSlide = function () {
             var val = $('#timeToNextSlide').val();
             rp.settings.timeToNextSlide = parseFloat(val) * 1000;
-            setCookie(timeToNextSlideCookie, val);
+            setCookie(cookieNames.timeToNextSlideCookie, val);
         };
 
-        var timeToNextSlideCookie = "timeToNextSlideCookie";
-        timeByCookie = getCookie(timeToNextSlideCookie);
+        var timeByCookie = getCookie(cookieNames.timeToNextSlideCookie);
         if (timeByCookie === undefined) {
             updateTimeToNextSlide();
         } else {

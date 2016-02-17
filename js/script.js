@@ -533,8 +533,10 @@ $(function () {
             rp.session.isAnimating = false;
             
             // Tested on Firefox 43, gfycats that were cached do not autoplay so
-            // this is the workaround.  
-            $('video')[0].play();
+            // this is the workaround. We also prefer the play to start after the fadein finishes.
+            var maybeVid = $('video')[0];
+            if(maybeVid)
+                maybeVid.play();
         });
     }
     

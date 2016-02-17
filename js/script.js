@@ -576,7 +576,7 @@ $(function () {
                     if (rp.settings.shouldAutoNextSlide)
                         nextSlide();
                 };
-                elem.on('ended', onEndFunc);
+                elem.one('ended', onEndFunc);
             });
         } else {
             alert('Unhandled image type, please alert ubershmekel');

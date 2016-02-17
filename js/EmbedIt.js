@@ -6,12 +6,12 @@ embedit.video = function (webmUrl, mp4Url) {
     // video. We can only circumvent that by putting the src 
     // on the <video> tag :/
     
-    var video = $('<video autoplay loop />');
+    var video = $('<video autoplay loop poster="true" />');
     video.append($('<source/>').attr('src', webmUrl));
     video.append($('<source/>').attr('src', mp4Url));
     return video;
     //video.attr("src", urls[0]);
-    
+    /*
     var url;
     if(!webmUrl && !mp4Url) {
         console.error("Empty video urls given");
@@ -31,7 +31,7 @@ embedit.video = function (webmUrl, mp4Url) {
 
     url = url.replace("http://", "https://");
     video.attr("src", url);
-    return video;
+    return video;*/
 }
 
 embedit.unsupported = function(url) {

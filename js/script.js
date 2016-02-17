@@ -326,7 +326,7 @@ $(function () {
                 pic.url = betterUrl;
             } else {
                 if (rp.settings.debug) {
-                    log('failed: ' + pic.url);
+                    log('cannot display url as image: ' + pic.url);
                 }
                 return;
             }
@@ -459,7 +459,8 @@ $(function () {
         // Always clear cache - no need for memory bloat.
         // We only keep the next image preloaded.
         rp.cache = {};
-        rp.cache[next] = createDiv(next);
+        if(next < rp.photos.length)
+            rp.cache[next] = createDiv(next);
     };
     
     //
@@ -530,6 +531,10 @@ $(function () {
         oldDiv.fadeOut(rp.settings.animationSpeed, function () {
             oldDiv.remove();
             rp.session.isAnimating = false;
+            
+            // Tested on Firefox 43, gfycats that were cached do not autoplay so
+            // this is the workaround.  
+            $('video')[0].play();
         });
     }
     
@@ -540,17 +545,7 @@ $(function () {
 
         // Create a new div and apply the CSS
         var divNode = $("<div />");
-        if(photo.type === imageTypes.gifv) {
-            // prefer gifv over gif
-            photo.url = photo.url.replace(/.gifv?$/, '.webm')
-
-            var videoTagStr  = '<video autoplay loop poster="true" width="100%" height="100%">'
-                videoTagStr += '  <source src="' + photo.url + '" type="video/webm">'
-                videoTagStr += '</video>'
-
-            divNode.append(videoTagStr)
-            
-        } else if (photo.type === imageTypes.image) {
+        if (photo.type === imageTypes.image) {
             // An actual image. Not a video/gif.
             // `preLoadImages` because making a div with a background css does not cause chrome
             // to preload it :/
@@ -564,19 +559,25 @@ $(function () {
 
             divNode.css(cssMap).addClass("clouds");
             
-        } else if(photo.type == imageTypes.gfycat) {
+        } else if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
             clearTimeout(rp.session.nextSlideTimeoutId);
             embedit.embed(photo.url, function(elem) {
                 divNode.append(elem);
                 elem.width('100%').height('100%');
+                // We start paused and play after the fade in.
+                // This is to avoid cached or preloaded videos from playing.
+                elem[0].pause();
                 // Loop or auto next slide
                 if (rp.settings.shouldAutoNextSlide)
-                    $(elem).removeAttr('loop');
-                elem.onended = function (e) {
+                    elem.removeAttr('loop');
+                var onEndFunc = function (e) {
                     if (rp.settings.shouldAutoNextSlide)
                         nextSlide();
-                }
+                };
+                elem.on('ended', onEndFunc);
             });
+        } else {
+            alert('Unhandled image type, please alert ubershmekel');
         }
         
         return divNode;
@@ -686,8 +687,6 @@ $(function () {
         rp.session.loadingNextImages = true;
 
         var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
-        log(jsonUrl);
-        //log(jsonUrl);
         var failedAjax = function (data) {
             alert("Failed ajax, maybe a bad url? Sorry about that :(");
             failCleanup();
@@ -736,6 +735,9 @@ $(function () {
             rp.session.loadingNextImages = false;
             
         };
+
+        if (rp.settings.debug)
+            log('Ajax requesting: ' + jsonUrl);
 
         // I still haven't been able to catch jsonp 404 events so the timeout
         // is the current solution sadly.

@@ -52,7 +52,8 @@ $(function () {
     $("#subredditUrl").text("Loading Reddit Slideshow");
     $("#navboxTitle").text("Loading Reddit Slideshow");
 
-    fadeoutWhenIdle = true;
+    var fadeoutWhenIdle = true;
+    
     var setupFadeoutOnIdle = function () {
         $('.fadeOnIdle').fadeTo('fast', 0);
         var navboxVisible = false;
@@ -514,6 +515,23 @@ $(function () {
         toggleNumberButton(imageIndex, true);
     };
 
+    var startPlayingVideo = function(vid_jq) {
+        // Loop or auto next slide
+        // TODO: make this update every time you check/uncheck auto-play
+        if (rp.settings.shouldAutoNextSlide) {
+            clearTimeout(rp.session.nextSlideTimeoutId);
+            vid_jq.removeAttr('loop');
+        }
+        var onEndFunc = function (e) {
+            if (rp.settings.shouldAutoNextSlide)
+                nextSlide();
+        };
+        vid_jq.one('ended', onEndFunc);
+        // Tested on Firefox 43, gfycats that were preloaded do not autoplay when shown so
+        // this is the workaround. We also prefer the play to start after the fadein finishes.
+        vid_jq[0].play();
+    }
+
     //
     // Slides the background photos
     //
@@ -532,11 +550,10 @@ $(function () {
             oldDiv.remove();
             rp.session.isAnimating = false;
             
-            // Tested on Firefox 43, gfycats that were cached do not autoplay so
-            // this is the workaround. We also prefer the play to start after the fadein finishes.
-            var maybeVid = $('video')[0];
-            if(maybeVid)
-                maybeVid.play();
+            var maybeVid = $('video');
+            if(maybeVid.length > 0) {
+                startPlayingVideo(maybeVid);
+            }
         });
     }
     
@@ -562,21 +579,12 @@ $(function () {
             divNode.css(cssMap).addClass("clouds");
             
         } else if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
-            clearTimeout(rp.session.nextSlideTimeoutId);
             embedit.embed(photo.url, function(elem) {
                 divNode.append(elem);
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.
                 // This is to avoid cached or preloaded videos from playing.
                 elem[0].pause();
-                // Loop or auto next slide
-                if (rp.settings.shouldAutoNextSlide)
-                    elem.removeAttr('loop');
-                var onEndFunc = function (e) {
-                    if (rp.settings.shouldAutoNextSlide)
-                        nextSlide();
-                };
-                elem.one('ended', onEndFunc);
             });
         } else {
             alert('Unhandled image type, please alert ubershmekel');

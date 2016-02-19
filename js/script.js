@@ -587,7 +587,7 @@ $(function () {
                 elem[0].pause();
             });
         } else {
-            alert('Unhandled image type, please alert ubershmekel');
+            toastr.error('Unhandled image type, please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
         }
         
         return divNode;
@@ -698,7 +698,7 @@ $(function () {
 
         var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
         var failedAjax = function (data) {
-            alert("Failed ajax, maybe a bad url? Sorry about that :(");
+            toastr.error("Failed ajax, maybe a bad url? Sorry about that :(");
             failCleanup();
         };
         var handleData = function (data) {
@@ -708,7 +708,7 @@ $(function () {
             rp.session.after = "&after=" + data.data.after;
 
             if (data.data.children.length === 0) {
-                alert("No data from this url :(");
+                toastr.error("No data from this url :(");
                 return;
             }
 
@@ -727,7 +727,7 @@ $(function () {
             if (!rp.session.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
                 //log(jsonUrl);
-                alert("Sorry, no displayable images found in that url :(");
+                toastr.error("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
@@ -766,7 +766,7 @@ $(function () {
         var jsonUrl = 'https://api.imgur.com/3/album/' + albumID;
         //log(jsonUrl);
         var failedAjax = function (data) {
-            alert("Failed ajax, maybe a bad url? Sorry about that :(");
+            toastr.error("Failed ajax, maybe a bad url? Sorry about that :(");
             failCleanup();
         };
         var handleData = function (data) {
@@ -774,7 +774,7 @@ $(function () {
             //log(data);
 
             if (data.data.images.length === 0) {
-                alert("No data from this url :(");
+                toastr.error("No data from this url :(");
                 return;
             }
 
@@ -791,7 +791,7 @@ $(function () {
 
             if (!rp.session.foundOneImage) {
                 log(jsonUrl);
-                alert("Sorry, no displayable images found in that url :(");
+                toastr.error("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image

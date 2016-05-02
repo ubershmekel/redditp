@@ -88,6 +88,12 @@ $(function () {
                 }
             }
         }
+        // Skip removed images
+        for(var i = currentIndex + 1; i < rp.photos.length; i++) {
+            if (!rp.photos[i].skip) {
+                return i;
+            }
+        }
         if (isLastImage(getNextSlideIndex) && !rp.session.loadingNextImages) {
             // The only reason we got here and there aren't more pictures yet
             // is because there are no more images to load, start over
@@ -108,6 +114,12 @@ $(function () {
                 if (!rp.photos[i].over18) {
                     return startAnimation(i);
                 }
+            }
+        }
+        // Skip removed images
+        for(var i = rp.session.activeIndex - 1; i > 0; i--) {
+            if (!rp.photos[i].skip) {
+                return startAnimation(i);
             }
         }
         startAnimation(rp.session.activeIndex - 1);
@@ -170,12 +182,21 @@ $(function () {
         }
     });
 
+    // skip 161x81 images
+    var imgonload = function (event) {
+        if((this.width==161)&&(this.height==81)){
+            log("IMGUR image removed: " + event.data.url);
+            event.data.skip = true;
+        }
+    };
     // Arguments are image paths relative to the current page.
     var preLoadImages = function () {
-        var args_len = arguments.length;
+        var args_len = arguments.length - 1;
+        var photo = arguments[arguments.length - 1];
         for (var i = args_len; i--;) {
             var cacheImage = document.createElement('img');
             cacheImage.src = arguments[i];
+            $(cacheImage).on( "load", photo, imgonload);
             // Chrome makes the web request without keeping a copy of the image.
             //rp.cache.push(cacheImage);
         }
@@ -568,7 +589,7 @@ $(function () {
             // An actual image. Not a video/gif.
             // `preLoadImages` because making a div with a background css does not cause chrome
             // to preload it :/
-            preLoadImages(photo.url);
+            preLoadImages(photo.url, photo);
             var cssMap = Object();
             cssMap['display'] = "none";
             cssMap['background-image'] = "url(" + photo.url + ")";
@@ -717,6 +738,7 @@ $(function () {
                     url: item.data.url,
                     title: item.data.title,
                     over18: item.data.over_18,
+                    skip: false,
                     subreddit: item.data.subreddit,
                     commentsLink: rp.redditBaseUrl + item.data.permalink
                 });
@@ -783,6 +805,7 @@ $(function () {
                     url: item.link,
                     title: item.title,
                     over18: item.nsfw,
+                    skip: false,
                     commentsLink: ""
                 });                
             });

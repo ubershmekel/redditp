@@ -727,6 +727,7 @@ $(function () {
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getRedditImages which is fine.
             rp.session.after = "&after=" + data.data.after;
+            var nextIndex = rp.photos.length;
 
             if (data.data.children.length === 0) {
                 toastr.error("No data from this url :(");
@@ -765,6 +766,7 @@ $(function () {
                 addNumberButton(numberButton);
             }
             rp.session.loadingNextImages = false;
+            preLoadImages(rp.photos[nextIndex].url, rp.photos[nextIndex]);
             
         };
 

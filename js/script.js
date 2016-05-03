@@ -35,6 +35,8 @@ rp.session = {
     after: "",
 
     foundOneImage: false,
+    
+    noMorePictures: false,
 
     loadingNextImages: false
 };
@@ -94,7 +96,7 @@ $(function () {
                 return i;
             }
         }
-        if (isLastImage(getNextSlideIndex) && !rp.session.loadingNextImages) {
+        if (rp.session.noMorePictures && !rp.session.loadingNextImages) {
             // The only reason we got here and there aren't more pictures yet
             // is because there are no more images to load, start over
             return 0;
@@ -764,6 +766,7 @@ $(function () {
                 // Show the user we're starting from the top
                 var numberButton = $("<span />").addClass("numberButton").text("-");
                 addNumberButton(numberButton);
+                rp.session.noMorePictures = true;
             }
             rp.session.loadingNextImages = false;
             preLoadImages(rp.photos[nextIndex].url, rp.photos[nextIndex]);

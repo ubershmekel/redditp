@@ -9,6 +9,7 @@ Hotkeys
 -------
 
 * a - toggles auto-next (play/pause)
+* d - open duplicates in a new tab
 * t - collapse/uncollapse title
 * c - collapse/uncollapse controls
 * i - open image in a new tab

@@ -370,6 +370,7 @@ $(function () {
     var ENTER = 13;
     var A_KEY = 65;
     var C_KEY = 67;
+    var D_KEY = 68;
     var F_KEY = 70;
     var I_KEY = 73;
     var R_KEY = 82;
@@ -405,6 +406,9 @@ $(function () {
             case A_KEY:
                 $("#autoNextSlide").prop("checked", !$("#autoNextSlide").is(':checked'));
                 updateAutoNext();
+                break;
+            case D_KEY:
+                open_in_background("#navboxDuplicatesLink");
                 break;
             case I_KEY:
                 open_in_background("#navboxLink");
@@ -514,6 +518,7 @@ $(function () {
         $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
+        $('#navboxDuplicatesLink').attr('href', photo.duplicatesLink).attr('title', "Duplicates on reddit");
 
         toggleNumberButton(rp.session.activeIndex, false);
         toggleNumberButton(imageIndex, true);
@@ -722,7 +727,8 @@ $(function () {
                     title: item.data.title,
                     over18: item.data.over_18,
                     subreddit: item.data.subreddit,
-                    commentsLink: rp.redditBaseUrl + item.data.permalink
+                    commentsLink: rp.redditBaseUrl + item.data.permalink,
+                    duplicatesLink: rp.redditBaseUrl + item.data.permalink.replace('/comments/', '/duplicates/')
                 });
             });
 

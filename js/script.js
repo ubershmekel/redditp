@@ -373,6 +373,7 @@ $(function () {
     var F_KEY = 70;
     var I_KEY = 73;
     var R_KEY = 82;
+    var S_KEY = 83;
     var T_KEY = 84;
 
     
@@ -407,6 +408,9 @@ $(function () {
                 break;
             case I_KEY:
                 open_in_background("#navboxLink");
+                break;
+            case S_KEY:
+                open_in_background("#navboxSubreddit");
                 break;
             case R_KEY:
                 open_in_background("#navboxCommentsLink");

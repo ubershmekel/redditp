@@ -12,7 +12,8 @@ Hotkeys
 * t - collapse/uncollapse title
 * c - collapse/uncollapse controls
 * i - open image in a new tab
-* r - open comments in a new tab 
+* r - open comments in a new tab
+* s - open subreddit in a new tab
 * f - toggle full screen mode
 * Arrow keys, pgup/pgdown, spacebar change slides
 * Swipe gestures on phones

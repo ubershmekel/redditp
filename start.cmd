@@ -1,1 +1,1 @@
-python -m SimpleHTTPServer
+nodemon app.js

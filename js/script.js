@@ -49,6 +49,8 @@ rp.cache = {};
 
 $(function () {
 
+    pictureSliderId = "#pictureSlider";
+
     $("#subredditUrl").text("Loading Reddit Slideshow");
     $("#navboxTitle").text("Loading Reddit Slideshow");
 
@@ -137,7 +139,7 @@ $(function () {
         }
     }
 
-    $("#pictureSlider").touchwipe({
+    $(pictureSliderId).touchwipe({
         // wipeLeft means the user moved his finger from right to left.
         wipeLeft: nextSlide,
         wipeRight: prevSlide,
@@ -515,6 +517,14 @@ $(function () {
         toggleNumberButton(imageIndex, true);
     };
 
+    var playButton = $('<img id="playButton" src="/images/play.svg" />');
+    playButton.click(function() {
+        $('video')[0].play();
+        playButton.hide();
+    });
+    $(pictureSliderId).append(playButton);
+    playButton.hide();
+
     var startPlayingVideo = function(vid_jq) {
         // Loop or auto next slide
         // TODO: make this update every time you check/uncheck auto-play
@@ -529,7 +539,11 @@ $(function () {
         vid_jq.one('ended', onEndFunc);
         // Tested on Firefox 43, gfycats that were preloaded do not autoplay when shown so
         // this is the workaround. We also prefer the play to start after the fadein finishes.
-        vid_jq[0].play();
+        vid_jq[0].play().catch(function(e){
+            // a trick to get around: DOMException: play() can only be initiated by a user gesture.
+            playButton.show();
+            console.log(e);
+        });
     }
 
     //
@@ -543,9 +557,9 @@ $(function () {
             divNode = rp.cache[imageIndex];
         }
 
-        divNode.prependTo("#pictureSlider");
-        $("#pictureSlider div").fadeIn(rp.settings.animationSpeed);
-        var oldDiv = $("#pictureSlider div:not(:first)");
+        divNode.prependTo(pictureSliderId);
+        $(pictureSliderId + " div").fadeIn(rp.settings.animationSpeed);
+        var oldDiv = $(pictureSliderId + " div:not(:first)");
         oldDiv.fadeOut(rp.settings.animationSpeed, function () {
             oldDiv.remove();
             rp.session.isAnimating = false;

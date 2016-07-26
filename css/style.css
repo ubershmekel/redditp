@@ -128,4 +128,9 @@ label.checkbox { font-weight: bold; }
     padding-left: 10px;
     cursor:pointer;
 }
+
+#playButton {
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
 }

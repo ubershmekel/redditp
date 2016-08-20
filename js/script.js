@@ -540,11 +540,24 @@ $(function () {
         // Tested on Firefox 43, gfycats that were preloaded do not autoplay when shown so
         // this is the workaround. We also prefer the play to start after the fadein finishes.
         var playPromise = vid_jq[0].play();
-        if (playPromise !== undefined) {
+        if (playPromise && playPromise.catch) {
             // playPromise is `undefined` in firefox 46-48 it seems
             playPromise.catch(function(e) {
                 // a trick to get around: DOMException: play() can only be initiated by a user gesture.
-                playButton.show();
+                // We show a play button that the user can press
+                if(e.name === "NotAllowedError") {
+                    //code: 0
+                    //message: "play() can only be initiated by a user gesture."
+                    //name: "NotAllowedError"
+                    playButton.show();
+                } else {
+                    // AbortError can happen I think with e.g. a 404, user clicking next before loading finishes,
+                    // In that case, we don't want the play button to show. Here is a recorded example from 
+                    // https://redditp.com/r/eyebleach/top?t=month
+                    //code: 20,
+                    //message: "The play() request was interrupted by a call to pause().",
+                    //name: "AbortError",
+                }
                 console.log(e);
             });
         }

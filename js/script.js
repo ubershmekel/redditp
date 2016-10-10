@@ -526,6 +526,7 @@ $(function () {
 
         $('#navboxTitle').html(photo.title);
         $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
+        $('#navboxRemoveSubreddit').html("remove sub from url");
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 

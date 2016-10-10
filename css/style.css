@@ -81,6 +81,10 @@ a:hover {
     padding: 10px 25px 10px 0;
     margin:0;
 }
+#navboxRemoveSubreddit {
+    font-size: x-small;
+    margin-left: 0.75em;
+}
 
 label.checkbox { font-weight: bold; }
 

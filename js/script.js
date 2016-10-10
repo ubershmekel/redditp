@@ -249,7 +249,7 @@ $(function () {
         else if ((window.location+"").indexOf("+"+$("#navboxSubreddit").text().substr(3)) == (window.location+"").lastIndexOf("+"))
             window.location = (window.location+"").replace("+"+$("#navboxSubreddit").text().substr(3), "").replace("#", "");
         else
-            toastr.error("Unable to remove" + $("#navboxSubreddit").text().substr(3) + "(this shouldnt happen :(");
+            toastr.error("Unable to remove " + $("#navboxSubreddit").text().substr(3) + " (this shouldnt happen :(");
     };
 
     var initState = function () {

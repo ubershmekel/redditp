@@ -292,7 +292,10 @@ $(function () {
         $('#prevButton').click(prevSlide);
         $('#nextButton').click(nextSlide);
 
-        $("#navboxRemoveSubreddit").click(removeSubFromURL);
+        $("#navboxRemoveSubreddit")[0].addEventListener('click', function (ev) {
+            ev.preventDefault();
+            removeSubFromURL();
+        });
     };
 
     var addNumberButton = function (numberButton) {

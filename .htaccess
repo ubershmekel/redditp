@@ -13,8 +13,8 @@ RewriteRule ^u(ser)?/(.*) /index.html
 RewriteRule ^domain/(.*) /index.html
 RewriteRule ^search(.*) /index.html
 
-# to hide .git and allow redditp.com/.compact
-RewriteRule ^\.(.*) /index.html
+# to hide .git, allow redditp.com/.compact, and letsencrypt looks at `.well-known`
+RewriteRule ^\.([^w].*) /index.html
 
 # new multireddits with /me/
 RewriteRule ^me/(.*) /index.html

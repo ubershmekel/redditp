@@ -695,7 +695,7 @@ $(function () {
         // .htaccess
         // This is a good idea so we can give a quick 404 page when appropriate.
         
-        var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:u(ser)?/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
+        var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:u(?:ser)?/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
         //log(results);

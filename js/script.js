@@ -308,6 +308,7 @@ $(function () {
             "commentsLink": commentsLink,
             "over18": over18,
             "isVideo": video
+	    "commentsNum": Number of comments
         }
         */
         pic.type = imageTypes.image;
@@ -512,6 +513,7 @@ $(function () {
         $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
+        $('#navboxCommentsLink').text('Comments (' + photo.commentsNum +')');
 
         toggleNumberButton(rp.session.activeIndex, false);
         toggleNumberButton(imageIndex, true);
@@ -747,9 +749,10 @@ $(function () {
                 addImageSlide({
                     url: item.data.url,
                     title: item.data.title,
-                    over18: item.data.over_18,
+                    over18: item.data.zover_18,
                     subreddit: item.data.subreddit,
-                    commentsLink: rp.redditBaseUrl + item.data.permalink
+                    commentsLink: rp.redditBaseUrl + item.data.permalink,
+		    commentsNum: item.data.num_comments 
                 });
             });
 
@@ -814,7 +817,8 @@ $(function () {
                     url: item.link,
                     title: item.title,
                     over18: item.nsfw,
-                    commentsLink: ""
+                    commentsLink: "",
+		    commentsNum: ""
                 });                
             });
 

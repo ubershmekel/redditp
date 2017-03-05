@@ -749,7 +749,7 @@ $(function () {
                 addImageSlide({
                     url: item.data.url,
                     title: item.data.title,
-                    over18: item.data.zover_18,
+                    over18: item.data.over_18,
                     subreddit: item.data.subreddit,
                     commentsLink: rp.redditBaseUrl + item.data.permalink,
 		    commentsNum: item.data.num_comments 

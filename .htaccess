@@ -1,5 +1,5 @@
-Action php54-cgi /php54.cgi
-AddHandler php54-cgi .php
+#Action php54-cgi /php54.cgi
+#AddHandler php54-cgi .php
 
 # Updates here should coincide with rp.getRestOfUrl()
 RewriteEngine On

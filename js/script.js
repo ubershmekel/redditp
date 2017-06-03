@@ -612,6 +612,10 @@ $(function () {
         } else if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
             embedit.embed(photo.url, function(elem) {
                 divNode.append(elem);
+                $(elem).attr({
+                    muted: '',
+                    playsinline: '',
+                });
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.
                 // This is to avoid cached or preloaded videos from playing.

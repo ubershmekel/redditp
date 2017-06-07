@@ -1,0 +1,19 @@
+version: '2'
+services:
+  nginxredirect:
+    image: schmunk42/nginx-redirect
+    environment:
+    - SERVER_REDIRECT=redditp.com
+    labels:
+    - "traefik.port=80"
+    - "traefik.enable=true"
+    - "traefik.frontend.rule=Host:www.redditp.com"
+    - "traefik.docker.network=reverseproxy_default"
+    networks:
+    - "reverseproxy_default"
+    restart: always
+networks:
+  reverseproxy_default:
+    external:
+      name: reverseproxy_default
+

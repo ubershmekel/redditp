@@ -39,3 +39,5 @@ Credits
 * Favicon by Double-J designs http://www.iconfinder.com/icondetails/68600/64/_icon
 * Slideshow based on http://demo.marcofolio.net/fullscreen_image_slider/
 * Author of slideshow base: Marco Kuiper (http://www.marcofolio.net/)
+* And many more that have contributed to this project through feedback and pull requests https://github.com/ubershmekel/redditp/graphs/contributors
+

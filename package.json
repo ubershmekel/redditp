@@ -2,12 +2,14 @@
   "name": "redditp",
   "version": "1.0.0",
   "description": "Convert reddit urls into slideshows",
-  "main": "app.js",
-  "dependencies": {
-    "express": "^4.14.0"
+  "main": "index.html",
+  "dependencies": {},
+  "devDependencies": {
+    "express": "^4.15.3"
   },
-  "devDependencies": {},
   "scripts": {
+    "start": "node server.js",
+    "debug": "export DEV=yes; node --debug-brk server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

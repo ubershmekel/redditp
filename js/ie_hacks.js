@@ -14,10 +14,19 @@ if (!Array.indexOf) {
 // IE doesn't have console.log and fails, wtf...
 // usage: log('inside coolFunc',this,arguments);
 // http://paulirish.com/2009/log-a-lightweight-wrapper-for-consolelog/
-window.log = function () {
-    log.history = log.history || []; // store logs to an array for reference
-    log.history.push(arguments);
-    if (this.console) {
-        console.log(Array.prototype.slice.call(arguments));
-    }
-};
+if (!window.console) {
+    window.console = {};
+}
+if(!window.console.log) {
+    window.log = function () {
+        log.history = log.history || []; // store logs to an array for reference
+        log.history.push(arguments);
+        if (this.console) {
+            console.log(Array.prototype.slice.call(arguments));
+        }
+    };
+    window.console.log = window.log;
+} else {
+    // Chrome users don't need to suffer
+    window.log = console.log;
+}

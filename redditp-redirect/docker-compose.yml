@@ -12,6 +12,8 @@ services:
     networks:
     - "reverseproxy_default"
     restart: always
+    log_opt:
+      max-size: 50m
 networks:
   reverseproxy_default:
     external:

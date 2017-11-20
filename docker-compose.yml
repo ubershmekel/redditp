@@ -13,6 +13,8 @@ services:
     volumes:
       - .:/usr/local/apache2/htdocs/:ro
       - ./httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+    log_opt:
+      max-size: 50m
 
 
 networks:

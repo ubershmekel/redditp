@@ -736,7 +736,7 @@ $(function () {
             var message = "Failed ajax, maybe a bad url? Sorry about that :(";
             var isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1;
             if (isFirefox) {
-                message = "Failed ajax, Firefox try to disable tracking protection from the shield in the URL bar"
+                message = "Failed ajax, Firefox try to disable tracking protection from the shield in the URL bar";
             }
             toastr.error(message);
             failCleanup();

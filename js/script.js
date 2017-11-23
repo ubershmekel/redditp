@@ -35,6 +35,8 @@ rp.session = {
     after: "",
 
     foundOneImage: false,
+    
+    noMorePictures: false,
 
     loadingNextImages: false
 };
@@ -90,7 +92,13 @@ $(function () {
                 }
             }
         }
-        if (isLastImage(getNextSlideIndex) && !rp.session.loadingNextImages) {
+        // Skip removed images
+        for(var i = currentIndex + 1; i < rp.photos.length; i++) {
+            if (!rp.photos[i].skip) {
+                return i;
+            }
+        }
+        if (rp.session.noMorePictures && !rp.session.loadingNextImages) {
             // The only reason we got here and there aren't more pictures yet
             // is because there are no more images to load, start over
             return 0;
@@ -110,6 +118,12 @@ $(function () {
                 if (!rp.photos[i].over18) {
                     return startAnimation(i);
                 }
+            }
+        }
+        // Skip removed images
+        for(var i = rp.session.activeIndex - 1; i > 0; i--) {
+            if (!rp.photos[i].skip) {
+                return startAnimation(i);
             }
         }
         startAnimation(rp.session.activeIndex - 1);
@@ -172,12 +186,21 @@ $(function () {
         }
     });
 
+    // skip 161x81 images
+    var imgonload = function (event) {
+        if((this.width==161)&&(this.height==81)){
+            log("IMGUR image removed: " + event.data.url);
+            event.data.skip = true;
+        }
+    };
     // Arguments are image paths relative to the current page.
     var preLoadImages = function () {
-        var args_len = arguments.length;
+        var args_len = arguments.length - 1;
+        var photo = arguments[arguments.length - 1];
         for (var i = args_len; i--;) {
             var cacheImage = document.createElement('img');
             cacheImage.src = arguments[i];
+            $(cacheImage).on( "load", photo, imgonload);
             // Chrome makes the web request without keeping a copy of the image.
             //rp.cache.push(cacheImage);
         }
@@ -599,7 +622,7 @@ $(function () {
             // An actual image. Not a video/gif.
             // `preLoadImages` because making a div with a background css does not cause chrome
             // to preload it :/
-            preLoadImages(photo.url);
+            preLoadImages(photo.url, photo);
             var cssMap = Object();
             cssMap['display'] = "none";
             cssMap['background-image'] = "url(" + photo.url + ")";
@@ -746,6 +769,7 @@ $(function () {
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getRedditImages which is fine.
             rp.session.after = "&after=" + data.data.after;
+            var nextIndex = rp.photos.length;
 
             if (data.data.children.length === 0) {
                 toastr.error("No data from this url :(");
@@ -757,6 +781,7 @@ $(function () {
                     url: item.data.url,
                     title: item.data.title,
                     over18: item.data.over_18,
+                    skip: false,
                     subreddit: item.data.subreddit,
                     commentsLink: rp.redditBaseUrl + item.data.permalink
                 });
@@ -781,8 +806,10 @@ $(function () {
                 // Show the user we're starting from the top
                 var numberButton = $("<span />").addClass("numberButton").text("-");
                 addNumberButton(numberButton);
+                rp.session.noMorePictures = true;
             }
             rp.session.loadingNextImages = false;
+            preLoadImages(rp.photos[nextIndex].url, rp.photos[nextIndex]);
             
         };
 
@@ -823,6 +850,7 @@ $(function () {
                     url: item.link,
                     title: item.title,
                     over18: item.nsfw,
+                    skip: false,
                     commentsLink: ""
                 });                
             });

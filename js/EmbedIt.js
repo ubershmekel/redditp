@@ -83,9 +83,9 @@ embedit.convertors = [
         detect: /gfycat\.com.*/,
         convert: function (url, embedFunc) {
             //https://gfycat.com/cajax/get/ScaryGrizzledComet
-            var match = url.match(/gfycat.com\/(\w+)/i);
-            if(match && match.length > 1)
-                var name = match[1];
+            var match = url.match(/gfycat.com\/(gifs\/detail\/)?(\w+)/i);
+            if(match && match.length > 2)
+                var name = match[2];
             else
                 return false;
             

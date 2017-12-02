@@ -46,6 +46,14 @@ rp.photos = [];
 // maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
 rp.cache = {};
 
+function reportError(errMessage) {
+    if (errorHandler && errorHandler.report) {
+        errorHandler.report(new Error(errMessage));
+    } else {
+        console.log('No error handler yet:' + errMessage);
+    }
+}
+
 
 $(function () {
 
@@ -612,7 +620,7 @@ $(function () {
         } else if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
             embedit.embed(photo.url, function(elem) {
                 if (!elem) {
-                    errorHandler.report(new Error('Failed to handle url'));
+                    reportError('Failed to handle url');
                     toastr.error('Unhandled image type, please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
                     return divNode;
                 }
@@ -627,7 +635,7 @@ $(function () {
                 elem[0].pause();
             });
         } else {
-            errorHandler.report(new Error('Unhandled image type'));
+            reportError('Unhandled image type');
             toastr.error('Unhandled image type, please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
         }
         

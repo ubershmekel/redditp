@@ -52,6 +52,7 @@ function reportError(errMessage) {
     } else {
         console.log('No error handler yet:' + errMessage);
     }
+    toastr.error(errMessage + ', please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');    
 }
 
 
@@ -527,7 +528,12 @@ $(function () {
 
     var playButton = $('<img id="playButton" src="/images/play.svg" />');
     playButton.click(function() {
-        $('video')[0].play();
+        if ($('video')[0]) {
+            $('video')[0].play();
+        } else {
+            // serious bug, why did we show the play button but have no video there?
+            reportError('Play button pressed but no video there');
+        }
         playButton.hide();
     });
     $(pictureSliderId).append(playButton);
@@ -621,7 +627,6 @@ $(function () {
             embedit.embed(photo.url, function(elem) {
                 if (!elem) {
                     reportError('Failed to handle url');
-                    toastr.error('Unhandled image type, please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
                     return divNode;
                 }
                 divNode.append(elem);
@@ -636,7 +641,6 @@ $(function () {
             });
         } else {
             reportError('Unhandled image type');
-            toastr.error('Unhandled image type, please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
         }
         
         return divNode;
@@ -752,7 +756,7 @@ $(function () {
             if (isFirefox) {
                 message = "Failed ajax, Firefox try to disable tracking protection from the shield in the URL bar";
             }
-            toastr.error(message);
+            reportError(message);
             failCleanup();
         };
         var handleData = function (data) {
@@ -762,7 +766,7 @@ $(function () {
             rp.session.after = "&after=" + data.data.after;
 
             if (data.data.children.length === 0) {
-                toastr.error("No data from this url :(");
+                reportError("No data from this url :(");
                 return;
             }
 
@@ -781,7 +785,7 @@ $(function () {
             if (!rp.session.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
                 //log(jsonUrl);
-                toastr.error("Sorry, no displayable images found in that url :(");
+                reportError("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image
@@ -820,7 +824,7 @@ $(function () {
         var jsonUrl = 'https://api.imgur.com/3/album/' + albumID;
         //log(jsonUrl);
         var failedAjax = function (data) {
-            toastr.error("Failed ajax, maybe a bad url? Sorry about that :(");
+            reportError("Failed ajax, maybe a bad url? Sorry about that :(");
             failCleanup();
         };
         var handleData = function (data) {
@@ -828,7 +832,7 @@ $(function () {
             //log(data);
 
             if (data.data.images.length === 0) {
-                toastr.error("No data from this url :(");
+                reportError("No data from this url :(");
                 return;
             }
 
@@ -845,7 +849,7 @@ $(function () {
 
             if (!rp.session.foundOneImage) {
                 log(jsonUrl);
-                toastr.error("Sorry, no displayable images found in that url :(");
+                reportError("Sorry, no displayable images found in that url :(");
             }
 
             // show the first image

@@ -13,6 +13,20 @@
     <link rel="shortcut icon" href="/images/favicon.png" />
     <link rel="stylesheet" type="text/css" href="/css/style.css" />
     <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.2/toastr.css" />
+
+    <!-- Google error reporting -->
+    <script defer src="https://cdn.rawgit.com/GoogleCloudPlatform/stackdriver-errors-js/v0.3.0/dist/stackdriver-errors-concat.min.js"></script>
+    <script type="text/javascript">
+        window.addEventListener('DOMContentLoaded', function() {
+            var errorHandler = new StackdriverErrorReporter();
+            errorHandler.start({
+                key: 'AIzaSyDjQxNRa6NQ21ibUHBdSKNkcgVmhidcyzE',
+                projectId: 'ubershmekel',
+                service: 'redditp',
+            });
+        });
+    </script>
+
     <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.0/jquery.min.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.2/toastr.min.js"></script>
     <script>

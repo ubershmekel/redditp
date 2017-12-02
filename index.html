@@ -43,6 +43,8 @@
             // Tell users when errors occur and log on google analytics
             // http://stackoverflow.com/questions/2604976/javascript-how-to-display-script-errors-in-a-popup-alert/2604997#2604997
             var errMessage = msg + '\nURL: ' + url + '\nLine Number: '+ linenumber;
+            if (console && console.log)
+                console.log(errMessage);
             ga('send', 'exception', {
                 'exDescription': errMessage,
                 'exFatal': false

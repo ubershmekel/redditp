@@ -611,6 +611,11 @@ $(function () {
             
         } else if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
             embedit.embed(photo.url, function(elem) {
+                if (!elem) {
+                    errorHandler.report(new Error('Failed to handle url'));
+                    toastr.error('Unhandled image type, please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
+                    return divNode;
+                }
                 divNode.append(elem);
                 $(elem).attr({
                     muted: '',
@@ -622,6 +627,7 @@ $(function () {
                 elem[0].pause();
             });
         } else {
+            errorHandler.report(new Error('Unhandled image type'));
             toastr.error('Unhandled image type, please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
         }
         

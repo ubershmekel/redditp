@@ -82,17 +82,18 @@ embedit.convertors = [
         name: "gfycat",
         detect: /gfycat\.com.*/,
         convert: function (url, embedFunc) {
-            //https://gfycat.com/cajax/get/ScaryGrizzledComet
-            var match = url.match(/gfycat.com\/(gifs\/detail\/)?(\w+)/i);
-            if(match && match.length > 2)
-                var name = match[2];
-            else
+            var name = embedit.gfyUrlToId(url);
+            if(!name)
                 return false;
-            
+
             $.ajax({
                 url: 'https://gfycat.com/cajax/get/' + name,
                 dataType: "jsonp",
                 success: function(data) {
+                    if (!data || !data.gfyItem || !data.gfyItem.webmUrl) {
+                        embedFunc(null);
+                        return;
+                    }
                     embedFunc(embedit.video(data.gfyItem.webmUrl, data.gfyItem.mp4Url));
                 }
             })
@@ -132,3 +133,32 @@ embedit.embed = function (url, embedFunc) {
     embedit.unsupported(url);
     embedFunc(null);
 }
+
+embedit.gfyUrlToId = function(url) {
+    //https://gfycat.com/cajax/get/ScaryGrizzledComet
+    var match = url.match(/gfycat.com\/(gifs\/detail\/)?(\w+)/i);
+    if(match && match.length > 2)
+        var name = match[2];
+    else
+        return false;
+    return name;
+}
+
+function browserNodeExport(exported, name) {
+    // based off of http://www.matteoagosti.com/blog/2013/02/24/writing-javascript-modules-for-both-browser-and-node/
+    if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
+        module.exports = exported;
+    }
+    else {
+        if (typeof define === 'function' && define.amd) {
+            define([], function () {
+                return exported;
+            });
+        }
+        else {
+            window[name] = exported;
+        }
+    }
+}
+
+browserNodeExport(embedit, 'embedit');

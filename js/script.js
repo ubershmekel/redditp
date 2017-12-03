@@ -771,9 +771,13 @@ $(function () {
             }
 
             $.each(data.data.children, function (i, item) {
+                // `item.data.link_url` seems to be an item for reddit images
+                // or maybe the api change for user pages?
+                // First saw it at `https://redditp.com/u/doherty99` in the permalink:
+                // "https://www.reddit.com/r/gonewild/comments/7h7srj/pull_my_hair_and_fuck_me_from_behind/"
                 addImageSlide({
-                    url: item.data.url,
-                    title: item.data.title,
+                    url: item.data.url || item.data.link_url,
+                    title: item.data.title || item.data.link_title,
                     over18: item.data.over_18,
                     subreddit: item.data.subreddit,
                     commentsLink: rp.redditBaseUrl + item.data.permalink

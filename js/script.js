@@ -47,8 +47,8 @@ rp.photos = [];
 rp.cache = {};
 
 function reportError(errMessage) {
-    if (errorHandler && errorHandler.report) {
-        errorHandler.report(new Error(errMessage));
+    if (window.errorHandler && window.errorHandler.report) {
+        window.errorHandler.report(new Error(errMessage));
     } else {
         console.log('No error handler yet:' + errMessage);
     }

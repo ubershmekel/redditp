@@ -137,25 +137,23 @@ embedit.embed = function (url, embedFunc) {
 embedit.gfyUrlToId = function(url) {
     //https://gfycat.com/cajax/get/ScaryGrizzledComet
     var match = url.match(/gfycat.com\/(gifs\/detail\/)?(\w+)/i);
-    if(match && match.length > 2)
-        var name = match[2];
-    else
+    if(match && match.length > 2) {
+        return match[2];
+    } else {
         return false;
-    return name;
+    }
 }
 
 function browserNodeExport(exported, name) {
     // based off of http://www.matteoagosti.com/blog/2013/02/24/writing-javascript-modules-for-both-browser-and-node/
     if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
         module.exports = exported;
-    }
-    else {
+    } else {
         if (typeof define === 'function' && define.amd) {
             define([], function () {
                 return exported;
             });
-        }
-        else {
+        } else {
             window[name] = exported;
         }
     }

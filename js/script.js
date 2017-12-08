@@ -944,8 +944,9 @@ $(function () {
     // if ever found even 1 image, don't show the error
     rp.session.foundOneImage = false;
 
-    if(rp.subredditUrl.indexOf('/imgur') == 0)
+    if(rp.subredditUrl.indexOf('/imgur') == 0) {
         getImgurAlbum(rp.subredditUrl);
-    else
+    } else {
         getRedditImages();
+    }
 });

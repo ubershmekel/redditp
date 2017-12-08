@@ -17,13 +17,30 @@
     <!-- Google error reporting -->
     <script defer src="https://cdn.rawgit.com/GoogleCloudPlatform/stackdriver-errors-js/v0.3.0/dist/stackdriver-errors-concat.min.js"></script>
     <script type="text/javascript">
+        function generateUUID () {
+            var d = new Date().getTime();
+            if (typeof performance !== 'undefined' && typeof performance.now === 'function'){
+                d += performance.now(); //use high-precision timer if available
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                var r = (d + Math.random() * 16) % 16 | 0;
+                d = Math.floor(d / 16);
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
         window.addEventListener('DOMContentLoaded', function() {
+            var userId = localStorage.getItem('userId');
+            if (!userId) {
+                userId = generateUUID();
+                localStorage.setItem('userId', userId);
+            }
             var errorHandler = new StackdriverErrorReporter();
             errorHandler.start({
                 key: 'AIzaSyDjQxNRa6NQ21ibUHBdSKNkcgVmhidcyzE',
                 projectId: 'ubershmekel',
                 service: 'redditp',
                 version: '0.1.0',
+                context: {user: userId}
             });
         });
     </script>

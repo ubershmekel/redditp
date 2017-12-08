@@ -1,5 +1,32 @@
+// https://stackoverflow.com/questions/7742781/why-does-javascript-only-work-after-opening-developer-tools-in-ie-once
+// IE doesn't have console.log and fails, wtf...
+// I used to use the log history thing, but all browsers have consoles nowadays...
+// http://paulirish.com/2009/log-a-lightweight-wrapper-for-consolelog/
+// Avoid `console` errors in browsers that lack a console.
+(function() {
+    var method;
+    var noop = function () {};
+    var methods = [
+        'assert', 'clear', 'count', 'debug', 'dir', 'dirxml', 'error',
+        'exception', 'group', 'groupCollapsed', 'groupEnd', 'info', 'log',
+        'markTimeline', 'profile', 'profileEnd', 'table', 'time', 'timeEnd',
+        'timeStamp', 'trace', 'warn'
+    ];
+    var length = methods.length;
+    var console = (window.console = window.console || {});
 
-// IE doesn't have indexOf, wtf...
+    while (length--) {
+        method = methods[length];
+
+        // Only stub undefined methods.
+        if (!console[method]) {
+            console[method] = noop;
+        }
+    }
+}());
+
+
+// IE doesn't have indexOf...
 if (!Array.indexOf) {
     Array.prototype.indexOf = function (obj) {
         for (var i = 0; i < this.length; i++) {
@@ -11,22 +38,3 @@ if (!Array.indexOf) {
     };
 }
 
-// IE doesn't have console.log and fails, wtf...
-// usage: log('inside coolFunc',this,arguments);
-// http://paulirish.com/2009/log-a-lightweight-wrapper-for-consolelog/
-if (!window.console) {
-    window.console = {};
-}
-if(!window.console.log) {
-    window.log = function () {
-        log.history = log.history || []; // store logs to an array for reference
-        log.history.push(arguments);
-        if (this.console) {
-            console.log(Array.prototype.slice.call(arguments));
-        }
-    };
-    window.console.log = window.log;
-} else {
-    // Chrome users don't need to suffer
-    window.log = console.log;
-}

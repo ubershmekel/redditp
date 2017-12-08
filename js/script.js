@@ -338,7 +338,7 @@ $(function () {
                 pic.url = betterUrl;
             } else {
                 if (rp.settings.debug) {
-                    log('cannot display url as image: ' + pic.url);
+                    console.log('cannot display url as image: ' + pic.url);
                 }
                 return;
             }
@@ -695,7 +695,7 @@ $(function () {
     var isImageExtension = function (url) {
         var dotLocation = url.lastIndexOf('.');
         if (dotLocation < 0) {
-            log("skipped no dot: " + url);
+            console.log("skipped no dot: " + url);
             return false;
         }
         var extension = url.substring(dotLocation);
@@ -798,7 +798,7 @@ $(function () {
             }
 
             if (data.data.after == null) {
-                log("No more pages to load from this subreddit, reloading the start");
+                console.log("No more pages to load from this subreddit, reloading the start");
 
                 // Show the user we're starting from the top
                 var numberButton = $("<span />").addClass("numberButton").text("-");
@@ -809,7 +809,7 @@ $(function () {
         };
 
         if (rp.settings.debug)
-            log('Ajax requesting: ' + jsonUrl);
+            console.log('Ajax requesting: ' + jsonUrl);
 
         // I still haven't been able to catch jsonp 404 events so the timeout
         // is the current solution sadly.
@@ -852,7 +852,7 @@ $(function () {
             verifyNsfwMakesSense();
 
             if (!rp.session.foundOneImage) {
-                log(jsonUrl);
+                console.log(jsonUrl);
                 reportError("Sorry, no displayable images found in that url :(");
             }
 

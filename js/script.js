@@ -791,6 +791,10 @@ $(function () {
                 // or maybe the api change for user pages?
                 // First saw it at `https://redditp.com/u/doherty99` in the permalink:
                 // "https://www.reddit.com/r/gonewild/comments/7h7srj/pull_my_hair_and_fuck_me_from_behind/"
+                if (!item || !item.data) {
+                    reportError('invald data item');
+                    return;
+                }
                 addImageSlide({
                     url: item.data.url || item.data.link_url,
                     title: item.data.title || item.data.link_title,

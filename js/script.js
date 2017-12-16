@@ -58,13 +58,12 @@ function reportError(errMessage) {
 
 $(function () {
 
-    pictureSliderId = "#pictureSlider";
+    var pictureSliderId = "#pictureSlider";
 
     $("#subredditUrl").text("Loading Reddit Slideshow");
     $("#navboxTitle").text("Loading Reddit Slideshow");
 
-    var fadeoutWhenIdle = true;
-    
+    /*var fadeoutWhenIdle = true;
     var setupFadeoutOnIdle = function () {
         $('.fadeOnIdle').fadeTo('fast', 0);
         var navboxVisible = false;
@@ -85,7 +84,7 @@ $(function () {
             $('.fadeOnIdle').fadeTo('fast', 1);
             fadeoutTimer = setTimeout(fadeoutFunction, 2000);
         });
-    };
+    };*/
     // this fadeout was really inconvenient on mobile phones
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
@@ -373,12 +372,12 @@ $(function () {
         right: 39,
         down: 40
     };
-    var ONE_KEY = 49;
-    var NINE_KEY = 57;
+    //var ONE_KEY = 49;
+    //var NINE_KEY = 57;
     var SPACE = 32;
     var PAGEUP = 33;
     var PAGEDOWN = 34;
-    var ENTER = 13;
+    //var ENTER = 13;
     var A_KEY = 65;
     var C_KEY = 67;
     var F_KEY = 70;
@@ -546,7 +545,7 @@ $(function () {
             clearTimeout(rp.session.nextSlideTimeoutId);
             vid_jq.removeAttr('loop');
         }
-        var onEndFunc = function (e) {
+        var onEndFunc = function (/*e*/) {
             if (rp.settings.shouldAutoNextSlide)
                 nextSlide();
         };
@@ -564,6 +563,7 @@ $(function () {
                     //message: "play() can only be initiated by a user gesture."
                     //name: "NotAllowedError"
                     playButton.show();
+                    //setTimeout(function() {vid_jq[0].play();}, 100);
                 } else {
                     // AbortError can happen I think with e.g. a 404, user clicking next before loading finishes,
                     // In that case, we don't want the play button to show. Here is a recorded example from 
@@ -661,7 +661,7 @@ $(function () {
         
         if(0.8 < nsfwImages * 1.0 / rp.photos.length) {
             rp.settings.nsfw = true;
-            $("#nsfw").prop("checked", nsfw);
+            $("#nsfw").prop("checked", rp.settings.nsfw);
         }
     };
     
@@ -687,7 +687,7 @@ $(function () {
             // you give it. '.jpg' is arbitrary
             // regexp removes /r/<sub>/ prefix if it exists
             // E.g. http://imgur.com/r/aww/x9q6yW9
-            return url.replace(/r\/[^ \/]+\/(\w+)/, '$1') + '.jpg';
+            return url.replace(/r\/[^ /]+\/(\w+)/, '$1') + '.jpg';
         }
 
         return '';
@@ -750,7 +750,7 @@ $(function () {
         rp.session.loadingNextImages = true;
 
         var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
-        var failedAjax = function (data) {
+        var failedAjax = function (/*data*/) {
             var message = "Failed ajax, maybe a bad url? Sorry about that :(";
             var isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1;
             if (isFirefox) {
@@ -759,18 +759,34 @@ $(function () {
             reportError(message);
             failCleanup();
         };
+
         var handleData = function (data) {
             //redditData = data //global for debugging data
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getRedditImages which is fine.
-            rp.session.after = "&after=" + data.data.after;
+            if (data && data.data && data.data.after) {
+                rp.session.after = "&after=" + data.data.after;
+            }
 
-            if (data.data.children.length === 0) {
+            var children = [];
+            if (data && data.data && data.data.children) {
+                children = data.data.children;
+            } else {
+                // comments of e.g. a photoshopbattles post
+                //children = rp.flattenRedditData(data);
+                //throw new Error("Comments pages not yet supported");
+            }
+
+            if (children.length === 0) {
+                children = data;
+            }
+
+            if (children.length === 0) {
                 reportError("No data from this url :(");
                 return;
             }
 
-            $.each(data.data.children, function (i, item) {
+            $.each(children, function (i, item) {
                 // `item.data.link_url` seems to be an item for reddit images
                 // or maybe the api change for user pages?
                 // First saw it at `https://redditp.com/u/doherty99` in the permalink:
@@ -827,7 +843,7 @@ $(function () {
         var albumID = url.match(/.*\/(.+?$)/)[1];
         var jsonUrl = 'https://api.imgur.com/3/album/' + albumID;
         //log(jsonUrl);
-        var failedAjax = function (data) {
+        var failedAjax = function (/*data*/) {
             reportError("Failed ajax, maybe a bad url? Sorry about that :(");
             failCleanup();
         };
@@ -937,6 +953,7 @@ $(function () {
     }
 
     var getVars;
+    var getVarsQuestionMark;
     
     initState();
     setupUrls();
@@ -950,3 +967,67 @@ $(function () {
         getRedditImages();
     }
 });
+
+/*rp.flattenRedditData = function(data) {
+    // Parse comments, get all links
+    // https://www.reddit.com/r/photoshopbattles/comments/7i5ipw/psbattle_this_hyped_up_mannequin/.json?jsonp=?&
+
+    var queue = [];
+    var urls = [];
+    if (data && data.data && data.data.children) {
+        children = data.data.children;
+    } else {
+        // comments of e.g. a photoshopbattles post
+        if (data.length > 0) {
+            for (var i = 0; i < data.length; i++) {
+                children = flattenRedditData(data[i]);
+                Array.prototype.push.apply(children, newChildren);
+            }
+        }
+    }
+
+    var urlChildren = [];
+    for (var i = 0; i < children.length; i++) {
+        var item = children[i];
+        if (item.data && (item.data.url || item.data.link_url)) {
+            // great
+            urlChildren.push(item);
+            continue;
+        }
+
+        // keep digging for more urls, remove this one
+        if (item.data) {
+            var newChildren = rp.flattenRedditData(item.data.replies);
+            Array.prototype.push.apply(urlChildren, newChildren);
+            var newChildren = flattenRedditData(item.data.children);
+            Array.prototype.push.apply(urlChildren, newChildren);
+            if (item.data.body) {
+                // this is a comment
+                console.log('body', item.body);
+            }
+            continue;
+        }
+    }
+
+    return urls;
+}*/
+
+
+function browserNodeExport(exported, name) {
+    // based off of http://www.matteoagosti.com/blog/2013/02/24/writing-javascript-modules-for-both-browser-and-node/
+    if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
+        /* global module */
+        module.exports = exported;
+    } else {
+        if (typeof define === 'function' && define.amd) {
+            /* global define */
+            define([], function () {
+                return exported;
+            });
+        } else {
+            window[name] = exported;
+        }
+    }
+}
+
+browserNodeExport(rp, 'rp');

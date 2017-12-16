@@ -5,6 +5,7 @@
 // Avoid `console` errors in browsers that lack a console.
 (function() {
     var method;
+    // eslint-disable-next-line no-empty-function
     var noop = function () {};
     var methods = [
         'assert', 'clear', 'count', 'debug', 'dir', 'dirxml', 'error',
@@ -13,9 +14,11 @@
         'timeStamp', 'trace', 'warn'
     ];
     var length = methods.length;
-    var console = (window.console = window.console || {});
+    window.console = window.console || {};
+    var console = window.console;
 
-    while (length--) {
+    while (length > 0) {
+        length -= 1;
         method = methods[length];
 
         // Only stub undefined methods.
@@ -28,6 +31,7 @@
 
 // IE doesn't have indexOf...
 if (!Array.indexOf) {
+    // eslint-disable-next-line no-extend-native
     Array.prototype.indexOf = function (obj) {
         for (var i = 0; i < this.length; i++) {
             if (this[i] == obj) {

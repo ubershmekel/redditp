@@ -6,7 +6,7 @@ embedit.video = function (webmUrl, mp4Url) {
     // video. We can only circumvent that by putting the src 
     // on the <video> tag :/
     
-    var video = $('<video autoplay loop poster="true" />');
+    var video = $('<video autoplay playsinline muted loop poster="true" />');
     video.append($('<source/>').attr('src', webmUrl));
     video.append($('<source/>').attr('src', mp4Url));
     return video;
@@ -61,7 +61,7 @@ embedit.convertors = [
     },
     {
         name: "imgurNoExtension",
-        detect: /imgur\.com[^\.]+/,
+        detect: /imgur\.com[^.]+/,
         convert: function (url, embedFunc) {
             var newUrl = url + '.jpg';
             var image = $('<img />');
@@ -73,7 +73,7 @@ embedit.convertors = [
     {
         name: "redditPost",
         detect: /reddit\.com\/r\/.*/,
-        convert: function (url) {
+        convert: function (/*url*/) {
             //embedit.unsupported(url);
             return false;
         }
@@ -120,7 +120,9 @@ embedit.embed = function (url, embedFunc) {
     //var embedFunc = function (elem) {
     //    elem.appendTo($("#container"));
     //}
-    for (var key in embedit.convertors) {
+    var keys = Object.keys(embedit.convertors);
+    for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
         var convertor = embedit.convertors[key];
         if (url.match(convertor.detect)) {
             //console.log("Matched: " + url + "\n to - " + convertor.name);
@@ -147,9 +149,11 @@ embedit.gfyUrlToId = function(url) {
 function browserNodeExport(exported, name) {
     // based off of http://www.matteoagosti.com/blog/2013/02/24/writing-javascript-modules-for-both-browser-and-node/
     if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
+        /* global module */
         module.exports = exported;
     } else {
         if (typeof define === 'function' && define.amd) {
+            /* global define */
             define([], function () {
                 return exported;
             });

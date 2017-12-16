@@ -239,7 +239,7 @@ $(function () {
             } else if (elem.mozRequestFullScreen) {
                 elem.mozRequestFullScreen();
             } else if (elem.webkitRequestFullscreen) {
-                elem.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
+                elem.webkitRequestFullscreen();
             }
         }
     };

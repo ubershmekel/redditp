@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-global-assign,no-native-reassign
 embedit = {};
 
 embedit.video = function (webmUrl, mp4Url) {

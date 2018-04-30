@@ -7,7 +7,8 @@ app.use('/images', express.static(__dirname + '/images'));
 app.use('/js', express.static(__dirname + '/js'));
 
 
-// respond with "hello world" when a GET request is made to the homepage
+// Always respond with the html, except for the above exceptions.
+// Because it's a single page app.
 app.get('/*', function(req, res) {
     res.sendFile(__dirname + '/index.html');
 });

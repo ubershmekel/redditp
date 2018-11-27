@@ -87,10 +87,7 @@ embedit.convertors = [
             if(!name)
                 return false;
 
-
-                embedFunc(embedit.video(`https://giant.gfycat.com/${name}.webm`, `https://giant.gfycat.com/${name}.mp4`));
-
-                        /* $.ajax({
+            $.ajax({
                 url: 'https://gfycat.com/cajax/get/' + name,
                 dataType: "jsonp",
                 success: function(data) {
@@ -100,7 +97,7 @@ embedit.convertors = [
                     }
                     embedFunc(embedit.video(data.gfyItem.webmUrl, data.gfyItem.mp4Url));
                 }
-            }) */
+            })
             return true;
         },
     },

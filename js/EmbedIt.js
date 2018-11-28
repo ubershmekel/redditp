@@ -88,8 +88,9 @@ embedit.convertors = [
                 return false;
 
             $.ajax({
-                url: 'https://gfycat.com/cajax/get/' + name,
-                dataType: "jsonp",
+                //url: 'https://gfycat.com/cajax/get/' + name,
+                url: 'https://api.gfycat.com/v1/gfycats/' + name,
+                dataType: "json",
                 success: function(data) {
                     if (!data || !data.gfyItem || !data.gfyItem.webmUrl) {
                         embedFunc(null);

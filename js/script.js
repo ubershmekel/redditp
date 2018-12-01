@@ -109,18 +109,28 @@ $(function () {
 
     function nextSlide() {
         var next = getNextSlideIndex(rp.session.activeIndex);
+        saveHistory(next);
         startAnimation(next);
     }
     
     function prevSlide() {
+        var index = rp.session.activeIndex - 1;
         if(!rp.settings.nsfw) {
             for(var i = rp.session.activeIndex - 1; i > 0; i--) {
                 if (!rp.photos[i].over18) {
-                    return startAnimation(i);
+                    index = i;
+                    break;
+                }
+
+                if (i == 0) {
+                    // all pics nsfw
+                    return;
                 }
             }
         }
-        startAnimation(rp.session.activeIndex - 1);
+
+        saveHistory(index);
+        startAnimation(index);
     }
 
     
@@ -444,6 +454,7 @@ $(function () {
         // Retrieve the index we need to use
         var imageIndex = docElem.data("index");
 
+        saveHistory(imageIndex);
         startAnimation(imageIndex);
     };
 
@@ -473,13 +484,59 @@ $(function () {
         if(next < rp.photos.length)
             rp.cache[next] = createDiv(next);
     };
-    
+
+    // History / back button stuff
+    var lastSavedHistoryState = {index: -1, url: ""};
+
+    var loadHistory = function(state) {
+        //console.log("Loading history state " + event.state);
+
+        var index;
+        if (state == null || rp.photos[state.index] == null || rp.photos[state.index].url != state.url) {
+            index = 0;
+        } else {
+            index = state.index;
+            lastSavedHistoryState = state;
+        }
+
+        startAnimation(index);
+    }
+
+    window.onpopstate = function(event) {
+        // This is called when back/forward button is pressed and there is custom history states saved.
+        loadHistory(event.state);
+    };
+
+    function saveHistory(index) {
+        var photo = rp.photos[index];
+        if (index != lastSavedHistoryState.index && photo != null) {
+            //console.log("Recorded history state " + index);
+            lastSavedHistoryState = {index: index, url: photo.url};
+            history.pushState(lastSavedHistoryState, photo.title);
+        }
+    }
+
+    var scheduledAnimation;
+    var animationFinished = function() {
+        if (scheduledAnimation != null) {
+            var next = scheduledAnimation;
+            scheduledAnimation = null;
+            startAnimation(next);
+        }
+    }
+
     //
     // Starts the animation, based on the image index
     //
     // Variable to store if the animation is playing or not
     var startAnimation = function (imageIndex) {
         resetNextSlideTimer();
+
+        if (rp.session.isAnimating) {
+            // If animating, queue given image to be animated after this
+            scheduledAnimation = imageIndex;
+            return;
+        }
 
         // If the same number has been chosen, or the index is outside the
         // rp.photos range, or we're already animating, do nothing
@@ -594,7 +651,8 @@ $(function () {
         oldDiv.fadeOut(rp.settings.animationSpeed, function () {
             oldDiv.remove();
             rp.session.isAnimating = false;
-            
+            animationFinished();
+
             var maybeVid = $('video');
             if(maybeVid.length > 0) {
                 startPlayingVideo(maybeVid);
@@ -814,7 +872,7 @@ $(function () {
 
             // show the first image
             if (rp.session.activeIndex == -1) {
-                startAnimation(0);
+                loadHistory(history.state);
             }
 
             if (data.data.after == null) {
@@ -878,7 +936,7 @@ $(function () {
 
             // show the first image
             if (rp.session.activeIndex == -1) {
-                startAnimation(0);
+                loadHistory(history.state);
             }
 
             //log("No more pages to load from this subreddit, reloading the start");

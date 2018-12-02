@@ -487,6 +487,7 @@ $(function () {
 
     // History / back button stuff
     var lastSavedHistoryState = {index: -1, url: ""};
+    var scheduledAnimation = null;
 
     var loadHistory = function(state) {
         //console.log("Loading history state " + event.state);
@@ -500,30 +501,42 @@ $(function () {
         }
 
         startAnimation(index);
-    }
+    };
 
     window.onpopstate = function(event) {
         // This is called when back/forward button is pressed and there is custom history states saved.
         loadHistory(event.state);
     };
 
-    function saveHistory(index) {
+    var saveHistory = function(index) {
+        if (window.history == null) {
+            return; // History api is not supported, do nothing
+        }
+
         var photo = rp.photos[index];
         if (index != lastSavedHistoryState.index && photo != null) {
             //console.log("Recorded history state " + index);
             lastSavedHistoryState = {index: index, url: photo.url};
             history.pushState(lastSavedHistoryState, photo.title);
         }
-    }
+    };
 
-    var scheduledAnimation;
     var animationFinished = function() {
         if (scheduledAnimation != null) {
             var next = scheduledAnimation;
             scheduledAnimation = null;
             startAnimation(next);
         }
-    }
+    };
+
+    var showDefault = function() {
+        // What to show initially
+        if (window.history != null) {
+            loadHistory(history.state);
+        } else {
+            startAnimation(0);
+        }
+    };
 
     //
     // Starts the animation, based on the image index
@@ -872,7 +885,7 @@ $(function () {
 
             // show the first image
             if (rp.session.activeIndex == -1) {
-                loadHistory(history.state);
+                showDefault();
             }
 
             if (data.data.after == null) {
@@ -936,7 +949,7 @@ $(function () {
 
             // show the first image
             if (rp.session.activeIndex == -1) {
-                loadHistory(history.state);
+                showDefault();
             }
 
             //log("No more pages to load from this subreddit, reloading the start");

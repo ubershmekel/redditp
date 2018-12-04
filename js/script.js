@@ -318,6 +318,16 @@ $(function () {
             "isVideo": video
         }
         */
+
+        //Skip displaying duplicate images
+        let dup = rp.photos.some( val => {
+            return val.url == pic.url;
+        });
+        if(dup){ 
+            // console.log("duplicate: " + pic.url);
+            return;
+        }
+
         pic.type = imageTypes.image;
         // Replace HTTP with HTTPS on gfycat and imgur to avoid this:
         //      Mixed Content: The page at 'https://redditp.com/r/gifs' was loaded over HTTPS, but requested an insecure video 'http://i.imgur.com/LzsnbNU.webm'. This content should also be served over HTTPS.

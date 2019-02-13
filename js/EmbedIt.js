@@ -103,6 +103,23 @@ embedit.convertors = [
         },
     },
     {
+        name: "v.reddit",
+        detect: /v\.redd\.it.*/,
+        convert: function (url, embedFunc) {
+            //var url = url + '/HLSPlaylist.m3u8';
+            //var url = url + '/DASH_4_8_M?source=fallback';
+            // NOTE - this step relies on the fallback_rul we get from reddit in script.js.
+            // For embedit to support v.redd.it URLS on its own there will need to be something more clever here.
+            embedFunc(embedit.video(url));
+            return true;
+            
+            //} else if (pic.url.indexOf('//v.redd.it/') >= 0) {
+            //pic.type = imageTypes.gifv;
+            //pic.url = pic.url + '/HLSPlaylist.m3u8';
+
+        },
+    },
+    {
         name: "imageExtension",
         detect: /\.(png|jpg|jpeg|gif|bmp)$/,
         convert: function (url, embedFunc) {

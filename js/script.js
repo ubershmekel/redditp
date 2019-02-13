@@ -326,6 +326,14 @@ $(function () {
         if (pic.url.indexOf('gfycat.com') >= 0) {
             pic.type = imageTypes.gfycat;
             pic.url = pic.url.replace(http_prefix, https_prefix);
+        } else if (pic.url.indexOf('//v.redd.it/') >= 0) {
+            // NOTE DO NOT ADD DOMAINS HERE - MODIFY EMBEDIT.JS instead
+            // NOTE DO NOT ADD DOMAINS HERE - MODIFY EMBEDIT.JS instead
+            // NOTE DO NOT ADD DOMAINS HERE - MODIFY EMBEDIT.JS instead
+            // Sadly, we have to add domains here or they get dropped in the "cannot display url" error below.
+            // Need to redesign this redditp thing.
+            pic.type = imageTypes.gifv;
+            pic.url = pic.data.media.reddit_video.fallback_url;
         } else if (pic.url.search(/^http.*imgur.*gifv?$/) > -1) {
             pic.type = imageTypes.gifv;
             pic.url = pic.url.replace(http_prefix, https_prefix);
@@ -610,6 +618,9 @@ $(function () {
         // Create a new div and apply the CSS
         var divNode = $("<div />");
         if (photo.type === imageTypes.image) {
+
+            // TODO: REFACTOR BOTH IMAGES AND VIDEOS TO WORK WITH ONE FRAMEWORK - EMBEDIT
+
             // An actual image. Not a video/gif.
             // `preLoadImages` because making a div with a background css does not cause chrome
             // to preload it :/
@@ -623,7 +634,7 @@ $(function () {
 
             divNode.css(cssMap).addClass("clouds");
             
-        } else if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
+        } else { //if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
             embedit.embed(photo.url, function(elem) {
                 if (!elem) {
                     reportError('Failed to handle url');
@@ -639,9 +650,9 @@ $(function () {
                 // This is to avoid cached or preloaded videos from playing.
                 elem[0].pause();
             });
-        } else {
-            reportError('Unhandled image type');
-        }
+        }// else {
+        //    reportError('Unhandled image type');
+        //}
         
         return divNode;
     };
@@ -800,7 +811,8 @@ $(function () {
                     title: item.data.title || item.data.link_title,
                     over18: item.data.over_18,
                     subreddit: item.data.subreddit,
-                    commentsLink: rp.redditBaseUrl + item.data.permalink
+                    commentsLink: rp.redditBaseUrl + item.data.permalink,
+                    data: item.data,
                 });
             });
 

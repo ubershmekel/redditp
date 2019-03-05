@@ -352,6 +352,13 @@ $(function () {
         }
 
         rp.session.foundOneImage = true;
+      
+        for (i = 0; i < rp.photos.length; i += 1) {
+            if (pic.url == rp.photos[i].url) {
+                return;
+            }
+        }
+
         
         // Do not preload all images, this is just not performant.
         // Especially in gif or high-res subreddits where each image can be 50 MB.

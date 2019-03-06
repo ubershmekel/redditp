@@ -510,7 +510,8 @@ $(function () {
         // Set the active index to the used image index
         rp.session.activeIndex = imageIndex;
 
-        if (isLastImage(rp.session.activeIndex) && rp.subredditUrl.indexOf('/imgur') != 0) {
+        if (isLastImage(rp.session.activeIndex) && 
+            edditUrl.indexOf('/imgur') != 0) {
             getRedditImages();
         }
     };
@@ -767,7 +768,12 @@ $(function () {
 
         rp.session.loadingNextImages = true;
 
-        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
+        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?";
+        if (rp.session.after) {
+            jsonUrl += "jsonp=?" + rp.session.after;
+        }
+        jsonUrl += "&" + getVars;
+
         var failedAjax = function (/*data*/) {
             var message = "Failed ajax, maybe a bad url? Sorry about that :(";
             var isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1;

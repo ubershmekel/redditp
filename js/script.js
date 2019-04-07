@@ -17,7 +17,8 @@ rp.settings = {
     timeToNextSlide: 6 * 1000,
     cookieDays: 300,
     goodExtensions: ['.jpg', '.jpeg', '.gif', '.bmp', '.png'],
-    nsfw: true
+    nsfw: true,
+    sound: false
 };
 
 rp.session = {
@@ -194,7 +195,8 @@ $(function () {
     var cookieNames = {
         nsfwCookie: "nsfwCookie",
         shouldAutoNextSlideCookie: "shouldAutoNextSlideCookie",
-        timeToNextSlideCookie: "timeToNextSlideCookie"
+        timeToNextSlideCookie: "timeToNextSlideCookie",
+        soundCookie: "soundCookie"
     };
 
     var setCookie = function (c_name, value) {
@@ -249,6 +251,15 @@ $(function () {
         setCookie(cookieNames.nsfwCookie, rp.settings.nsfw);
     };
 
+    var updateSound = function () {
+        rp.settings.sound = $('#sound').is(':checked');
+        setCookie(cookieNames.soundCookie, rp.settings.sound);
+        var videoTags = document.getElementsByTagName('video');
+        if (videoTags.length == 1) {
+            videoTags[0].muted = !rp.settings.sound;
+        }
+    };
+
     var initState = function () {
         var nsfwByCookie = getCookie(cookieNames.nsfwCookie);
         if (nsfwByCookie === undefined) {
@@ -258,6 +269,15 @@ $(function () {
             $("#nsfw").prop("checked", rp.settings.nsfw);
         }
         $('#nsfw').change(updateNsfw);
+
+        var soundByCookie = getCookie(cookieNames.soundCookie);
+        if (soundByCookie === undefined) {
+            rp.settings.sound = false;
+        } else {
+            rp.settings.sound = (soundByCookie === "true");
+            $("#sound").prop("checked", rp.settings.sound);
+        }
+        $('#sound').change(updateSound);
 
         var autoByCookie = getCookie(cookieNames.shouldAutoNextSlideCookie);
         if (autoByCookie === undefined) {
@@ -334,6 +354,7 @@ $(function () {
             // Need to redesign this redditp thing.
             pic.type = imageTypes.gifv;
             pic.url = pic.data.media.reddit_video.fallback_url;
+            pic.sound = pic.url.substring(0,pic.url.lastIndexOf('/'))+"/audio";
         } else if (pic.url.search(/^http.*imgur.*gifv?$/) > -1) {
             pic.type = imageTypes.gifv;
             pic.url = pic.url.replace(http_prefix, https_prefix);
@@ -560,6 +581,7 @@ $(function () {
             clearTimeout(rp.session.nextSlideTimeoutId);
             vid_jq.removeAttr('loop');
         }
+        vid_jq[0].muted = !rp.settings.sound;
         var onEndFunc = function (/*e*/) {
             if (rp.settings.shouldAutoNextSlide)
                 nextSlide();
@@ -649,9 +671,11 @@ $(function () {
                 }
                 divNode.append(elem);
                 $(elem).attr({
-                    muted: '',
-                    playsinline: '',
+                    playsinline: ''
                 });
+                if (photo.sound) {
+                    $("<source src='"+photo.sound+"' type='audio/aac'>").appendTo($(elem));
+                }
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.
                 // This is to avoid cached or preloaded videos from playing.

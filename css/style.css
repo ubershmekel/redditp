@@ -134,3 +134,7 @@ label.checkbox { font-weight: bold; }
     height: 100%;
     cursor: pointer;
 }
+
+#animationSpeed {
+    width: 50px;
+}

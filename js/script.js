@@ -332,6 +332,7 @@ $(function () {
             // NOTE DO NOT ADD DOMAINS HERE - MODIFY EMBEDIT.JS instead
             // Sadly, we have to add domains here or they get dropped in the "cannot display url" error below.
             // Need to redesign this redditp thing.
+            if (!pic.data.media) return;  // skip crossposts, they don't have a pic.data.media obj
             pic.type = imageTypes.gifv;
             pic.url = pic.data.media.reddit_video.fallback_url;
         } else if (pic.url.search(/^http.*imgur.*gifv?$/) > -1) {

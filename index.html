@@ -13,6 +13,15 @@
     <link rel="shortcut icon" href="/images/favicon.png" />
     <link rel="stylesheet" type="text/css" href="/css/style.css" />
     <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.2/toastr.css" />
+    <style>
+        .tagsyo {
+            text-shadow: 0px 2px #00f;
+            transition: opacity 1s;
+        }
+        .tagsyo:hover {
+            opacity: 0.5;
+        }
+    </style>
 
     <!-- Google error reporting -->
     <script defer src="https://cdn.rawgit.com/GoogleCloudPlatform/stackdriver-errors-js/v0.3.0/dist/stackdriver-errors-concat.min.js"></script>
@@ -91,17 +100,20 @@
         <div class="collapser" data-openstate="open">-</div>
         <div id="navboxContents">
             <ul class="nbmenu">
-                <li id="subredditUrl"><noscript>No javascript, no gain.</noscript>
+                <li id="subredditUrl">
+                    <noscript>No javascript, no gain.</noscript>
                 </li>
                 <li>
-                    <a href="https://github.com/ubershmekel/redditp/blob/master/README.md" title="hotkeys">hotkeys</a> -
-                    <a href="https://github.com/ubershmekel/redditp" title="redditp source on github">src</a> -
-                    <a href="http://www.reddit.com/r/redditp" title="who made this">blog</a>
+                    <a id='navboxCommentsLink' href='#' title='Comments on reddit'>comments</a>
                 </li>
                 <li>
-                    <input class="checkbox" type="checkbox" name="nsfw" id="nsfw" value="Auto" checked />
-                    <label class="checkbox over18" for="nsfw"> nsfw</label>
-                    <img src="/images/fullscreen.png" id="fullScreenButton" alt="Fullscreen" />
+                    <a id='navboxLink' href='#' title='placeholder'>image</a>
+                </li>
+                <li>
+                    <a href="https://github.com/ubershmekel/redditp/blob/master/README.md" title="hotkeys">hotkeys</a>
+                </li>
+                <li>
+                    <a href="http://www.tagsyo.com" title="A new project I'm working on" class="tagsyo">T</a>
                 </li>
             </ul>
             <ul class="nbmenu">
@@ -111,10 +123,9 @@
                     every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2" /> seconds
                 </li>
                 <li>
-                    <a id='navboxCommentsLink' href='#' title='Comments on reddit'>comments</a>
-                </li>
-                <li>
-                    <a id='navboxLink' href='#' title='placeholder'>image</a>
+                    <input class="checkbox" type="checkbox" name="nsfw" id="nsfw" value="Auto" checked />
+                    <label class="checkbox over18" for="nsfw"> nsfw</label>
+                    <img src="/images/fullscreen.png" id="fullScreenButton" alt="Fullscreen" />
                 </li>
             </ul>
             <div class="numberButtonList">

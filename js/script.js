@@ -759,6 +759,36 @@ $(function () {
         // display alternate recommendations
         $('#recommend').css({'display':'block'});
     };
+
+    var parseQuery = function(queryString) {
+        var query = {};
+        var pairs = (queryString[0] === '?' ? queryString.substr(1) : queryString).split('&');
+        for (var i = 0; i < pairs.length; i++) {
+            var pair = pairs[i].split('=');
+            query[decodeURIComponent(pair[0])] = decodeURIComponent(pair[1] || '');
+        }
+        return query;
+    }
+    
+    var shuffle = function(arr) {
+        var j, x, i;
+        for (i = arr.length - 1; i > 0; i--) {
+            j = Math.floor(Math.random() * (i + 1));
+            x = arr[i];
+            arr[i] = arr[j];
+            arr[j] = x;
+        }
+        return arr;
+    }
+    
+    var startShow = function() {
+        var query = parseQuery(window.location.search);
+        console.log("querrry", query);
+        if (query.shuffle) {
+            shuffle(rp.photos);
+        }
+        startAnimation(0);
+    }
     
     var getRedditImages = function () {
         //if (noMoreToLoad){
@@ -834,7 +864,7 @@ $(function () {
 
             // show the first image
             if (rp.session.activeIndex == -1) {
-                startAnimation(0);
+                startShow();
             }
 
             if (data.data.after == null) {
@@ -898,7 +928,7 @@ $(function () {
 
             // show the first image
             if (rp.session.activeIndex == -1) {
-                startAnimation(0);
+                startShow();
             }
 
             //log("No more pages to load from this subreddit, reloading the start");

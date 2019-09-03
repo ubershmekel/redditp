@@ -781,12 +781,17 @@ $(function () {
         return arr;
     }
     
-    var startShow = function() {
+    var isShuffleOn = function() {
         var query = parseQuery(window.location.search);
         console.log("querrry", query);
         if (query.shuffle) {
-            shuffle(rp.photos);
+            return true;
+        } else {
+            return false;
         }
+    }
+
+    var startShow = function() {
         startAnimation(0);
     }
     
@@ -833,6 +838,10 @@ $(function () {
             if (children.length === 0) {
                 reportError("No data from this url :(");
                 return;
+            }
+
+            if (isShuffleOn()) {
+                shuffle(children)
             }
 
             $.each(children, function (i, item) {
@@ -905,12 +914,17 @@ $(function () {
 
             //log(data);
 
-            if (data.data.images.length === 0) {
+            var children = data.data.images;
+            if (children.length === 0) {
                 reportError("No data from this url :(");
                 return;
             }
 
-            $.each(data.data.images, function (i, item) {
+            if (isShuffleOn()) {
+                shuffle(children)
+            }
+
+            $.each(children, function (i, item) {
                 addImageSlide({
                     url: item.link,
                     title: item.title,

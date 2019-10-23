@@ -75,7 +75,13 @@ a:hover {
     font-size:14px;
     
     }
-.nbmenu li { text-align: left; padding: 10px 10px; max-width: 300px; overflow: hidden; }
+
+.nbmenu li {
+  text-align: left;
+  padding: 8px;
+  max-width: 300px;
+  overflow: hidden;
+}
 
 #navboxContents {
     padding: 10px 25px 10px 0;

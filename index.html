@@ -118,6 +118,16 @@
             </ul>
             <ul class="nbmenu">
                 <li>
+                    <input class="checkbox" type="checkbox" name="animationsEnabled" id="animationsEnabled" value="animation" checked />
+                    <label class="checkbox" for="animationsEnabled"> Animations</label>
+                </li>
+                <li>
+                    <label for="animationSpeed">Speed:</label>
+                    <input type="number" name="animationSpeed" id="animationSpeed" value="1000" min="250"> ms
+                </li>
+            </ul>
+            <ul class="nbmenu">
+                <li>
                     <input class="checkbox" type="checkbox" name="autoNextSlide" id="autoNextSlide" value="Auto" checked />
                     <label class="checkbox" for="autoNextSlide"> Auto-next</label>
                     every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2" /> seconds

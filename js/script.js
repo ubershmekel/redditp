@@ -11,6 +11,7 @@ var rp = {};
 
 rp.settings = {
     debug: true,
+    animationsEnabled: true,
     // Speed of the animation
     animationSpeed: 1000,
     shouldAutoNextSlide: true,
@@ -194,7 +195,9 @@ $(function () {
     var cookieNames = {
         nsfwCookie: "nsfwCookie",
         shouldAutoNextSlideCookie: "shouldAutoNextSlideCookie",
-        timeToNextSlideCookie: "timeToNextSlideCookie"
+        timeToNextSlideCookie: "timeToNextSlideCookie",
+        animationsEnabledCookie: "animationsEnabledCookie",
+        animationSpeedCookie: "animationSpeedCookie"
     };
 
     var setCookie = function (c_name, value) {
@@ -205,6 +208,16 @@ $(function () {
     var getCookie = function (c_name) {
         // undefined in case nothing found
         return Cookies.get(c_name);
+    };
+    
+    var animationSpeedChange = function() {
+        rp.settings.animationSpeed = parseInt($("#animationSpeed").val());
+        setCookie(cookieNames.animationSpeedCookie, rp.settings.animationSpeed);
+    };
+
+    var toggleAnimations = function () {
+        rp.settings.animationsEnabled = $("#animationsEnabled").is(':checked');
+        setCookie(cookieNames.animationsEnabledCookie, rp.settings.animationsEnabled);
     };
 
     var resetNextSlideTimer = function () {
@@ -281,6 +294,28 @@ $(function () {
             rp.settings.timeToNextSlide = parseFloat(timeByCookie) * 1000;
             $('#timeToNextSlide').val(timeByCookie);
         }
+
+        // Enable/Disable animations
+        var animationsEnabledCookie = getCookie(cookieNames.animationsEnabledCookie);
+        if (animationsEnabledCookie === undefined) {
+            var isEnabled = $("#animationsEnabled").is(":checked");
+            rp.settings.animationsEnabled = isEnabled;
+        } else {
+            rp.settings.animationsEnabled = (animationsEnabledCookie === "true");
+            $("#animationsEnabled").prop("checked", rp.settings.animationsEnabled);
+        }
+        $("#animationsEnabled").change(toggleAnimations);
+
+        // Set animation speed
+        var animationSpeedCookie = getCookie(cookieNames.animationSpeedCookie);
+        if (animationSpeedCookie === undefined) {
+            var speed = parseInt($("#animationSpeed").val());
+            rp.settings.animationSpeed = speed;
+        } else {
+            rp.settings.animationSpeed = parseInt(animationSpeedCookie);
+            $("#animationSpeed").val(animationSpeedCookie);
+        }
+        $("#animationSpeed").on("input", animationSpeedChange);
         
         $('#fullScreenButton').click(toggleFullScreen);
 
@@ -605,17 +640,34 @@ $(function () {
         }
 
         divNode.prependTo(pictureSliderId);
-        $(pictureSliderId + " div").fadeIn(rp.settings.animationSpeed);
+
+        var newDiv = $(pictureSliderId + " div");
         var oldDiv = $(pictureSliderId + " div:not(:first)");
-        oldDiv.fadeOut(rp.settings.animationSpeed, function () {
+
+        var afterFadeOut = function() {
             oldDiv.remove();
             rp.session.isAnimating = false;
-            
+
+            // FIXME: Playing the video after the animation doesn't work
+            // if the animation speed is too fast (e.g. 50ms). Apparently
+            // the video element doens't load fast enough.
+            // The minimum animation speed is set to 250ms via the HTML element
+            // for now (<input type="number" min="250" ...>)
             var maybeVid = $('video');
             if(maybeVid.length > 0) {
                 startPlayingVideo(maybeVid);
             }
-        });
+        };
+
+        if (rp.settings.animationsEnabled == true) {
+            newDiv.fadeIn(rp.settings.animationSpeed);
+            oldDiv.fadeOut(rp.settings.animationSpeed, afterFadeOut);
+        } else {
+            newDiv.show();
+            oldDiv.hide();
+
+            afterFadeOut();
+        }
     }
     
     var createDiv = function(imageIndex) {
@@ -654,9 +706,13 @@ $(function () {
                     playsinline: '',
                 });
                 elem.width('100%').height('100%');
-                // We start paused and play after the fade in.
-                // This is to avoid cached or preloaded videos from playing.
-                elem[0].pause();
+
+                // Only pause video if animations are enabled
+                if (rp.settings.animationsEnabled) {
+                    // We start paused and play after the fade in.
+                    // This is to avoid cached or preloaded videos from playing.
+                    elem[0].pause();
+                }
             });
         }// else {
         //    reportError('Unhandled image type');

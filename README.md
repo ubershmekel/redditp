@@ -40,4 +40,4 @@ Credits
 * Slideshow based on http://demo.marcofolio.net/fullscreen_image_slider/
 * Author of slideshow base: Marco Kuiper (http://www.marcofolio.net/)
 * And many more that have contributed to this project through feedback and pull requests https://github.com/ubershmekel/redditp/graphs/contributors
-
+thanks

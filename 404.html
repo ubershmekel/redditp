@@ -1,56 +1,97 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <meta http-equiv="content-type" content="text/html;charset=utf-8"/>
-    <title>RedditP 404</title>
-    <meta name="description" content="404 - A fullscreen presentation or slide show of reddit. RedditP" />
-    <link rel="shortcut icon" href="/images/favicon.png" />
-    <link rel="stylesheet" type="text/css" href="/css/style.css"/>
-    <script type="text/javascript">
-      var _gaq = _gaq || [];
-      _gaq.push(['_setAccount', 'UA-4533496-15']);
-      _gaq.push(['_trackPageview']);
+    <head>
+        <meta http-equiv="content-type" content="text/html;charset=utf-8" />
+        <meta name="description" content="404" />
+        <title>redditp - 404</title>
+        <link rel="shortcut icon" href="images/new-favicon.png" />
 
-      (function() {
-        var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
-        ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-        var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
-      })();
-    </script>
-</head>
-<body style="text-align:center; margin: 10px; color: #aaa;">
-    <h2>
-        Sorry, couldn't find that page (404)...
-    </h2>
-    <p>Maybe try these presentations instead:</p>
-    <ul>
-        <li>
-            <a href="/r/earthporn">earthporn</a>
-        </li>
-        <li>
-            <a href="/r/aww">aww</a>
-        </li>
-        <li>
-            <a href="/r/foodporn">foodporn</a>
-        </li>
-        <li>
-            <a href="/r/funny">funny</a>
-        </li>
-        <li>
-            <a href="/r/gonewild">gonewild</a>
-        </li>
-        <li>
-            <a href="/r/spaceporn">spaceporn</a>
-        </li>
-        <li>
-            <a href="/r/gifs">gifs</a>
-        </li>
-        <li>
-            <a href="/r/all">all</a>
-        </li>
-    </ul>
-    
-    <p>You could also <a href="https://github.com/ubershmekel/redditp">find the bug</a> or email the <a href="mailto:ubershmekel@gmail.com">author.</a></p>
-        
-</body>
+        <!-- tracker for 404 errors -->
+        <script type="text/javascript">
+            var _gaq = _gaq || [];
+            _gaq.push(["_setAccount", "UA-4533496-15"]);
+            _gaq.push(["_trackPageview"]);
+
+            (function() {
+                var ga = document.createElement("script");
+                ga.type = "text/javascript";
+                ga.async = true;
+                ga.src =
+                    ("https:" == document.location.protocol
+                        ? "https://ssl"
+                        : "http://www") + ".google-analytics.com/ga.js";
+                var s = document.getElementsByTagName("script")[0];
+                s.parentNode.insertBefore(ga, s);
+            })();
+        </script>
+        <!-- /tracker for 404 errors -->
+
+        <link rel="stylesheet" href="css/restyle.css" />
+    </head>
+
+    <body>
+        <!-- the sidebar with the vertical links -->
+        <div class="left-sidebar">
+            <div class="left-wrapper">
+                <a href="https://www.reddit.com/r/redditp/" id="reddit"
+                    >reddit</a
+                >
+                <a href="https://twitter.com/redditp" id="twitter">twitter</a
+                ><!-- why is the account suspended? -->
+                <a href="https://github.com/ubershmekel/redditp" id="github"
+                    >github</a
+                >
+            </div>
+        </div>
+        <!-- /the sidebar with the vertical links -->
+
+        <!-- Top section -->
+        <header>
+            <h6>Oopsie doopsie!!!</h6>
+            <h1 class="error"><span id="white-text">40</span>4</h1>
+            <p></p>
+        </header>
+        <!-- /Top section -->
+        <div class="content">
+            <p>
+                Maybe go <a href="../">home</a> or try these presentations
+                instead:
+            </p>
+            <ul>
+                <li>
+                    <a href="/r/earthporn">/r/earthporn</a>
+                </li>
+                <li>
+                    <a href="/r/aww">/r/aww</a>
+                </li>
+                <li>
+                    <a href="/r/foodporn">/r/foodporn</a>
+                </li>
+                <li>
+                    <a href="/r/funny">/r/funny</a>
+                </li>
+                <li>
+                    <a href="/r/gonewild">/r/gonewild</a>
+                </li>
+                <li>
+                    <a href="/r/spaceporn">/r/spaceporn</a>
+                </li>
+                <li>
+                    <a href="/r/gifs">/r/gifs</a>
+                </li>
+                <li>
+                    <a href="/r/all">/r/all</a>
+                </li>
+            </ul>
+
+            <p>
+                If you think this is odd you could always
+                <a href="https://github.com/ubershmekel/redditp"
+                    >report a bug</a
+                >
+                or email the auther at
+                <a href="mailto:ubershmekel@gmail.com">ubershmekel@gmail.com</a>
+            </p>
+        </div>
+    </body>
 </html>

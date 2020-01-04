@@ -1,202 +1,280 @@
+<!-- https://github.com/ubershmekel/redditp -->
+
 <!DOCTYPE html>
 <html>
-
-<head>
-    <!--
-        https://github.com/ubershmekel/redditp
-    -->
-    <meta http-equiv="content-type" content="text/html;charset=utf-8" />
-    <title>redditP</title>
-    <meta name="description" content="A fullscreen presentation or slide show of reddit. RedditP" />
-    <meta name="format-detection" content="telephone=no" />
-    <meta name="format-detection" content="date=no" />
-    <meta name="format-detection" content="address=no" />
-    <link rel="shortcut icon" href="/images/favicon.png" />
-    <link rel="stylesheet" type="text/css" href="/css/style.css" />
-    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.2/toastr.css" />
-    <style>
-        .tagsyo {
-            text-shadow: 0px 2px #00f;
-            transition: opacity 1s;
-        }
-
-        .tagsyo:hover {
-            opacity: 0.5;
-        }
-    </style>
-
-    <!-- Google error reporting -->
-    <script defer src="https://unpkg.com/stackdriver-errors-js@0.7.0/dist/stackdriver-errors-concat.min.js"
-        integrity="sha384-o7F61sBljqwkWXU4aTWhnMi8x3uK26/NaIMngik4MnY5d6+jB7kxNO/miMEoFv9r"
-        crossorigin="anonymous"></script>
-    <script type="text/javascript">
-        function generateUUID() {
-            var d = new Date().getTime();
-            if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
-                d += performance.now(); //use high-precision timer if available
+    <head>
+        <meta http-equiv="content-type" content="text/html;charset=utf-8" />
+        <title>redditp</title>
+        <meta
+            name="description"
+            content="A fullscreen presentation or slide show of reddit. RedditP"
+        />
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="format-detection" content="date=no" />
+        <meta name="format-detection" content="address=no" />
+        <link rel="shortcut icon" href="/images/new-favicon.png" />
+        <link rel="stylesheet" type="text/css" href="/css/style.css" />
+        <link
+            rel="stylesheet"
+            type="text/css"
+            href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.2/toastr.css"
+        />
+        <style>
+            /* the intended element is hidden */
+            .tagsyo {
+                text-shadow: 0px 2px #00f;
+                transition: opacity 1s;
             }
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-                var r = (d + Math.random() * 16) % 16 | 0;
-                d = Math.floor(d / 16);
-                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-            });
-        }
-        window.addEventListener('DOMContentLoaded', function () {
-            var userId = localStorage.getItem('userId');
-            if (!userId) {
-                userId = generateUUID();
-                localStorage.setItem('userId', userId);
+
+            .tagsyo:hover {
+                opacity: 0.5;
             }
-            var errorHandler = new StackdriverErrorReporter();
-            errorHandler.start({
-                key: 'AIzaSyDjQxNRa6NQ21ibUHBdSKNkcgVmhidcyzE',
-                projectId: 'ubershmekel',
-                service: 'redditp',
-                version: '0.1.2',
-                context: { user: userId },
+        </style>
+
+        <!-- Google error reporting -->
+        <script
+            defer
+            src="https://unpkg.com/stackdriver-errors-js@0.7.0/dist/stackdriver-errors-concat.min.js"
+            integrity="sha384-o7F61sBljqwkWXU4aTWhnMi8x3uK26/NaIMngik4MnY5d6+jB7kxNO/miMEoFv9r"
+            crossorigin="anonymous"
+        ></script>
+        <script type="text/javascript">
+            function generateUUID() {
+                var d = new Date().getTime();
+                if (
+                    typeof performance !== "undefined" &&
+                    typeof performance.now === "function"
+                ) {
+                    d += performance.now(); //use high-precision timer if available
+                }
+                return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+                    /[xy]/g,
+                    function(c) {
+                        var r = (d + Math.random() * 16) % 16 | 0;
+                        d = Math.floor(d / 16);
+                        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+                    }
+                );
+            }
+            window.addEventListener("DOMContentLoaded", function() {
+                var userId = localStorage.getItem("userId");
+                if (!userId) {
+                    userId = generateUUID();
+                    localStorage.setItem("userId", userId);
+                }
+                var errorHandler = new StackdriverErrorReporter();
+                errorHandler.start({
+                    key: "AIzaSyDjQxNRa6NQ21ibUHBdSKNkcgVmhidcyzE",
+                    projectId: "ubershmekel",
+                    service: "redditp",
+                    version: "0.1.2",
+                    context: { user: userId }
+                });
             });
-        });
-    </script>
+        </script>
 
-    <script src="https://unpkg.com/jquery@3.4.1/dist/jquery.min.js"
-        integrity="sha384-vk5WoKIaW/vJyUAd9n/wmopsmNhiy+L2Z+SBxGYnUkunIxVxAv/UtMOhba/xskxh"
-        crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/toastr@2.1.4/build/toastr.min.js"
-        integrity="sha384-awkppW2vvGcqchV4/Wqk1nZPrGJakjrkv9gwXzll5JebuFQNSbzeKwYhqFDa/y00"
-        crossorigin="anonymous"></script>
-    <script>
-        (function (i, s, o, g, r, a, m) {
-            i['GoogleAnalyticsObject'] = r; i[r] = i[r] || function () {
-                (i[r].q = i[r].q || []).push(arguments)
-            }, i[r].l = 1 * new Date(); a = s.createElement(o),
-                m = s.getElementsByTagName(o)[0]; a.async = 1; a.src = g; m.parentNode.insertBefore(a, m)
-        })(window, document, 'script', 'https://www.google-analytics.com/analytics.js', 'ga');
+        <script
+            src="https://unpkg.com/jquery@3.4.1/dist/jquery.min.js"
+            integrity="sha384-vk5WoKIaW/vJyUAd9n/wmopsmNhiy+L2Z+SBxGYnUkunIxVxAv/UtMOhba/xskxh"
+            crossorigin="anonymous"
+        ></script>
+        <script
+            src="https://unpkg.com/toastr@2.1.4/build/toastr.min.js"
+            integrity="sha384-awkppW2vvGcqchV4/Wqk1nZPrGJakjrkv9gwXzll5JebuFQNSbzeKwYhqFDa/y00"
+            crossorigin="anonymous"
+        ></script>
+        <script>
+            (function(i, s, o, g, r, a, m) {
+                i["GoogleAnalyticsObject"] = r;
+                (i[r] =
+                    i[r] ||
+                    function() {
+                        (i[r].q = i[r].q || []).push(arguments);
+                    }),
+                    (i[r].l = 1 * new Date());
+                (a = s.createElement(o)), (m = s.getElementsByTagName(o)[0]);
+                a.async = 1;
+                a.src = g;
+                m.parentNode.insertBefore(a, m);
+            })(
+                window,
+                document,
+                "script",
+                "https://www.google-analytics.com/analytics.js",
+                "ga"
+            );
 
-        ga('create', 'UA-4533496-15', 'auto');
-        ga('send', 'pageview');
-    </script>
-    <script>
-        window.onerror = function (msg, url, linenumber) {
-            // Tell users when errors occur and log on google analytics
-            // http://stackoverflow.com/questions/2604976/javascript-how-to-display-script-errors-in-a-popup-alert/2604997#2604997
-            var errMessage = msg + '\nURL: ' + url + '\nLine Number: ' + linenumber;
-            if (window.console && window.console.log)
-                console.log(errMessage);
-            ga('send', 'exception', {
-                'exDescription': errMessage,
-                'exFatal': false
-            });
-            $(function () {
-                // toastr does not work before the body exists, so we do this $() trick to postpone the toast.
-                // This is useful to see syntax errors in loaded scripts.
-                toastr.warning("Redditp booboo: " + msg)
-            });
+            ga("create", "UA-4533496-15", "auto");
+            ga("send", "pageview");
+        </script>
+        <script>
+            window.onerror = function(msg, url, linenumber) {
+                // Tell users when errors occur and log on google analytics
+                // http://stackoverflow.com/questions/2604976/javascript-how-to-display-script-errors-in-a-popup-alert/2604997#2604997
+                var errMessage =
+                    msg + "\nURL: " + url + "\nLine Number: " + linenumber;
+                if (window.console && window.console.log)
+                    console.log(errMessage);
+                ga("send", "exception", {
+                    exDescription: errMessage,
+                    exFatal: false
+                });
+                $(function() {
+                    // toastr does not work before the body exists, so we do this $() trick to postpone the toast.
+                    // This is useful to see syntax errors in loaded scripts.
+                    toastr.warning("Redditp booboo: " + msg);
+                });
 
-            // report on dev console too
-            return false;
-        }
-    </script>
-    <script type="text/javascript" src="/js/jquery.touchwipe.js"></script>
-    <script type="text/javascript" src="/js/js.cookie.js"></script>
-    <script type="text/javascript" src="/js/ie_hacks.js"></script>
-    <script type="text/javascript" src="/js/EmbedIt.js"></script>
-    <script type="text/javascript" src="/js/script.js"></script>
-</head>
+                // report on dev console too
+                return false;
+            };
+        </script>
+        <script type="text/javascript" src="/js/jquery.touchwipe.js"></script>
+        <script type="text/javascript" src="/js/js.cookie.js"></script>
+        <script type="text/javascript" src="/js/ie_hacks.js"></script>
+        <script type="text/javascript" src="/js/EmbedIt.js"></script>
+        <script type="text/javascript" src="/js/script.js"></script>
+    </head>
 
-<body id="page">
-    <div class="prevArrow fadeOnIdle" title="The arrow keys work too" id="prevButton"></div>
-    <div class="nextArrow fadeOnIdle" title="Try the arrow keys too" id="nextButton"></div>
+    <body id="page">
+        <div
+            class="prevArrow fadeOnIdle"
+            title="Previous"
+            id="prevButton"
+        ></div>
+        <div class="nextArrow fadeOnIdle" title="Next" id="nextButton"></div>
 
-    <div id="controlsDiv" class='navbox clouds fadeOnIdle'>
-        <div class="collapser" data-openstate="open">-</div>
-        <div id="navboxContents">
-            <ul class="nbmenu">
-                <li id="subredditUrl">
-                    <noscript>No javascript, no gain.</noscript>
-                </li>
-                <li>
-                    <a id='navboxCommentsLink' href='#' title='Comments on reddit'>comments</a>
-                </li>
-                <li>
-                    <a id='navboxLink' href='#' title='placeholder'>image</a>
-                </li>
-                <li>
-                    <a href="https://github.com/ubershmekel/redditp/blob/master/README.md" title="hotkeys">hotkeys</a>
-                </li>
-                <!-- <li>
+        <div id="controlsDiv" class="navbox clouds fadeOnIdle">
+            <div class="collapser" data-openstate="open">-</div>
+            <div id="navboxContents">
+                <ul class="nbmenu">
+                    <li id="subredditUrl">
+                        <!-- [BUG](doesn't work as intended) it just has a link to reddit.com -->
+                        <noscript>No javascript, no gain.</noscript>
+                    </li>
+                    <li>
+                        <a
+                            id="navboxCommentsLink"
+                            href="#"
+                            title="View on reddit"
+                            >discuss</a
+                        >
+                    </li>
+                    <li>
+                        <a id="navboxLink" href="#" title="placeholder"
+                            >source</a
+                        >
+                    </li>
+                    <li>
+                        <a href="/hotkeys.html" title="hotkeys">hotkeys</a>
+                    </li>
+                    <!-- <li>
                     <a href="http://www.tagsyo.com" title="A new project I'm working on" class="tagsyo">t</a>
-                </li> -->
-            </ul>
-            <ul class="nbmenu">
-                <li>
-                    <input class="checkbox" type="checkbox" name="autoNextSlide" id="autoNextSlide" value="Auto"
-                        checked />
-                    <label class="checkbox" for="autoNextSlide"> Auto-next</label>
-                    every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2" /> seconds
-                </li>
-                <li>
-                    <input class="checkbox" type="checkbox" name="nsfw" id="nsfw" value="Auto" checked />
-                    <label class="checkbox over18" for="nsfw"> nsfw</label>
-                    <img src="/images/fullscreen.png" id="fullScreenButton" alt="Fullscreen" />
-                </li>
-            </ul>
-            <div class="numberButtonList">
-                <ul id="allNumberButtons">
-                    <!-- Slide number buttons will be injected by jQuery -->
+                </li>  -->
+                    <!-- why exactly is it here? -->
                 </ul>
-                <ul id="sfwNumberButtons">
+                <ul class="nbmenu">
+                    <li>
+                        <label class="checkbox" for="autoNextSlide">
+                            present
+                        </label>
+                        <input
+                            class="checkbox"
+                            type="checkbox"
+                            name="autoNextSlide"
+                            id="autoNextSlide"
+                            value="Auto"
+                            checked
+                        />
+                        <label for="timeToNextSlide">delay (sec)</label>
+                        <input
+                            type="text"
+                            name="timeToNextSlide"
+                            id="timeToNextSlide"
+                            value="5"
+                            size="2"
+                        />
+                    </li>
+                    <li class="inputGroup">
+                        <label class="checkbox nsfw" for="nsfw">NSFW</label>
+                        <input
+                            class="checkbox"
+                            type="checkbox"
+                            name="nsfw"
+                            id="nsfw"
+                            value="Auto"
+                            checked
+                        />
+                        <img
+                            src="/images/fullscreen.png"
+                            id="fullScreenButton"
+                            alt="Fullscreen"
+                        />
+                    </li>
                 </ul>
+                <div class="numberButtonList">
+                    <ul id="allNumberButtons">
+                        <!-- Slide number buttons will be injected by jQuery -->
+                        <!-- [BUG](doesn't work as intended) leaves it blank -->
+                    </ul>
+                    <ul id="sfwNumberButtons"></ul>
+                </div>
             </div>
         </div>
-    </div>
-    <div id="titleDiv" class='navbox clouds'>
-        <div class="collapser" data-openstate="open">-</div>
-        <h2 id='navboxTitle'>
-            <noscript>Javascript is required for redditp to work :(</noscript>
-        </h2>
-        <h3><a id='navboxSubreddit' href="http://www.reddit.com">
-                <noscript>Javascript is required for redditp to work :(</noscript>
-            </a></h3>
-    </div>
-
-    <div id="recommend" style="display:none; text-align: center; margin: 10px; color: rgb(170, 170, 170);">
-        <p>Maybe try these presentations instead:</p>
-        <ul>
-            <li>
-                <a href="/r/earthporn">earthporn</a>
-            </li>
-            <li>
-                <a href="/r/aww">aww</a>
-            </li>
-            <li>
-                <a href="/r/foodporn">foodporn</a>
-            </li>
-            <li>
-                <a href="/r/funny">funny</a>
-            </li>
-            <li>
-                <a href="/r/gonewild">gonewild</a>
-            </li>
-            <li>
-                <a href="/r/spaceporn">spaceporn</a>
-            </li>
-            <li>
-                <a href="/r/gifs">gifs</a>
-            </li>
-            <li>
-                <a href="/r/all">all</a>
-            </li>
-        </ul>
-    </div>
-
-
-    <div id="pictureSlider">
-        <!-- Pictures will be injected by jQuery -->
-        <div>
-            <!-- Empty div to be animated out, do not erase -->
+        <div id="titleDiv" class="navbox clouds">
+            <div class="collapser" data-openstate="open">-</div>
+            <h4 id="navboxTitle">
+                <noscript
+                    >Javascript is required for redditp to work :(</noscript
+                >
+            </h4>
+            <h6>
+                <a id="navboxSubreddit" href="http://www.reddit.com">
+                    <noscript
+                        >Javascript is required for redditp to work :(</noscript
+                    >
+                </a>
+            </h6>
         </div>
-    </div>
 
-</body>
+        <div
+            id="recommend"
+            style="display:none; text-align: center; margin: 10px; color: rgb(170, 170, 170);"
+        >
+            <p>Maybe try these presentations instead:</p>
+            <ul>
+                <li>
+                    <a href="/r/earthporn">earthporn</a>
+                </li>
+                <li>
+                    <a href="/r/aww">aww</a>
+                </li>
+                <li>
+                    <a href="/r/foodporn">foodporn</a>
+                </li>
+                <li>
+                    <a href="/r/funny">funny</a>
+                </li>
+                <li>
+                    <a href="/r/gonewild">gonewild</a>
+                </li>
+                <li>
+                    <a href="/r/spaceporn">spaceporn</a>
+                </li>
+                <li>
+                    <a href="/r/gifs">gifs</a>
+                </li>
+                <li>
+                    <a href="/r/all">all</a>
+                </li>
+            </ul>
+        </div>
 
+        <div id="pictureSlider">
+            <!-- Pictures will be injected by jQuery -->
+            <div>
+                <!-- Empty div to be animated out, do not erase -->
+            </div>
+        </div>
+    </body>
 </html>

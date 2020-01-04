@@ -1,0 +1,97 @@
+/* colors: #ffffff, #19191f, #e74344 */
+
+@import url("https://fonts.googleapis.com/css?family=Comfortaa&display=swap"); /* new font */
+
+/* basic page setup according to the new design system */
+body {
+    background-color: #19191f;
+    color: #ffffff;
+    font-family: "Comfortaa", Courier, monospace;
+    margin: 0;
+}
+
+/* play area for the content */
+.content {
+    max-width: 70%;
+    margin: auto;
+}
+
+/* new logotype (not the logo but the style of the name) */
+#white-text {
+    color: #ffffff;
+}
+
+#red-text {
+    color: #e74344;
+}
+
+/* links maching the new color scheme */
+a,
+a:link,
+a:visited,
+a:active {
+    text-decoration: none;
+    color: #e74344;
+}
+
+a:hover {
+    color: #e76f6f;
+}
+
+/* the sidebar verticle "nav" */
+.left-sidebar {
+    position: fixed;
+    top: 0;
+    right: calc(100% - 20px);
+    text-align: center;
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.left-wrapper {
+    position: fixed;
+    transform: rotate(90deg);
+    transform-origin: left bottom;
+    width: 100vh;
+}
+
+.left-sidebar a {
+    padding-left: 30px;
+    padding-right: 30px;
+}
+
+header {
+    text-align: center;
+}
+
+h1 {
+    color: #e74344;
+    font-weight: bold;
+    font-size: 80px;
+}
+
+h2 {
+    color: #e74344;
+    font-weight: bold;
+    margin-top: 50px;
+}
+
+li {
+    list-style: none;
+    font-size: large;
+    line-height: 30px;
+    margin-bottom: 20px;
+}
+
+.about {
+    font-size: large;
+    line-height: 30px;
+    margin-bottom: 20px;
+}
+
+/* mark any type of error by adding this class to the error number */
+.error {
+    text-align: center;
+    font-size: 30vw;
+    margin-top: 10%;
+}

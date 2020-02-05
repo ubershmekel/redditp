@@ -47,8 +47,8 @@
                 userId = generateUUID();
                 localStorage.setItem('userId', userId);
             }
-            var errorHandler = new StackdriverErrorReporter();
-            errorHandler.start({
+            window.errorHandler = new StackdriverErrorReporter();
+            window.errorHandler.start({
                 key: 'AIzaSyB9pYYmQkvd8X2HI9jBaFmg365JtccIkKY',
                 projectId: 'redditslideshow',
                 service: 'redditp',

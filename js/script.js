@@ -899,10 +899,13 @@ $(function () {
 
         // I still haven't been able to catch jsonp 404 events so the timeout
         // is the current solution sadly.
+        // Note we're still using `jsonp` despite potential issues because
+        // `http://www.redditp.com/r/randnsfw` wasn't working with CORS for some reason.
+        // https://github.com/ubershmekel/redditp/issues/104
         $.ajax({
             url: jsonUrl,
-            dataType: 'json',
-            jsonp: false,
+            dataType: 'jsonp',
+            // jsonp: false,
             success: handleData,
             error: failedAjax,
             404: failedAjax,

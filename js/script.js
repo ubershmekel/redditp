@@ -810,7 +810,8 @@ $(function () {
 
         rp.session.loadingNextImages = true;
 
-        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?" + rp.session.after + "&" + getVars;
+        // Note that JSONP requests require `".json?jsonp=?"` here.
+        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
         var failedAjax = function (/*data*/) {
             var message = "Failed ajax, maybe a bad url? Sorry about that :(";
             var isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1;

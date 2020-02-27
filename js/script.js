@@ -810,7 +810,6 @@ $(function () {
 
     var isShuffleOn = function () {
         var query = parseQuery(window.location.search);
-        console.log("querrry", query);
         return !!query.shuffle;
     };
 
@@ -833,6 +832,7 @@ $(function () {
 
         // Note that JSONP requests require `".json?jsonp=?"` here.
         var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
+
         var failedAjax = function (/*data*/) {
             var message = "Failed ajax, maybe a bad url? Sorry about that :(";
             var isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1;
@@ -844,6 +844,14 @@ $(function () {
         };
 
         var handleData = function (data) {
+            // handle single page json
+            if (data && data.length === 2 && data[0].data.children.length === 1) {
+                // this means we're in single post link
+                // response consists of two json objects, one for post, one for comments
+                data = data[0];
+                rp.session.loadingNextImages = false;
+            }
+
             //redditData = data //global for debugging data
             // NOTE: if data.data.after is null then this causes us to start
             // from the top on the next getRedditImages which is fine.
@@ -924,10 +932,13 @@ $(function () {
         // Note we're still using `jsonp` despite potential issues because
         // `http://www.redditp.com/r/randnsfw` wasn't working with CORS for some reason.
         // https://github.com/ubershmekel/redditp/issues/104
+
+        var useJsonP = jsonUrl.indexOf('\/comments\/') !== -1;
+
         $.ajax({
             url: jsonUrl,
-            dataType: 'jsonp',
-            // jsonp: false,
+            dataType: useJsonP ? 'json' : 'jsonp',
+            jsonp: useJsonP,
             success: handleData,
             error: failedAjax,
             404: failedAjax,

@@ -4,7 +4,7 @@ function fixTagsyoLink() {
       return;
   }
   var subName = subMatch[1];
-  var query = "SELECT * FROM url WHERE LOWER(channel) = '" + subName + "' !slideshow";
+  var query = "SELECT * FROM url WHERE LOWER(channel) = '" + subName.toLowerCase() + "' !slideshow";
   var tagsyoLink = "http://www.tagsyo.com/q/?q=" + encodeURIComponent(query);
   document.getElementById('tagsyo-link').href = tagsyoLink;
   console.log("fixed tagsyo link");

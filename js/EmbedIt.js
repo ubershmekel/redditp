@@ -7,7 +7,7 @@ embedit.video = function (webmUrl, mp4Url) {
     // video. We can only circumvent that by putting the src 
     // on the <video> tag :/
     
-    var video = $('<video autoplay playsinline loop controls />');
+    var video = $('<video autoplay playsinline loop />');
     if (webmUrl) {
         video.append($('<source/>').attr('src', webmUrl));
     }

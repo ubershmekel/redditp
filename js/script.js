@@ -217,6 +217,12 @@ $(function () {
         if (videoTags.length === 1) {
             videoTags[0].muted = !rp.settings.sound;
         }
+        var audioTags = document.getElementsByTagName('audio');
+        if (audioTags.length === 1) {
+            audioTags[0].muted = !rp.settings.sound;
+        } else {
+            console.log(audioTags);
+        }
     };
 
     var resetNextSlideTimer = function () {
@@ -684,7 +690,20 @@ $(function () {
                     playsinline: '',
                 });
                 if (photo.sound) {
-                    $("<source src='" + photo.sound + "' type='audio/aac'>").appendTo($(elem));
+                    // this case is for videos from v.redd.it domain only
+                    $("<audio autoplay><source src='" + photo.sound + "' type='audio/aac'/></audio>").appendTo($(elem));
+
+                    var $audioTag = $("audio", elem).get(0);
+                    var $videoTag = $("video", divNode).get(0);
+
+                    // sync reddit audio and video tracks
+                    $audioTag.currentTime = $videoTag.currentTime;
+                    $videoTag.onplay = function () {
+                        $audioTag.play();
+                    };
+                    $videoTag.onpause = function () {
+                        $audioTag.pause();
+                    };
                 }
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.
@@ -933,7 +952,6 @@ $(function () {
         if (useJsonP) {
             jsonUrl += '&jsonp=?';
         }
-        console.log('useJsonP: ' + useJsonP + ", url: " + jsonUrl);
 
         $.ajax({
             url: jsonUrl,

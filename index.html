@@ -43,6 +43,10 @@
         }
 
         window.addEventListener('DOMContentLoaded', function () {
+            if (window.location.hostname !== 'redditp.com') {
+                console.log('disable cloud error reporting on local dev environment');
+                return;
+            }
             var userId = localStorage.getItem('userId');
             if (!userId) {
                 userId = generateUUID();

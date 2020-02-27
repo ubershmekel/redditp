@@ -831,7 +831,7 @@ $(function () {
         rp.session.loadingNextImages = true;
 
         // Note that JSONP requests require `".json?jsonp=?"` here.
-        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?jsonp=?" + rp.session.after + "&" + getVars;
+        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?" + (rp.session.after ? rp.session.after + "&" : "") + getVars;
 
         var failedAjax = function (/*data*/) {
             var message = "Failed ajax, maybe a bad url? Sorry about that :(";
@@ -927,17 +927,17 @@ $(function () {
         if (rp.settings.debug)
             console.log('Ajax requesting: ' + jsonUrl);
 
-        // I still haven't been able to catch jsonp 404 events so the timeout
-        // is the current solution sadly.
-        // Note we're still using `jsonp` despite potential issues because
-        // `http://www.redditp.com/r/randnsfw` wasn't working with CORS for some reason.
-        // https://github.com/ubershmekel/redditp/issues/104
-
-        var useJsonP = jsonUrl.indexOf('\/comments\/') !== -1;
+        var useJsonP = jsonUrl.indexOf('\/comments\/') !== -1
+            || jsonUrl.indexOf('\/r\/randnsfw') !== -1
+            || jsonUrl.indexOf('\/r\/random') !== -1;
+        if (useJsonP) {
+            jsonUrl += '&jsonp=?';
+        }
+        console.log('useJsonP: ' + useJsonP + ", url: " + jsonUrl);
 
         $.ajax({
             url: jsonUrl,
-            dataType: useJsonP ? 'json' : 'jsonp',
+            dataType: useJsonP ? 'jsonp' : 'json',
             jsonp: useJsonP,
             success: handleData,
             error: failedAjax,

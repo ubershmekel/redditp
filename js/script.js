@@ -25,7 +25,7 @@ rp.session = {
     // 0-based index to set which picture to show first
     // init to -1 until the first image is loaded
     activeIndex: -1,
-    
+
     // Variable to store if the animation is playing or not
     isAnimating: false,
 
@@ -53,7 +53,7 @@ function reportError(errMessage) {
     } else {
         console.log('No error handler yet:' + errMessage);
     }
-    toastr.error(errMessage + ', please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');    
+    toastr.error(errMessage + ', please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
 }
 
 
@@ -90,14 +90,15 @@ $(function () {
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
 
-    var getNextSlideIndex = function(currentIndex) {
-        if(!rp.settings.nsfw) {
+    var getNextSlideIndex = function (currentIndex) {
+        if (!rp.settings.nsfw) {
             // Skip any nsfw if you should
-            for(var i = currentIndex + 1; i < rp.photos.length; i++) {
+            for (var i = currentIndex + 1; i < rp.photos.length; i++) {
                 if (!rp.photos[i].over18) {
                     return i;
                 }
             }
+            return 0;
         }
         if (isLastImage(getNextSlideIndex) && !rp.session.loadingNextImages) {
             // The only reason we got here and there aren't more pictures yet
@@ -106,16 +107,16 @@ $(function () {
         }
         // Just go to the next slide, this should be the common case
         return currentIndex + 1;
-    }
+    };
 
     function nextSlide() {
         var next = getNextSlideIndex(rp.session.activeIndex);
         startAnimation(next);
     }
-    
+
     function prevSlide() {
-        if(!rp.settings.nsfw) {
-            for(var i = rp.session.activeIndex - 1; i > 0; i--) {
+        if (!rp.settings.nsfw) {
+            for (var i = rp.session.activeIndex - 1; i > 0; i--) {
                 if (!rp.photos[i].over18) {
                     return startAnimation(i);
                 }
@@ -124,23 +125,23 @@ $(function () {
         startAnimation(rp.session.activeIndex - 1);
     }
 
-    
+
     var autoNextSlide = function () {
         if (rp.settings.shouldAutoNextSlide) {
             // startAnimation takes care of the setTimeout
             nextSlide();
         }
     };
-    
-    function open_in_background(selector){
+
+    function open_in_background(selector) {
         // as per https://developer.mozilla.org/en-US/docs/Web/API/event.initMouseEvent
         // works on latest chrome, safari and opera
         var link = $(selector)[0];
-        
+
         // Simulating a ctrl key won't trigger a background tab on IE and Firefox ( https://bugzilla.mozilla.org/show_bug.cgi?id=812202 )
         // so we need to open a new window
-        if ( navigator.userAgent.match(/msie/i) || navigator.userAgent.match(/trident/i)  || navigator.userAgent.match(/firefox/i) ){
-            window.open(link.href,'_blank');
+        if (navigator.userAgent.match(/msie/i) || navigator.userAgent.match(/trident/i) || navigator.userAgent.match(/firefox/i)) {
+            window.open(link.href, '_blank');
         } else {
             var mev = document.createEvent("MouseEvents");
             mev.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, true, false, false, true, 0, null);
@@ -200,10 +201,10 @@ $(function () {
     };
 
     var setCookie = function (c_name, value) {
-        Cookies.set(c_name, value, { expires: rp.settings.cookieDays });
+        Cookies.set(c_name, value, {expires: rp.settings.cookieDays});
     };
 
-    
+
     var getCookie = function (c_name) {
         // undefined in case nothing found
         return Cookies.get(c_name);
@@ -229,7 +230,7 @@ $(function () {
         resetNextSlideTimer();
     };
 
-    var toggleFullScreen = function() {
+    var toggleFullScreen = function () {
         var elem = document.getElementById('page');
         if (document.fullscreenElement || // alternative standard method
             document.mozFullScreenElement || document.webkitFullscreenElement || document.msFullscreenElement) { // current working methods
@@ -302,11 +303,11 @@ $(function () {
             rp.settings.timeToNextSlide = parseFloat(timeByCookie) * 1000;
             $('#timeToNextSlide').val(timeByCookie);
         }
-        
+
         $('#fullScreenButton').click(toggleFullScreen);
 
         $('#timeToNextSlide').keyup(updateTimeToNextSlide);
-        
+
         $('#prevButton').click(prevSlide);
         $('#nextButton').click(nextSlide);
     };
@@ -327,8 +328,8 @@ $(function () {
         image: 'image',
         gfycat: 'gfycat',
         gifv: 'gifv'
-    }
-    
+    };
+
     var addImageSlide = function (pic) {
         /*
         var pic = {
@@ -371,7 +372,7 @@ $(function () {
             // simple image
         } else {
             var betterUrl = tryConvertUrl(pic.url);
-            if(betterUrl !== '') {
+            if (betterUrl !== '') {
                 pic.url = betterUrl;
             } else {
                 if (rp.settings.debug) {
@@ -382,14 +383,14 @@ $(function () {
         }
 
         rp.session.foundOneImage = true;
-      
+
         for (i = 0; i < rp.photos.length; i += 1) {
             if (pic.url == rp.photos[i].url) {
                 return;
             }
         }
 
-        
+
         // Do not preload all images, this is just not performant.
         // Especially in gif or high-res subreddits where each image can be 50 MB.
         // My high-end desktop browser was unresponsive at times.
@@ -401,7 +402,7 @@ $(function () {
             .data("index", i)
             .attr("title", rp.photos[i].title)
             .attr("id", "numberButton" + (i + 1));
-        if(pic.over18) {
+        if (pic.over18) {
             numberButton.addClass("over18");
         }
         numberButton.click(function () {
@@ -430,10 +431,10 @@ $(function () {
     var R_KEY = 82;
     var T_KEY = 84;
 
-    
+
     // Register keyboard events on the whole document
     $(document).keyup(function (e) {
-        if(e.ctrlKey) {
+        if (e.ctrlKey) {
             // ctrl key is pressed so we're most likely switching tabs or doing something
             // unrelated to redditp UI
             return;
@@ -492,33 +493,29 @@ $(function () {
         startAnimation(imageIndex);
     };
 
-    var isLastImage = function(imageIndex) {
-        if(rp.settings.nsfw) {
-            if(imageIndex == rp.photos.length - 1) {
-                return true;
-            } else {
-                return false;
-            }
+    var isLastImage = function (imageIndex) {
+        if (rp.settings.nsfw) {
+            return imageIndex == rp.photos.length - 1;
         } else {
             // look for remaining sfw images
-            for(var i = imageIndex + 1; i < rp.photos.length; i++) {
-                if(!rp.photos[i].over18) {
+            for (var i = imageIndex + 1; i < rp.photos.length; i++) {
+                if (!rp.photos[i].over18) {
                     return false;
                 }
             }
             return true;
         }
     };
-    
-    var preloadNextImage = function(imageIndex) {
+
+    var preloadNextImage = function (imageIndex) {
         var next = getNextSlideIndex(imageIndex);
         // Always clear cache - no need for memory bloat.
         // We only keep the next image preloaded.
         rp.cache = {};
-        if(next < rp.photos.length)
+        if (next < rp.photos.length)
             rp.cache[next] = createDiv(next);
     };
-    
+
     //
     // Starts the animation, based on the image index
     //
@@ -571,7 +568,7 @@ $(function () {
     };
 
     var playButton = $('<img id="playButton" src="/images/play.svg" />');
-    playButton.click(function() {
+    playButton.click(function () {
         if ($('video')[0]) {
             $('video')[0].play();
         } else {
@@ -583,14 +580,14 @@ $(function () {
     $(pictureSliderId).append(playButton);
     playButton.hide();
 
-    var startPlayingVideo = function(vid_jq) {
+    var startPlayingVideo = function (vid_jq) {
         // Loop or auto next slide
         // TODO: make this update every time you check/uncheck auto-play
         if (rp.settings.shouldAutoNextSlide) {
             clearTimeout(rp.session.nextSlideTimeoutId);
             vid_jq.removeAttr('loop');
         }
-        
+
         // sound cookie setting
         vid_jq[0].muted = !rp.settings.sound;
 
@@ -604,10 +601,10 @@ $(function () {
         var playPromise = vid_jq[0].play();
         if (playPromise && playPromise.catch) {
             // playPromise is `undefined` in firefox 46-48 it seems
-            playPromise.catch(function(e) {
+            playPromise.catch(function (e) {
                 // a trick to get around: DOMException: play() can only be initiated by a user gesture.
                 // We show a play button that the user can press
-                if(e.name === "NotAllowedError") {
+                if (e.name === "NotAllowedError") {
                     //code: 0
                     //message: "play() can only be initiated by a user gesture."
                     //name: "NotAllowedError"
@@ -624,7 +621,7 @@ $(function () {
                 console.log(e);
             });
         }
-    }
+    };
 
     //
     // Slides the background photos
@@ -643,15 +640,15 @@ $(function () {
         oldDiv.fadeOut(rp.settings.animationSpeed, function () {
             oldDiv.remove();
             rp.session.isAnimating = false;
-            
+
             var maybeVid = $('video');
-            if(maybeVid.length > 0) {
+            if (maybeVid.length > 0) {
                 startPlayingVideo(maybeVid);
             }
         });
-    }
-    
-    var createDiv = function(imageIndex) {
+    };
+
+    var createDiv = function (imageIndex) {
         // Retrieve the accompanying photo based on the index
         var photo = rp.photos[imageIndex];
         //log("Creating div for " + imageIndex + " - " + photo.url);
@@ -674,9 +671,9 @@ $(function () {
             cssMap['background-position'] = "center";
 
             divNode.css(cssMap).addClass("clouds");
-            
+
         } else { //if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
-            embedit.embed(photo.url, function(elem) {
+            embedit.embed(photo.url, function (elem) {
                 if (!elem) {
                     reportError('Failed to handle url');
                     return divNode;
@@ -686,7 +683,7 @@ $(function () {
                     playsinline: '',
                 });
                 if (photo.sound) {
-                    $("<source src='"+photo.sound+"' type='audio/aac'>").appendTo($(elem));
+                    $("<source src='" + photo.sound + "' type='audio/aac'>").appendTo($(elem));
                 }
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.
@@ -696,30 +693,29 @@ $(function () {
         }// else {
         //    reportError('Unhandled image type');
         //}
-        
+
         return divNode;
     };
 
-    
-    
-    var verifyNsfwMakesSense = function() {
+
+    var verifyNsfwMakesSense = function () {
         // Cases when you forgot NSFW off but went to /r/nsfw
         // can cause strange bugs, let's help the user when over 80% of the
         // content is NSFW.
         var nsfwImages = 0;
-        for(var i = 0; i < rp.photos.length; i++) {
-            if(rp.photos[i].over18) {
+        for (var i = 0; i < rp.photos.length; i++) {
+            if (rp.photos[i].over18) {
                 nsfwImages += 1;
             }
         }
-        
-        if(0.8 < nsfwImages * 1.0 / rp.photos.length) {
+
+        if (0.8 < nsfwImages * 1.0 / rp.photos.length) {
             rp.settings.nsfw = true;
             $("#nsfw").prop("checked", rp.settings.nsfw);
         }
     };
-    
-    
+
+
     var tryConvertUrl = function (url) {
         if (url.indexOf('imgur.com') > 0 || url.indexOf('/gallery/') > 0) {
             // special cases with imgur
@@ -736,7 +732,7 @@ $(function () {
                 //log('Unsupported gallery: ' + url);
                 return '';
             }
-            
+
             // imgur is really nice and serves the image with whatever extension
             // you give it. '.jpg' is arbitrary
             // regexp removes /r/<sub>/ prefix if it exists
@@ -754,12 +750,7 @@ $(function () {
         }
         var extension = url.substring(dotLocation);
 
-        if (rp.settings.goodExtensions.indexOf(extension) >= 0) {
-            return true;
-        } else {
-            //log("skipped bad extension: " + url);
-            return false;
-        }
+        return rp.settings.goodExtensions.indexOf(extension) >= 0;
     };
 
     var decodeUrl = function (url) {
@@ -770,7 +761,7 @@ $(function () {
         // Detect predefined reddit url paths. If you modify this be sure to fix
         // .htaccess
         // This is a good idea so we can give a quick 404 page when appropriate.
-        
+
         var regexS = "(/(?:(?:r/)|(?:imgur/a/)|(?:u(?:ser)?/)|(?:domain/)|(?:search))[^&#?]*)[?]?(.*)";
         var regex = new RegExp(regexS);
         var results = regex.exec(window.location.href);
@@ -782,20 +773,20 @@ $(function () {
         }
     };
 
-    var failCleanup = function() {
+    var failCleanup = function () {
         if (rp.photos.length > 0) {
             // already loaded images, don't ruin the existing experience
             return;
         }
-        
+
         // remove "loading" title
         $('#navboxTitle').text('');
-        
+
         // display alternate recommendations
-        $('#recommend').css({'display':'block'});
+        $('#recommend').css({'display': 'block'});
     };
 
-    var parseQuery = function(queryString) {
+    var parseQuery = function (queryString) {
         var query = {};
         var pairs = (queryString[0] === '?' ? queryString.substr(1) : queryString).split('&');
         for (var i = 0; i < pairs.length; i++) {
@@ -803,9 +794,9 @@ $(function () {
             query[decodeURIComponent(pair[0])] = decodeURIComponent(pair[1] || '');
         }
         return query;
-    }
-    
-    var shuffle = function(arr) {
+    };
+
+    var shuffle = function (arr) {
         var j, x, i;
         for (i = arr.length - 1; i > 0; i--) {
             j = Math.floor(Math.random() * (i + 1));
@@ -814,22 +805,23 @@ $(function () {
             arr[j] = x;
         }
         return arr;
-    }
-    
-    var isShuffleOn = function() {
+    };
+
+    var isShuffleOn = function () {
         var query = parseQuery(window.location.search);
         console.log("querrry", query);
-        if (query.shuffle) {
-            return true;
-        } else {
-            return false;
-        }
-    }
+        return !!query.shuffle;
+    };
 
-    var startShow = function() {
+    var startShow = function () {
         startAnimation(0);
-    }
-    
+    };
+
+    var getStackTrace = function () {
+        var err = new Error();
+        return err.stack;
+    };
+
     var getRedditImages = function () {
         //if (noMoreToLoad){
         //    log("No more images to load, will rotate to start.");
@@ -900,7 +892,7 @@ $(function () {
             });
 
             verifyNsfwMakesSense();
-            
+
             if (!rp.session.foundOneImage) {
                 // Note: the jsonp url may seem malformed but jquery fixes it.
                 //log(jsonUrl);
@@ -920,7 +912,7 @@ $(function () {
                 addNumberButton(numberButton);
             }
             rp.session.loadingNextImages = false;
-            
+
         };
 
         if (rp.settings.debug)
@@ -970,7 +962,7 @@ $(function () {
                     title: item.title,
                     over18: item.nsfw,
                     commentsLink: ""
-                });                
+                });
             });
 
             verifyNsfwMakesSense();
@@ -1001,18 +993,19 @@ $(function () {
             error: failedAjax,
             404: failedAjax,
             timeout: 5000,
-            beforeSend : function(xhr) {
+            beforeSend: function (xhr) {
                 xhr.setRequestHeader('Authorization',
-                    'Client-ID ' + 'f2edd1ef8e66eaf');}
+                    'Client-ID ' + 'f2edd1ef8e66eaf');
+            }
         });
     };
 
-    var setupUrls = function() {
+    var setupUrls = function () {
         rp.urlData = rp.getRestOfUrl();
         //log(rp.urlData)
         rp.subredditUrl = rp.urlData[0];
         getVars = rp.urlData[1];
-        
+
         if (getVars.length > 0) {
             getVarsQuestionMark = "?" + getVars;
         } else {
@@ -1033,26 +1026,24 @@ $(function () {
         } else {
             subredditName = rp.subredditUrl + getVarsQuestionMark;
         }
-        
+
 
         var visitSubredditUrl = rp.redditBaseUrl + rp.subredditUrl + getVarsQuestionMark;
-        
+
         // truncate and display subreddit name in the control box
         var displayedSubredditName = subredditName;
         // empirically tested capsize, TODO: make css rules to verify this is enough.
         // it would make the "nsfw" checkbox be on its own line :(
         var capsize = 19;
-        if(displayedSubredditName.length > capsize) {
-            displayedSubredditName = displayedSubredditName.substr(0,capsize) + "&hellip;";
+        if (displayedSubredditName.length > capsize) {
+            displayedSubredditName = displayedSubredditName.substr(0, capsize) + "&hellip;";
         }
         $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + displayedSubredditName + "</a>");
 
         document.title = "redditP - " + subredditName;
     };
-    
-    
 
-    
+
     rp.redditBaseUrl = "http://www.reddit.com";
     if (location.protocol === 'https:') {
         // page is secure
@@ -1062,14 +1053,14 @@ $(function () {
 
     var getVars;
     var getVarsQuestionMark;
-    
+
     initState();
     setupUrls();
 
     // if ever found even 1 image, don't show the error
     rp.session.foundOneImage = false;
 
-    if(rp.subredditUrl.indexOf('/imgur') == 0) {
+    if (rp.subredditUrl.indexOf('/imgur') == 0) {
         getImgurAlbum(rp.subredditUrl);
     } else {
         getRedditImages();

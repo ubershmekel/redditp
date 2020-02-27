@@ -1,22 +1,22 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
     <!--
         https://github.com/ubershmekel/redditp
     -->
-    <meta http-equiv="content-type" content="text/html;charset=utf-8" />
+    <meta http-equiv="content-type" content="text/html;charset=utf-8"/>
     <title>redditP</title>
-    <meta name="description" content="A fullscreen presentation or slide show of reddit. RedditP" />
-    <meta name="format-detection" content="telephone=no" />
-    <meta name="format-detection" content="date=no" />
-    <meta name="format-detection" content="address=no" />
-    <link rel="shortcut icon" href="/images/favicon.png" />
-    <link rel="stylesheet" type="text/css" href="/css/style.css" />
-    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.2/toastr.css" />
+    <meta name="description" content="A fullscreen presentation or slide show of reddit. RedditP"/>
+    <meta name="format-detection" content="telephone=no"/>
+    <meta name="format-detection" content="date=no"/>
+    <meta name="format-detection" content="address=no"/>
+    <link rel="shortcut icon" href="/images/favicon.png"/>
+    <link rel="stylesheet" type="text/css" href="/css/style.css"/>
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.2/toastr.css"/>
     <style>
         .tagsyo {
-            text-shadow: 0px 2px #00f;
+            text-shadow: 0 2px #00f;
             transition: opacity 1s;
         }
 
@@ -27,8 +27,8 @@
 
     <!-- Google error reporting -->
     <script defer src="https://unpkg.com/stackdriver-errors-js@0.7.0/dist/stackdriver-errors-concat.min.js"
-        integrity="sha384-o7F61sBljqwkWXU4aTWhnMi8x3uK26/NaIMngik4MnY5d6+jB7kxNO/miMEoFv9r"
-        crossorigin="anonymous"></script>
+            integrity="sha384-o7F61sBljqwkWXU4aTWhnMi8x3uK26/NaIMngik4MnY5d6+jB7kxNO/miMEoFv9r"
+            crossorigin="anonymous"></script>
     <script type="text/javascript">
         function generateUUID() {
             var d = new Date().getTime();
@@ -41,6 +41,7 @@
                 return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
             });
         }
+
         window.addEventListener('DOMContentLoaded', function () {
             var userId = localStorage.getItem('userId');
             if (!userId) {
@@ -53,23 +54,28 @@
                 projectId: 'redditslideshow',
                 service: 'redditp',
                 version: '0.1.3',
-                context: { user: userId },
+                context: {user: userId},
             });
         });
     </script>
 
     <script src="https://unpkg.com/jquery@3.4.1/dist/jquery.min.js"
-        integrity="sha384-vk5WoKIaW/vJyUAd9n/wmopsmNhiy+L2Z+SBxGYnUkunIxVxAv/UtMOhba/xskxh"
-        crossorigin="anonymous"></script>
+            integrity="sha384-vk5WoKIaW/vJyUAd9n/wmopsmNhiy+L2Z+SBxGYnUkunIxVxAv/UtMOhba/xskxh"
+            crossorigin="anonymous"></script>
     <script src="https://unpkg.com/toastr@2.1.4/build/toastr.min.js"
-        integrity="sha384-awkppW2vvGcqchV4/Wqk1nZPrGJakjrkv9gwXzll5JebuFQNSbzeKwYhqFDa/y00"
-        crossorigin="anonymous"></script>
+            integrity="sha384-awkppW2vvGcqchV4/Wqk1nZPrGJakjrkv9gwXzll5JebuFQNSbzeKwYhqFDa/y00"
+            crossorigin="anonymous"></script>
     <script>
         (function (i, s, o, g, r, a, m) {
-            i['GoogleAnalyticsObject'] = r; i[r] = i[r] || function () {
+            i['GoogleAnalyticsObject'] = r;
+            i[r] = i[r] || function () {
                 (i[r].q = i[r].q || []).push(arguments)
-            }, i[r].l = 1 * new Date(); a = s.createElement(o),
-                m = s.getElementsByTagName(o)[0]; a.async = 1; a.src = g; m.parentNode.insertBefore(a, m)
+            }, i[r].l = 1 * new Date();
+            a = s.createElement(o),
+                m = s.getElementsByTagName(o)[0];
+            a.async = 1;
+            a.src = g;
+            m.parentNode.insertBefore(a, m)
         })(window, document, 'script', 'https://www.google-analytics.com/analytics.js', 'ga');
 
         ga('create', 'UA-4533496-15', 'auto');
@@ -104,112 +110,116 @@
 </head>
 
 <body id="page">
-    <div class="prevArrow fadeOnIdle" title="The arrow keys work too" id="prevButton"></div>
-    <div class="nextArrow fadeOnIdle" title="Try the arrow keys too" id="nextButton"></div>
+<div class="prevArrow fadeOnIdle" title="The arrow keys work too" id="prevButton"></div>
+<div class="nextArrow fadeOnIdle" title="Try the arrow keys too" id="nextButton"></div>
 
-    <div id="controlsDiv" class='navbox clouds fadeOnIdle'>
-        <div class="collapser" data-openstate="open">-</div>
-        <div id="navboxContents">
-            <ul class="nbmenu">
-                <li id="subredditUrl">
-                    <noscript>No javascript, no gain.</noscript>
-                </li>
-                <li>
-                    <a id='navboxCommentsLink' href='#' title='Comments on reddit' target="_blank" rel="noopener noreferrer">comments</a>
-                </li>
-                <li>
-                    <a id='navboxLink' href='#' title='placeholder' target="_blank" rel="noopener noreferrer">image</a>
-                </li>
-                <li>
-                    <a href="https://github.com/ubershmekel/redditp/blob/master/README.md" title="hotkeys" target="_blank" rel="noopener noreferrer">readme</a>
-                </li>
-                <li>
-                    <!-- promoting myself, is this wrong? -->
-                    <a href="https://twitter.com/ubershmekel" title="follow me" target="_blank" rel="noopener noreferrer">u</a>
-                </li>
-                <!-- <li>
-                    <a href="http://www.tagsyo.com" title="A new project I'm working on" class="tagsyo">t</a>
-                </li> -->
-            </ul>
-            <ul class="nbmenu">
-                <li>
-                    <input class="checkbox" type="checkbox" name="autoNextSlide" id="autoNextSlide" value="Auto"
-                        checked />
-                    <label class="checkbox" for="autoNextSlide"> Auto-next</label>
-                    every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2" /> seconds
-                </li>
-                <li>
-                    <input class="checkbox" type="checkbox" name="nsfw" id="nsfw" value="Auto" checked />
-                    <label class="checkbox over18" for="nsfw"> nsfw</label>
+<div id="controlsDiv" class='navbox clouds fadeOnIdle'>
+    <div class="collapser" data-openstate="open">-</div>
+    <div id="navboxContents">
+        <ul class="nbmenu">
+            <li id="subredditUrl">
+                <noscript>No javascript, no gain.</noscript>
+            </li>
+            <li>
+                <a id='navboxCommentsLink' href='#' title='Comments on reddit' target="_blank"
+                   rel="noopener noreferrer">comments</a>
+            </li>
+            <li>
+                <a id='navboxLink' href='#' title='placeholder' target="_blank" rel="noopener noreferrer">image</a>
+            </li>
+            <li>
+                <a href="https://github.com/ubershmekel/redditp/blob/master/README.md" title="hotkeys" target="_blank"
+                   rel="noopener noreferrer">readme</a>
+            </li>
+            <li>
+                <!-- promoting myself, is this wrong? -->
+                <a href="https://twitter.com/ubershmekel" title="follow me" target="_blank"
+                   rel="noopener noreferrer">u</a>
+            </li>
+            <!-- <li>
+                <a href="http://www.tagsyo.com" title="A new project I'm working on" class="tagsyo">t</a>
+            </li> -->
+        </ul>
+        <ul class="nbmenu">
+            <li>
+                <input class="checkbox" type="checkbox" name="autoNextSlide" id="autoNextSlide" value="Auto"
+                       checked/>
+                <label class="checkbox" for="autoNextSlide"> Auto-next</label>
+                every <input type="text" name="timeToNextSlide" id="timeToNextSlide" value="5" size="2"/> seconds
+            </li>
+            <li>
+                <input class="checkbox" type="checkbox" name="nsfw" id="nsfw" value="Auto" checked/>
+                <label class="checkbox over18" for="nsfw"> nsfw</label>
 
-                    <input class="checkbox" type="checkbox" name="sound" id="sound" value="false" />
-                    <label class="checkbox" for="sound"> sound</label>
+                <input class="checkbox" type="checkbox" name="sound" id="sound" value="false"/>
+                <label class="checkbox" for="sound"> sound</label>
 
-                    <img src="/images/fullscreen.png" id="fullScreenButton" alt="Fullscreen" />
-                </li>
-            </ul>
-            <div class="numberButtonList">
-                <ul id="allNumberButtons">
-                    <!-- Slide number buttons will be injected by jQuery -->
-                </ul>
-                <ul id="sfwNumberButtons">
-                </ul>
-            </div>
-        </div>
-    </div>
-    <div id="titleDiv" class='navbox clouds'>
-        <div class="collapser" data-openstate="open">-</div>
-        <h2 id='navboxTitle'>
-            <noscript>Javascript is required for redditp to work :(</noscript>
-        </h2>
-        <h3><a id='navboxSubreddit' href="http://www.reddit.com">
-                <noscript>Javascript is required for redditp to work :(</noscript>
-            </a></h3>
-    </div>
-
-    <div id="recommend" style="display:none; text-align: center; margin: 10px; color: rgb(170, 170, 170);">
-        <p>Maybe try these presentations instead:</p>
-        <ul>
-            <li>
-                <a href="/r/earthporn">earthporn</a>
-            </li>
-            <li>
-                <a href="/r/aww">aww</a>
-            </li>
-            <li>
-                <a href="/r/foodporn">foodporn</a>
-            </li>
-            <li>
-                <a href="/r/funny">funny</a>
-            </li>
-            <li>
-                <a href="/r/gonewild">gonewild</a>
-            </li>
-            <li>
-                <a href="/r/spaceporn">spaceporn</a>
-            </li>
-            <li>
-                <a href="/r/gifs">gifs</a>
-            </li>
-            <li>
-                <a href="/r/all">all</a>
-            </li>
-            
-            <li>
-                <a id="tagsyo-link" href="https://www.tagsyo.com"><span style="color: #3ee">Tagsyo</span> might have what you're looking for...</a>
+                <img src="/images/fullscreen.png" id="fullScreenButton" alt="Fullscreen"/>
             </li>
         </ul>
-    </div>
-
-
-    <div id="pictureSlider">
-        <!-- Pictures will be injected by jQuery -->
-        <div>
-            <!-- Empty div to be animated out, do not erase -->
+        <div class="numberButtonList">
+            <ul id="allNumberButtons">
+                <!-- Slide number buttons will be injected by jQuery -->
+            </ul>
+            <ul id="sfwNumberButtons">
+            </ul>
         </div>
     </div>
+</div>
+<div id="titleDiv" class='navbox clouds'>
+    <div class="collapser" data-openstate="open">-</div>
+    <h2 id='navboxTitle'>
+        <noscript>Javascript is required for redditp to work :(</noscript>
+    </h2>
+    <h3><a id='navboxSubreddit' href="http://www.reddit.com">
+        <noscript>Javascript is required for redditp to work :(</noscript>
+    </a></h3>
+</div>
 
-    <script type="text/javascript" src="/js/fix-tagsyo-link.js" async></script>
+<div id="recommend" style="display:none; text-align: center; margin: 10px; color: rgb(170, 170, 170);">
+    <p>Maybe try these presentations instead:</p>
+    <ul>
+        <li>
+            <a href="/r/earthporn">earthporn</a>
+        </li>
+        <li>
+            <a href="/r/aww">aww</a>
+        </li>
+        <li>
+            <a href="/r/foodporn">foodporn</a>
+        </li>
+        <li>
+            <a href="/r/funny">funny</a>
+        </li>
+        <li>
+            <a href="/r/gonewild">gonewild</a>
+        </li>
+        <li>
+            <a href="/r/spaceporn">spaceporn</a>
+        </li>
+        <li>
+            <a href="/r/gifs">gifs</a>
+        </li>
+        <li>
+            <a href="/r/all">all</a>
+        </li>
+
+        <li>
+            <a id="tagsyo-link" href="https://www.tagsyo.com"><span style="color: #3ee">Tagsyo</span> might have what
+                you're looking for...</a>
+        </li>
+    </ul>
+</div>
+
+
+<div id="pictureSlider">
+    <!-- Pictures will be injected by jQuery -->
+    <div>
+        <!-- Empty div to be animated out, do not erase -->
+    </div>
+</div>
+
+<script type="text/javascript" src="/js/fix-tagsyo-link.js" async></script>
 </body>
 
 </html>

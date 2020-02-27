@@ -163,7 +163,7 @@ $(function () {
     var OPENSTATE_ATTR = "data-openstate";
     $('.collapser').click(function () {
         var state = $(this).attr(OPENSTATE_ATTR);
-        if (state == "open") {
+        if (state === "open") {
             // close it
             $(this).text("+");
             // move to the left just enough so the collapser arrow is visible
@@ -214,7 +214,7 @@ $(function () {
         rp.settings.sound = $('#sound').is(':checked');
         setCookie(cookieNames.soundCookie, rp.settings.sound);
         var videoTags = document.getElementsByTagName('video');
-        if (videoTags.length == 1) {
+        if (videoTags.length === 1) {
             videoTags[0].muted = !rp.settings.sound;
         }
     };
@@ -385,7 +385,7 @@ $(function () {
         rp.session.foundOneImage = true;
 
         for (i = 0; i < rp.photos.length; i += 1) {
-            if (pic.url == rp.photos[i].url) {
+            if (pic.url === rp.photos[i].url) {
                 return;
             }
         }
@@ -458,7 +458,8 @@ $(function () {
                 $('#titleDiv .collapser').click();
                 break;
             case A_KEY:
-                $("#autoNextSlide").prop("checked", !$("#autoNextSlide").is(':checked'));
+                var $ans = $("#autoNextSlide");
+                $ans.prop("checked", !$ans.is(':checked'));
                 updateAutoNext();
                 break;
             case I_KEY:
@@ -495,7 +496,7 @@ $(function () {
 
     var isLastImage = function (imageIndex) {
         if (rp.settings.nsfw) {
-            return imageIndex == rp.photos.length - 1;
+            return imageIndex === rp.photos.length - 1;
         } else {
             // look for remaining sfw images
             for (var i = imageIndex + 1; i < rp.photos.length; i++) {
@@ -525,7 +526,7 @@ $(function () {
 
         // If the same number has been chosen, or the index is outside the
         // rp.photos range, or we're already animating, do nothing
-        if (rp.session.activeIndex == imageIndex || imageIndex > rp.photos.length - 1 || imageIndex < 0 || rp.session.isAnimating || rp.photos.length == 0) {
+        if (rp.session.activeIndex === imageIndex || imageIndex > rp.photos.length - 1 || imageIndex < 0 || rp.session.isAnimating || rp.photos.length === 0) {
             return;
         }
 
@@ -537,7 +538,7 @@ $(function () {
         // Set the active index to the used image index
         rp.session.activeIndex = imageIndex;
 
-        if (isLastImage(rp.session.activeIndex) && rp.subredditUrl.indexOf('/imgur') != 0) {
+        if (isLastImage(rp.session.activeIndex) && rp.subredditUrl.indexOf('/imgur') !== 0) {
             getRedditImages();
         }
     };
@@ -900,7 +901,7 @@ $(function () {
             }
 
             // show the first image
-            if (rp.session.activeIndex == -1) {
+            if (rp.session.activeIndex === -1) {
                 startShow();
             }
 
@@ -973,7 +974,7 @@ $(function () {
             }
 
             // show the first image
-            if (rp.session.activeIndex == -1) {
+            if (rp.session.activeIndex === -1) {
                 startShow();
             }
 
@@ -1060,7 +1061,7 @@ $(function () {
     // if ever found even 1 image, don't show the error
     rp.session.foundOneImage = false;
 
-    if (rp.subredditUrl.indexOf('/imgur') == 0) {
+    if (rp.subredditUrl.indexOf('/imgur') === 0) {
         getImgurAlbum(rp.subredditUrl);
     } else {
         getRedditImages();

@@ -43,7 +43,7 @@
         }
 
         window.addEventListener('DOMContentLoaded', function () {
-            if (window.location.hostname !== 'redditp.com') {
+            if (window.location.hostname.indexOf('redditp.com') === -1) {
                 console.log('disable cloud error reporting on local dev environment');
                 return;
             }

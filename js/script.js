@@ -946,6 +946,12 @@ $(function () {
         if (rp.settings.debug)
             console.log('Ajax requesting: ' + jsonUrl);
 
+        // Note we're still using `jsonp` despite potential issues because
+        // `http://www.redditp.com/r/randnsfw` wasn't working with CORS for some reason.
+        // https://github.com/ubershmekel/redditp/issues/104
+        // TODO: Fix the loading of the next set of items from /r/random and /r/randnsfw using
+        // the currently loaded subreedit. Currently it just fails because the `&after=`
+        // doesn't work with /r/random.
         var useJsonP = jsonUrl.indexOf('\/comments\/') !== -1
             || jsonUrl.indexOf('\/r\/randnsfw') !== -1
             || jsonUrl.indexOf('\/r\/random') !== -1;
@@ -953,6 +959,8 @@ $(function () {
             jsonUrl += '&jsonp=?';
         }
 
+        // I still haven't been able to catch jsonp 404 events so the timeout
+        // is the current solution sadly.
         $.ajax({
             url: jsonUrl,
             dataType: useJsonP ? 'jsonp' : 'json',

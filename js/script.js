@@ -691,7 +691,7 @@ $(function () {
                 });
                 if (photo.sound) {
                     // this case is for videos from v.redd.it domain only
-                    $("<audio autoplay><source src='" + photo.sound + "' type='audio/aac'/></audio>").appendTo($(elem));
+                    $("<audio autoplay " + (rp.settings.sound ? '' : 'muted') + "><source src='" + photo.sound + "' type='audio/aac'/></audio>").appendTo($(elem));
 
                     var $audioTag = $("audio", elem).get(0);
                     var $videoTag = $("video", divNode).get(0);

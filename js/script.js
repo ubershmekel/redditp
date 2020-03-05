@@ -570,6 +570,8 @@ $(function () {
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
 
+        document.title = photo.title + " - " + subreddit + " - redditP";
+
         toggleNumberButton(rp.session.activeIndex, false);
         toggleNumberButton(imageIndex, true);
     };

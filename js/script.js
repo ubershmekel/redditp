@@ -220,8 +220,6 @@ $(function () {
         var audioTags = document.getElementsByTagName('audio');
         if (audioTags.length === 1) {
             audioTags[0].muted = !rp.settings.sound;
-        } else {
-            console.log(audioTags);
         }
     };
 
@@ -234,6 +232,14 @@ $(function () {
         rp.settings.shouldAutoNextSlide = $("#autoNextSlide").is(':checked');
         setCookie(cookieNames.shouldAutoNextSlideCookie, rp.settings.shouldAutoNextSlide);
         resetNextSlideTimer();
+    };
+
+    var toggleSound = function() {
+        $("#sound").each(function(){
+            this.checked = !this.checked;
+            console.log(this.checked);
+            $(this).trigger('change');
+        });
     };
 
     var toggleFullScreen = function () {
@@ -432,6 +438,7 @@ $(function () {
     //var ENTER = 13;
     var A_KEY = 65;
     var C_KEY = 67;
+    var M_KEY = 77;
     var F_KEY = 70;
     var I_KEY = 73;
     var R_KEY = 82;
@@ -476,6 +483,9 @@ $(function () {
                 break;
             case F_KEY:
                 toggleFullScreen();
+                break;
+            case M_KEY:
+                toggleSound();
                 break;
             case PAGEUP:
             case arrow.left:

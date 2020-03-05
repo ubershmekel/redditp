@@ -220,6 +220,8 @@ $(function () {
         var audioTags = document.getElementsByTagName('audio');
         if (audioTags.length === 1) {
             audioTags[0].muted = !rp.settings.sound;
+        } else {
+            console.log(audioTags);
         }
     };
 
@@ -237,6 +239,8 @@ $(function () {
     var toggleSound = function() {
         $("#sound").each(function(){
             this.checked = !this.checked;
+            console.log(this.checked);
+            $(this).trigger('change');
         });
     };
 

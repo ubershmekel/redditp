@@ -201,7 +201,7 @@ $(function () {
     };
 
     var setCookie = function (c_name, value) {
-        Cookies.set(c_name, value, {expires: rp.settings.cookieDays});
+        Cookies.set(c_name, value, { expires: rp.settings.cookieDays });
     };
 
 
@@ -803,7 +803,7 @@ $(function () {
         $('#navboxTitle').text('');
 
         // display alternate recommendations
-        $('#recommend').css({'display': 'block'});
+        $('#recommend').css({ 'display': 'block' });
     };
 
     var parseQuery = function (queryString) {
@@ -952,9 +952,14 @@ $(function () {
         // TODO: Fix the loading of the next set of items from /r/random and /r/randnsfw using
         // the currently loaded subreedit. Currently it just fails because the `&after=`
         // doesn't work with /r/random.
-        var useJsonP = jsonUrl.indexOf('\/comments\/') !== -1
-            || jsonUrl.indexOf('\/r\/randnsfw') !== -1
-            || jsonUrl.indexOf('\/r\/random') !== -1;
+        // Another issue caused with these is 
+        // multireddits of a user. E.g.
+        // http://localhost:8080/?/u/eightbitbailey/submitted
+        // http://www.redditp.com/u/eightbitbailey/submitted
+        // var useJsonP = jsonUrl.indexOf('\/comments\/') !== -1
+        //     || jsonUrl.indexOf('\/r\/randnsfw') !== -1
+        //     || jsonUrl.indexOf('\/r\/random') !== -1;
+        var useJsonP = true;
         if (useJsonP) {
             jsonUrl += '&jsonp=?';
         }

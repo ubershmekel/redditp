@@ -849,8 +849,17 @@ $(function () {
 
         rp.session.loadingNextImages = true;
 
+        var subredditUrl = rp.subredditUrl;
+
+        // If requesting more images from an already-loaded random page, grab
+        // the actual current subreddit from the photos; after= doesn't work on
+        // random pages.
+        if (rp.photos.length > 0 && (subredditUrl === "/r/randnsfw" || subredditUrl === "/r/random")) {
+            subredditUrl = "/r/" + rp.photos[0].subreddit;
+        }
+
         // Note that JSONP requests require `".json?jsonp=?"` here.
-        var jsonUrl = rp.redditBaseUrl + rp.subredditUrl + ".json?" + (rp.session.after ? rp.session.after + "&" : "") + getVars;
+        var jsonUrl = rp.redditBaseUrl + subredditUrl + ".json?" + (rp.session.after ? rp.session.after + "&" : "") + getVars;
 
         var failedAjax = function (/*data*/) {
             var message = "Failed ajax, maybe a bad url? Sorry about that :(";
@@ -949,9 +958,6 @@ $(function () {
         // Note we're still using `jsonp` despite potential issues because
         // `http://www.redditp.com/r/randnsfw` wasn't working with CORS for some reason.
         // https://github.com/ubershmekel/redditp/issues/104
-        // TODO: Fix the loading of the next set of items from /r/random and /r/randnsfw using
-        // the currently loaded subreedit. Currently it just fails because the `&after=`
-        // doesn't work with /r/random.
         // Another issue caused with these is 
         // multireddits of a user. E.g.
         // http://localhost:8080/?/u/eightbitbailey/submitted

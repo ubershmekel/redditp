@@ -236,6 +236,14 @@ $(function () {
         resetNextSlideTimer();
     };
 
+    var toggleSound = function() {
+        $("#sound").each(function(){
+            this.checked = !this.checked;
+            console.log(this.checked);
+            $(this).trigger('change');
+        });
+    };
+
     var toggleFullScreen = function () {
         var elem = document.getElementById('page');
         if (document.fullscreenElement || // alternative standard method
@@ -436,7 +444,7 @@ $(function () {
     var I_KEY = 73;
     var R_KEY = 82;
     var T_KEY = 84;
-
+    var M_KEY = 77;
 
     // Register keyboard events on the whole document
     $(document).keyup(function (e) {
@@ -459,6 +467,9 @@ $(function () {
         switch (code) {
             case C_KEY:
                 $('#controlsDiv .collapser').click();
+                break;
+            case M_KEY:
+                toggleSound();
                 break;
             case T_KEY:
                 $('#titleDiv .collapser').click();

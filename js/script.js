@@ -236,6 +236,14 @@ $(function () {
         resetNextSlideTimer();
     };
 
+    var toggleSound = function() {
+        $("#sound").each(function(){
+            this.checked = !this.checked;
+            console.log(this.checked);
+            $(this).trigger('change');
+        });
+    };
+
     var toggleFullScreen = function () {
         var elem = document.getElementById('page');
         if (document.fullscreenElement || // alternative standard method
@@ -432,6 +440,7 @@ $(function () {
     //var ENTER = 13;
     var A_KEY = 65;
     var C_KEY = 67;
+    var M_KEY = 77;
     var F_KEY = 70;
     var I_KEY = 73;
     var R_KEY = 82;
@@ -476,6 +485,9 @@ $(function () {
                 break;
             case F_KEY:
                 toggleFullScreen();
+                break;
+            case M_KEY:
+                toggleSound();
                 break;
             case PAGEUP:
             case arrow.left:
@@ -569,6 +581,8 @@ $(function () {
         $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
+
+        document.title = photo.title + " - " + subreddit + " - redditP";
 
         toggleNumberButton(rp.session.activeIndex, false);
         toggleNumberButton(imageIndex, true);

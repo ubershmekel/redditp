@@ -794,6 +794,9 @@ $(function () {
                     $videoTag.onpause = function () {
                         $audioTag.pause();
                     };
+                    $videoTag.onseeking = function () {
+                        $audioTag.currentTime = $videoTag.currentTime;
+                    }
                 }
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.

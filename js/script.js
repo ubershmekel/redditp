@@ -542,7 +542,10 @@ $(function () {
     };
 
     // History / back button stuff
-    var lastSavedHistoryState = {index: -1, url: ""};
+    var lastSavedHistoryState = {
+        index: -1,
+        url: "",
+    };
     var scheduledAnimation = null;
 
     var loadHistory = function(state) {
@@ -572,7 +575,10 @@ $(function () {
         var photo = rp.photos[index];
         if (index != lastSavedHistoryState.index && photo != null) {
             //console.log("Recorded history state " + index);
-            lastSavedHistoryState = {index: index, url: photo.url};
+            lastSavedHistoryState = {
+                index: index,
+                url: photo.url,
+            };
             history.pushState(lastSavedHistoryState, photo.title);
         }
     };
@@ -897,7 +903,7 @@ $(function () {
     };
 
     var shuffle = function (arr) {
-        var j, x, i;
+        var i, j, x;
         for (i = arr.length - 1; i > 0; i--) {
             j = Math.floor(Math.random() * (i + 1));
             x = arr[i];
@@ -910,15 +916,6 @@ $(function () {
     var isShuffleOn = function () {
         var query = parseQuery(window.location.search);
         return !!query.shuffle;
-    };
-
-    var startShow = function () {
-        startAnimation(0);
-    };
-
-    var getStackTrace = function () {
-        var err = new Error();
-        return err.stack;
     };
 
     var getRedditImages = function () {

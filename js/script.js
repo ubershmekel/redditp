@@ -450,6 +450,8 @@ $(function () {
     var I_KEY = 73;
     var R_KEY = 82;
     var T_KEY = 84;
+    var W_KEY = 87;
+    var S_KEY = 83;
 
 
     // Register keyboard events on the whole document
@@ -497,11 +499,13 @@ $(function () {
             case PAGEUP:
             case arrow.left:
             case arrow.up:
+            case W_KEY:
                 return prevSlide();
             case PAGEDOWN:
             case arrow.right:
             case arrow.down:
             case SPACE:
+            case S_KEY:
                 return nextSlide();
         }
     });

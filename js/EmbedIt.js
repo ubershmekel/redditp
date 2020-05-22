@@ -107,6 +107,29 @@ embedit.convertors = [
         },
     },
     {
+        name: "redgifs",
+        detect: /redgifs\.com.*/,
+        convert: function (url, embedFunc) {
+            var name = embedit.redGifUrlToId(url);
+
+            if(!name)
+                return false;
+
+            $.ajax({
+                url: 'https://api.redgifs.com/v1/gfycats/' + name,
+                dataType: "json",
+                success: function(data) {
+                    if (!data || !data.gfyItem || !data.gfyItem.webmUrl) {
+                        embedFunc(null);
+                        return;
+                    }
+                    embedFunc(embedit.video(data.gfyItem.webmUrl, data.gfyItem.mp4Url));
+                }
+            })
+            return true;
+        },
+    },
+    {
         name: "v.reddit",
         detect: /v\.redd\.it.*/,
         convert: function (url, embedFunc) {
@@ -165,6 +188,16 @@ embedit.gfyUrlToId = function(url) {
     if(match && match.length > 2) {
         return match[2];
     } else {
+        return false;
+    }
+}
+
+embedit.redGifUrlToId = function(url) {
+    var matches = url.match(/redgifs.com\/watch\/([\w-]+)\/?/i);
+
+    if (matches && matches.length > 1) {
+        return matches[1];
+    } else { 
         return false;
     }
 }

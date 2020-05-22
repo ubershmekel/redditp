@@ -346,7 +346,8 @@ $(function () {
     var imageTypes = {
         image: 'image',
         gfycat: 'gfycat',
-        gifv: 'gifv'
+        gifv: 'gifv',
+        redgif: 'redgif'
     };
 
     var addImageSlide = function (pic) {
@@ -366,6 +367,9 @@ $(function () {
         var https_prefix = 'https://';
         if (pic.url.indexOf('gfycat.com') >= 0) {
             pic.type = imageTypes.gfycat;
+            pic.url = pic.url.replace(http_prefix, https_prefix);
+        } else if (pic.url.indexOf('redgifs.com') >= 0) {
+            pic.type = imageTypes.redgif;
             pic.url = pic.url.replace(http_prefix, https_prefix);
         } else if (pic.url.indexOf('//v.redd.it/') >= 0) {
             // NOTE DO NOT ADD DOMAINS HERE - MODIFY EMBEDIT.JS instead

@@ -43,6 +43,28 @@ embedit.unsupported = function(url) {
     console.log("Omitting unsupported url: '" + url + "'");
 }
 
+embedit.redGifConvert = function (url, embedFunc) {
+    var name = embedit.redGifUrlToId(url);
+
+    if(!name) {
+        console.log("Failed to identify redgif name");
+        return false;
+    }
+
+    $.ajax({
+        url: 'https://api.redgifs.com/v1/gfycats/' + name,
+        dataType: "json",
+        success: function(data) {
+            if (!data || !data.gfyItem || !data.gfyItem.webmUrl) {
+                embedFunc(null);
+                return;
+            }
+            embedFunc(embedit.video(data.gfyItem.webmUrl, data.gfyItem.mp4Url));
+        }
+    })
+    return true;
+}
+
 embedit.convertors = [
     {
         name: "imgurAlbums",
@@ -101,6 +123,11 @@ embedit.convertors = [
                         return;
                     }
                     embedFunc(embedit.video(data.gfyItem.webmUrl, data.gfyItem.mp4Url));
+                },
+                error: function() {
+                    var newUrl = url.replace("gfycat.com/", "redgifs.com/watch/");
+                    console.log("gfycat failed load, trying redgif", newUrl);
+                    embedit.redGifConvert(newUrl, embedFunc);
                 }
             })
             return true;
@@ -109,25 +136,7 @@ embedit.convertors = [
     {
         name: "redgifs",
         detect: /redgifs\.com.*/,
-        convert: function (url, embedFunc) {
-            var name = embedit.redGifUrlToId(url);
-
-            if(!name)
-                return false;
-
-            $.ajax({
-                url: 'https://api.redgifs.com/v1/gfycats/' + name,
-                dataType: "json",
-                success: function(data) {
-                    if (!data || !data.gfyItem || !data.gfyItem.webmUrl) {
-                        embedFunc(null);
-                        return;
-                    }
-                    embedFunc(embedit.video(data.gfyItem.webmUrl, data.gfyItem.mp4Url));
-                }
-            })
-            return true;
-        },
+        convert: embedit.redGifConvert,
     },
     {
         name: "v.reddit",

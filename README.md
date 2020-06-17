@@ -30,7 +30,7 @@ Possible future features, depending on feedback:
 * Offline access support, though I don't know if this is even possible actually (caching external image resources).
 * Login and upvoting support
 
-# Host your own redditp
+## Host your own redditp
 
 Redditp relies on the `/r/subreddit` in the URL to fetch the JSON from the corresponding reddit endpoint. There are a few ways you can set up support for these URLs yourself:
 

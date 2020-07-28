@@ -12,7 +12,7 @@ var rp = {};
 rp.settings = {
     debug: true,
     // Speed of the animation
-    animationSpeed: 1000,
+    animationSpeed: 100,
     shouldAutoNextSlide: true,
     timeToNextSlide: 6 * 1000,
     cookieDays: 300,

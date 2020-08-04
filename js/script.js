@@ -1017,6 +1017,7 @@ $(function () {
                     over18: item.data.over_18,
                     subreddit: item.data.subreddit,
                     commentsLink: rp.redditBaseUrl + item.data.permalink,
+                    userLink: item.data.author,
                     data: item.data,
                 });
             });

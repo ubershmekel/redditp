@@ -456,6 +456,7 @@ $(function () {
     var T_KEY = 84;
     var W_KEY = 87;
     var S_KEY = 83;
+    var U_KEY = 85;
 
 
     // Register keyboard events on the whole document
@@ -490,6 +491,9 @@ $(function () {
                 break;
             case I_KEY:
                 open_in_background("#navboxLink");
+                break;
+            case U_KEY:
+                open_in_background("#navboxUser");
                 break;
             case R_KEY:
                 open_in_background("#navboxCommentsLink");

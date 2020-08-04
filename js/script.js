@@ -665,7 +665,7 @@ $(function () {
         $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
-        $('#navboxUser').attr('href', rp.redditBaseUrl + user).attr('user', "User on reddit");
+        $('#navboxUser').attr('href', 'https://redditp.com/' + user).attr('user', "User on reddit");
 
         document.title = photo.title + " - " + subreddit + " - redditP";
 

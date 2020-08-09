@@ -456,6 +456,7 @@ $(function () {
     var T_KEY = 84;
     var W_KEY = 87;
     var S_KEY = 83;
+    var U_KEY = 85;
 
 
     // Register keyboard events on the whole document
@@ -490,6 +491,9 @@ $(function () {
                 break;
             case I_KEY:
                 open_in_background("#navboxLink");
+                break;
+            case U_KEY:
+                open_in_background("#navboxUser");
                 break;
             case R_KEY:
                 open_in_background("#navboxCommentsLink");
@@ -655,11 +659,13 @@ $(function () {
     var animateNavigationBox = function (imageIndex) {
         var photo = rp.photos[imageIndex];
         var subreddit = '/r/' + photo.subreddit;
+        var user = '/u/' + photo.userLink + '/submitted';
 
         $('#navboxTitle').html(photo.title);
         $('#navboxSubreddit').attr('href', rp.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
+        $('#navboxUser').attr('href', 'https://redditp.com' + user).attr('user', "User on reddit");
 
         document.title = photo.title + " - " + subreddit + " - redditP";
 
@@ -1012,6 +1018,7 @@ $(function () {
                     over18: item.data.over_18,
                     subreddit: item.data.subreddit,
                     commentsLink: rp.redditBaseUrl + item.data.permalink,
+                    userLink: item.data.author,
                     data: item.data,
                 });
             });

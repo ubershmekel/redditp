@@ -545,8 +545,9 @@ $(function () {
         // Always clear cache - no need for memory bloat.
         // We only keep the next image preloaded.
         rp.cache = {};
-        if (next < rp.photos.length)
+        if (next < rp.photos.length) {
             rp.cache[next] = createDiv(next);
+        }
     };
 
     // History / back button stuff
@@ -681,6 +682,7 @@ $(function () {
     playButton.hide();
 
     var startPlayingVideo = function (vid_jq) {
+        console.log("startPlayingVideo");
         // Loop or auto next slide
         // TODO: make this update every time you check/uncheck auto-play
         if (rp.settings.shouldAutoNextSlide) {
@@ -718,8 +720,10 @@ $(function () {
                     //message: "The play() request was interrupted by a call to pause().",
                     //name: "AbortError",
                 }
-                console.log(e);
+                console.log("playPromiseCatch", e);
             });
+        } else {
+            console.log("No playPromise or playPromise.catch");
         }
     };
 
@@ -744,7 +748,13 @@ $(function () {
 
             var maybeVid = $('video');
             if (maybeVid.length > 0) {
-                startPlayingVideo(maybeVid);
+                //startPlayingVideo(maybeVid);
+                // moved startPlayingVideo to the embedit callback :/
+            } else {
+                // Sometimes the fade animation finishes before the 
+                // gfycat/redgifs api answers so we don't yet have a <video> element
+                // yet.
+                console.log("no video to play after fade");
             }
         });
     };
@@ -771,7 +781,7 @@ $(function () {
             cssMap['background-size'] = "contain";
             cssMap['background-position'] = "center";
 
-            divNode.css(cssMap).addClass("clouds");
+            divNode.css(cssMap).addClass("image-parent");
 
         } else { //if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
             embedit.embed(photo.url, function (elem) {
@@ -779,7 +789,10 @@ $(function () {
                     reportError('Failed to handle url');
                     return divNode;
                 }
+
+                // elem is a <video> element
                 divNode.append(elem);
+
                 $(elem).attr({
                     playsinline: '',
                 });
@@ -802,10 +815,13 @@ $(function () {
                         $audioTag.currentTime = $videoTag.currentTime;
                     }
                 }
+                
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.
                 // This is to avoid cached or preloaded videos from playing.
                 elem[0].pause();
+
+                startPlayingVideo($('video'));
             });
         }// else {
         //    reportError('Unhandled image type');

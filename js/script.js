@@ -1180,13 +1180,15 @@ $(function () {
         var displayedSubredditName = subredditName;
         // empirically tested capsize, TODO: make css rules to verify this is enough.
         // it would make the "nsfw" checkbox be on its own line :(
-        var capsize = 19;
+        var capsize = 50;
         if (displayedSubredditName.length > capsize) {
             displayedSubredditName = displayedSubredditName.substr(0, capsize) + "&hellip;";
         }
-        $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>" + displayedSubredditName + "</a>");
+        $('#subredditUrl').html("<a href='" + visitSubredditUrl + "'>sub</a>");
 
-        document.title = "redditP - " + subredditName;
+        // This `document.title` happens on page load and will later be overwritten
+        // by every slide that loads.
+        document.title = "redditP - " + displayedSubredditName;
     };
 
 

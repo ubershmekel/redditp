@@ -1,6 +1,7 @@
-var embedit = require('./EmbedIt');
+// eslint-disable-next-line no-redeclare
+const embedit = require('../js/EmbedIt');
 
-var imageTests = [
+const imageTests = [
     {
         src: 'https://gfycat.com/gifs/detail/EntireForkedArachnid',
         dst: 'EntireForkedArachnid',
@@ -9,9 +10,9 @@ var imageTests = [
         src: 'https://gfycat.com/EntireForkedArachnid',
         dst: 'EntireForkedArachnid',
     },
-]
+];
 
-var redGifTests = [
+const redGifTests = [
     {
         src: 'https://www.redgifs.com/watch/gaseousoblongant',
         dst: 'gaseousoblongant',
@@ -20,7 +21,7 @@ var redGifTests = [
         src: 'https://www.redgifs.com/watch/palatableflashybantamrooster-nature',
         dst: 'palatableflashybantamrooster-nature',
     },
-]
+];
 
 for (let tst of imageTests) {
     var result = embedit.gfyUrlToId(tst.src);

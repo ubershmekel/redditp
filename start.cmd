@@ -1,1 +1,1 @@
-nodemon app.js
+http-server

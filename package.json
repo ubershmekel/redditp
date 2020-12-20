@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "debug": "node --inspect server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node ./nodejs/test-embedit.js"
   },
   "repository": {
     "type": "git",

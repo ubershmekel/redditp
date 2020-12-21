@@ -10,7 +10,13 @@ embedit.imageTypes = {
 
 
 embedit.redditBaseUrl = "http://www.reddit.com";
-if (location && location.protocol === 'https:') {
+
+if (typeof window === "undefined") {
+    // eslint-disable-next-line no-redeclare
+    var window = {};
+}
+
+if (window.location && window.location.protocol === 'https:') {
     // page is secure
     embedit.redditBaseUrl = "https://www.reddit.com";
 }
@@ -237,6 +243,42 @@ function isImageExtension(url) {
     return goodExtensions.indexOf(extension) >= 0;
 }
 
+embedit.processRedditJson = function(data) {
+    var result = {
+        children: [],
+        after: null,
+    }
+
+    // handle single page json
+    if (data && data.length === 2 && data[0].data.children.length === 1) {
+        // this means we're in single post link
+        // response consists of two json objects, one for post, one for comments
+        data = data[0];
+    }
+
+    //redditData = data //global for debugging data
+    // NOTE: if data.data.after is null then this causes us to start
+    // from the top on the next getRedditImages which is fine.
+    if (data && data.data && data.data.after) {
+        result.after = data.data.after;
+    }
+
+    if (data && data.data && data.data.children) {
+        result.children = data.data.children;
+    } else {
+        // comments of e.g. a photoshopbattles post
+        //children = rp.flattenRedditData(data);
+        //throw new Error("Comments pages not yet supported");
+    }
+
+    if (result.children.length === 0) {
+        console.log("What case is this? Does the data have any length? Is this the standard nothing found case? TODO: debug this");
+        result.children = data;
+    }
+
+    return result;
+}
+
 embedit.redditItemToPic = function(item) {
     var pic = {
         url: item.data.url || item.data.link_url,
@@ -254,6 +296,24 @@ embedit.redditItemToPic = function(item) {
 
     return pic;
 }
+
+function decodeEntities(encodedString) {
+    var translate_re = /&(nbsp|amp|quot|lt|gt);/g;
+    var translate = {
+        "nbsp":" ",
+        "amp" : "&",
+        "quot": "\"",
+        "lt"  : "<",
+        "gt"  : ">"
+    };
+    return encodedString.replace(translate_re, function(match, entity) {
+        return translate[entity];
+    }).replace(/&#(\d+);/gi, function(match, numStr) {
+        var num = parseInt(numStr, 10);
+        return String.fromCharCode(num);
+    });
+}
+
 
 embedit.transformRedditData = function(pic) {
     // TODO: convert this to a more functional style
@@ -289,6 +349,14 @@ embedit.transformRedditData = function(pic) {
     } else if (pic.url.search(/^http.*imgur.*gifv?$/) > -1) {
         pic.type = embedit.imageTypes.gifv;
         pic.url = pic.url.replace(http_prefix, https_prefix);
+    } else if (pic.url.indexOf("reddit.com/gallery") >= 0) {
+        console.log("GOTCHA!");
+        if (pic.data.gallery_data && pic.data.gallery_data.items) {
+            var firstItemId = pic.data.gallery_data.items[0].media_id;
+            pic.url = decodeEntities(pic.data.media_metadata[firstItemId]["s"]["u"]);
+            pic.type = embedit.imageTypes.image;
+        }
+        console.log(pic.url)
     } else if (isImageExtension(pic.url)) {
         // simple image
     } else {

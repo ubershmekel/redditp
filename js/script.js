@@ -205,7 +205,12 @@ $(function () {
     };
 
     var setCookie = function (c_name, value) {
-        Cookies.set(c_name, value, { expires: rp.settings.cookieDays });
+        Cookies.set(c_name, value, {
+            expires: rp.settings.cookieDays,
+            // All the cookie issues are from requests to reddit.com
+            // So no need for this "Lax" here.
+            // sameSite: "Lax",
+        });
     };
 
 
@@ -883,39 +888,15 @@ $(function () {
         };
 
         var handleData = function (data) {
-            // handle single page json
-            if (data && data.length === 2 && data[0].data.children.length === 1) {
-                // this means we're in single post link
-                // response consists of two json objects, one for post, one for comments
-                data = data[0];
-                rp.session.loadingNextImages = false;
-            }
-
-            //redditData = data //global for debugging data
-            // NOTE: if data.data.after is null then this causes us to start
-            // from the top on the next getRedditImages which is fine.
-            if (data && data.data && data.data.after) {
-                rp.session.after = "&after=" + data.data.after;
-            }
-
-            var children = [];
-            if (data && data.data && data.data.children) {
-                children = data.data.children;
-            } else {
-                // comments of e.g. a photoshopbattles post
-                //children = rp.flattenRedditData(data);
-                //throw new Error("Comments pages not yet supported");
-            }
-
-            if (children.length === 0) {
-                children = data;
-            }
+            var childrenAndAfter = embedit.processRedditJson(data);
+            var children = childrenAndAfter.children;
+            var after = childrenAndAfter.after;
 
             if (children.length === 0) {
                 reportError("No data from this url :(");
                 return;
             }
-
+        
             if (isShuffleOn()) {
                 shuffle(children)
             }
@@ -946,7 +927,9 @@ $(function () {
                 showDefault();
             }
 
-            if (data.data.after == null) {
+            if (after) {
+                rp.session.after = "&after=" + after;
+            } else {
                 console.log("No more pages to load from this subreddit, reloading the start");
 
                 // Show the user we're starting from the top

@@ -50,7 +50,7 @@ function reportError(errMessage) {
     if (window.errorHandler && window.errorHandler.report) {
         window.errorHandler.report(new Error(errMessage));
     } else {
-        console.log('No error handler yet:' + errMessage);
+        console.log('No error handler yet: ' + errMessage);
     }
     toastr.error(errMessage + ', please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
 }

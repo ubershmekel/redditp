@@ -75,11 +75,12 @@ embedit.redGifConvert = function (url, embedFunc) {
         url: 'https://api.redgifs.com/v1/gfycats/' + name,
         dataType: "json",
         success: function(data) {
-            if (!data || !data.gfyItem || !data.gfyItem.webmUrl) {
+            if (!data || !data.gfyItem || !data.gfyItem.content_urls.mp4) {
+                console.log("gfy data missing video url");
                 embedFunc(null);
                 return;
             }
-            embedFunc(embedit.video(data.gfyItem.webmUrl, data.gfyItem.mp4Url));
+            embedFunc(embedit.video(null, data.gfyItem.content_urls.mp4.url));
         }
     })
     return true;
@@ -298,6 +299,7 @@ embedit.redditItemToPic = function(item) {
 }
 
 function decodeEntities(encodedString) {
+    // https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
     var translate_re = /&(nbsp|amp|quot|lt|gt);/g;
     var translate = {
         "nbsp":" ",

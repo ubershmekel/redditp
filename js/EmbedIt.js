@@ -355,7 +355,12 @@ embedit.transformRedditData = function(pic) {
         console.log("GOTCHA!");
         if (pic.data.gallery_data && pic.data.gallery_data.items) {
             var firstItemId = pic.data.gallery_data.items[0].media_id;
-            pic.url = decodeEntities(pic.data.media_metadata[firstItemId]["s"]["u"]);
+            var encodedUrl = pic.data.media_metadata[firstItemId]["s"]["u"];
+            if (encodedUrl === undefined) {
+                // some posts don't have the u key, but have gif and mp4 keys
+                encodedUrl = pic.data.media_metadata[firstItemId]["s"]["mp4"];
+            }
+            pic.url = decodeEntities(encodedUrl);
             pic.type = embedit.imageTypes.image;
         }
         console.log(pic.url)

@@ -358,7 +358,7 @@ embedit.transformRedditData = function(pic) {
             var encodedUrl = pic.data.media_metadata[firstItemId]["s"]["u"];
             if (encodedUrl === undefined) {
                 // some posts don't have the u key, but have gif and mp4 keys
-                encodedUrl = pic.data.media_metadata[firstItemId]["s"]["mp4"];
+                encodedUrl = pic.data.media_metadata[firstItemId]["s"]["gif"];
             }
             pic.url = decodeEntities(encodedUrl);
             pic.type = embedit.imageTypes.image;

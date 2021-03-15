@@ -189,6 +189,14 @@ embedit.convertors = [
             return true;
         }
     },
+    {
+        name: "preview.redd.it",
+        detect: /preview\.redd\.it.*/,
+        convert: function (url, embedFunc) {
+            embedFunc(embedit.video(url));
+            return true;
+		}
+    }
 
 ]
 
@@ -355,8 +363,14 @@ embedit.transformRedditData = function(pic) {
         console.log("GOTCHA!");
         if (pic.data.gallery_data && pic.data.gallery_data.items) {
             var firstItemId = pic.data.gallery_data.items[0].media_id;
-            pic.url = decodeEntities(pic.data.media_metadata[firstItemId]["s"]["u"]);
+            var encodedUrl = pic.data.media_metadata[firstItemId]["s"]["u"];
             pic.type = embedit.imageTypes.image;
+            if (encodedUrl === undefined) {
+                // some posts don't have the u key, but have gif and mp4 keys
+                encodedUrl = pic.data.media_metadata[firstItemId]["s"]["mp4"];
+                pic.type = embedit.imageTypes.gifv;
+            }
+            pic.url = decodeEntities(encodedUrl);
         }
         console.log(pic.url)
     } else if (isImageExtension(pic.url)) {

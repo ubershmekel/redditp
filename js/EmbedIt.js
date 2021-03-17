@@ -355,7 +355,7 @@ embedit.transformRedditData = function(pic) {
             // some crossposts don't have a pic.data.media obj?
             return false;
         }
-        pic.sound = pic.url.substring(0, pic.url.lastIndexOf('/')) + "/audio";
+        pic.sound = pic.url.substring(0, pic.url.lastIndexOf('/')) + "/DASH_audio.mp4";
     } else if (pic.url.search(/^http.*imgur.*gifv?$/) > -1) {
         pic.type = embedit.imageTypes.gifv;
         pic.url = pic.url.replace(http_prefix, https_prefix);

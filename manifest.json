@@ -1,0 +1,23 @@
+{
+  "name": "redditP",
+  "short_name": "redditP",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "black",
+  "theme_color": "black",
+  "description": "A full screen reddit presentation or slide show.",
+  "icons": [
+    {
+      "src": "/images/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/images/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ]
+}

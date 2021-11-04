@@ -57,5 +57,15 @@
     <p>You could also <a href="https://github.com/ubershmekel/redditp">find the bug</a> or email the <a href="mailto:ubershmekel@gmail.com">author.</a></p>
 
     <script type="text/javascript" src="/js/fix-tagsyo-link.js" async></script>
+    
+    <script>
+        // Fix github pages 404-ing on every subreddit url like https://gh.redditp.com/r/gifs
+        // Inspired by https://github.com/rafgraph/spa-github-pages/blob/gh-pages/404.html
+        if (window.location.host === "gh.redditp.com" && window.location.pathname !== '/') {
+            // Go to the root page, keep the GET parameters
+            // TODO: avoid adding extra `/?&` characters every time
+            window.location = '/?' + window.location.pathname + '&' + window.location.search.substring(1);
+        }
+    </script>
 </body>
 </html>

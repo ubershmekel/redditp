@@ -771,7 +771,10 @@ $(function () {
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.
                 // This is to avoid cached or preloaded videos from playing.
-                elem[0].pause();
+                if (elem[0].pause){
+                    // Note this doesn't work on iframe embeds.
+                    elem[0].pause();
+                }
             });
         }// else {
         //    reportError('Unhandled image type');

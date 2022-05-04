@@ -18,7 +18,7 @@ body { overflow:hidden; background-color: #000; color:#fff;}
     left: 0;
     top: 0;
     width: 100%;
-    height: 100%;
+    height: calc(100% - 64px);
     z-index:1;
 }
 
@@ -71,7 +71,7 @@ a:hover {
     filter: progid:DXImageTransform.Microsoft.Shadow(Strength=3, Direction=135, Color='#EEEEEE');
 }
 
-#controlsDiv {position: absolute; bottom: 0; left: 0;right: 0;}
+#controlsDiv {position: absolute; bottom: 64px; left: 0;right: 0;}
 #titleDiv {position: absolute; top: 0;left: 0;right: 0;}
 .navbox h2 { padding: 10px 20px 10px 10px; font: bold 20px Helvetica, Arial, Sans-serif; }
 .navbox h3 { padding:  0px 20px 10px 10px; font: bold 12px Helvetica, Arial, Sans-serif; }

@@ -13,6 +13,15 @@ body { overflow:hidden; background-color: #000; color:#fff;}
     height: 100%;
     z-index:-999;
 }
+#fullScreenOverlay{
+	    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    z-index:1;
+}
+
 #pictureSlider div { height:100%; width:100%; position:absolute; z-index:-999; }
 
 /* NAVIGATION BOX */
@@ -22,14 +31,14 @@ a:hover {
     opacity: 1.0;
     border-bottom:1px dotted;
 }
-.navbox { width:450px; max-height: 40%; overflow: auto; position:relative; left: 0px; opacity: 0.9; background-color: rgba(0,0,0,0.7);}
+.navbox { width:450px; max-height: 40%; overflow: auto; position:relative; left: 0px; opacity: 0.9; background-color: rgba(0,0,0,0.7);z-index:2;}
 /* 108px so the next row is half-visible */
 .numberButtonList { overflow: auto; max-height: 108px; }
 .navbox ul { list-style-type:none; display:block; margin:0px; right:10px; top:10px; text-align: left;}
 .navbox ul li { display: inline-block; list-style-type: none; }
 .numberButton {
     float: left;
-
+	
     min-width: 15px;
     margin-left: 5px;
     text-decoration: none;
@@ -46,6 +55,7 @@ a:hover {
 
 .navbox ul li a {
     cursor:pointer;
+	
 }
 .numberButtonList ul li a:hover { background:#888; color:#000; border: 0; }
 .numberButtonList ul li a.active:hover {
@@ -108,7 +118,7 @@ label.checkbox { font-weight: bold; }
     border-top: 15px solid transparent;
     border-bottom: 15px solid transparent; 
     border-right: 30px solid white; 
-
+	z-index:2;
     opacity: 0.8;
     
     cursor: hand; cursor: pointer;
@@ -124,7 +134,7 @@ label.checkbox { font-weight: bold; }
     border-top: 15px solid transparent;
     border-bottom: 15px solid transparent; 
     border-left: 30px solid white; 
-    
+    z-index:2;
     opacity: 0.8;
     cursor: hand; cursor: pointer;
 }

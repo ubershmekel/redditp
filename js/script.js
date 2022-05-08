@@ -153,7 +153,7 @@ $(function () {
         }
     }
 
-    $(pictureSliderId).touchwipe({
+    $("#fullScreenOverlay").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
         wipeLeft: nextSlide,
         wipeRight: prevSlide,
@@ -333,6 +333,7 @@ $(function () {
 
         $('#prevButton').click(prevSlide);
         $('#nextButton').click(nextSlide);
+		$("#fullScreenOverlay").click(nextSlide)
     };
 
     var addNumberButton = function (numberButton) {

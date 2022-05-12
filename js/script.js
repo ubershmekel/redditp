@@ -644,7 +644,7 @@ $(function () {
         }
         playButton.hide();
     });
-    $(pictureSliderId).append(playButton);
+    $("#page").append(playButton);
     playButton.hide();
 
     var startPlayingVideo = function (vid_jq) {

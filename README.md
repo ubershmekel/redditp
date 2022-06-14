@@ -17,6 +17,15 @@ http://redditp.com
 * Arrow keys, pgup/pgdown, spacebar change slides
 * Swipe gestures on phones
 
+## GET parameter
+
+* time - time used for auto-next
+* nsfw - en/disable nsfw content
+* auto - en/disable auto-next
+* sound - en/disable sound
+* menu - hide the menu
+* title - hide the title
+
 ## Features
 
 * All /r/ subreddits, including different ?sort stuff.

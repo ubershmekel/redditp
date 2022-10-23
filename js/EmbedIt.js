@@ -73,7 +73,7 @@ embedit.redGifConvert = function (url, embedFunc) {
   // https://github.com/ubershmekel/redditp/issues/138
   // Redgifs isn't allowing CORS requests to others.
   // access-control-allow-origin: https://www.redgifs.com
-  const iframeUrl = 'https://www.redgifs.com/ifr/'  + name;
+  const iframeUrl = 'https://www.redgifs.com/ifr/' + name;
   embedFunc($('<iframe src="' + iframeUrl + '" frameborder="0" scrolling="no" width="100%" height="100%" allowfullscreen="" style="position:absolute;"></iframe>'));
   return true;
 };
@@ -219,13 +219,19 @@ embedit.gfyUrlToId = function (url) {
 };
 
 embedit.redGifUrlToId = function (url) {
+  //https://redgifs.com/ifr/unhappyfluidgrassspider'
   var matches = url.match(/redgifs.com\/watch\/([\w-]+)\/?/i);
-
   if (matches && matches.length > 1) {
     return matches[1];
-  } else {
-    return false;
   }
+
+  matches = url.match(/redgifs.com\/ifr\/([\w-]+)\/?/i);
+  if (matches && matches.length > 1) {
+    return matches[1];
+  }
+
+  return false;
+
 };
 
 function isImageExtension(url) {

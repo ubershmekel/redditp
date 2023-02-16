@@ -13,14 +13,6 @@ body { overflow:hidden; background-color: #000; color:#fff;}
     height: 100%;
     z-index:-999;
 }
-#fullScreenOverlay{
-	    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: calc(100% - 64px);
-    z-index:1;
-}
 
 #pictureSlider div { height:100%; width:100%; position:absolute; z-index:-999; }
 

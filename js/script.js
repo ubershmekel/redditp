@@ -153,7 +153,7 @@ $(function () {
         }
     }
 
-    $("#fullScreenOverlay").touchwipe({
+    $("#pictureSlider").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
         wipeLeft: nextSlide,
         wipeRight: prevSlide,
@@ -245,8 +245,8 @@ $(function () {
         resetNextSlideTimer();
     };
 
-    var toggleSound = function() {
-        $("#sound").each(function(){
+    var toggleSound = function () {
+        $("#sound").each(function () {
             this.checked = !this.checked;
             console.log(this.checked);
             $(this).trigger('change');
@@ -333,7 +333,6 @@ $(function () {
 
         $('#prevButton').click(prevSlide);
         $('#nextButton').click(nextSlide);
-		$("#fullScreenOverlay").click(nextSlide)
     };
 
     var addNumberButton = function (numberButton) {
@@ -362,7 +361,7 @@ $(function () {
         */
 
         var pic = embedit.redditItemToPic(item);
-        if(!pic) {
+        if (!pic) {
             return;
         }
 
@@ -521,7 +520,7 @@ $(function () {
     };
     var scheduledAnimation = null;
 
-    var loadHistory = function(state) {
+    var loadHistory = function (state) {
         //console.log("Loading history state " + event.state);
 
         var index;
@@ -535,12 +534,12 @@ $(function () {
         startAnimation(index);
     };
 
-    window.onpopstate = function(event) {
+    window.onpopstate = function (event) {
         // This is called when back/forward button is pressed and there is custom history states saved.
         loadHistory(event.state);
     };
 
-    var saveHistory = function(index) {
+    var saveHistory = function (index) {
         if (window.history == null) {
             return; // History api is not supported, do nothing
         }
@@ -556,7 +555,7 @@ $(function () {
         }
     };
 
-    var animationFinished = function() {
+    var animationFinished = function () {
         if (scheduledAnimation != null) {
             var next = scheduledAnimation;
             scheduledAnimation = null;
@@ -564,7 +563,7 @@ $(function () {
         }
     };
 
-    var showDefault = function() {
+    var showDefault = function () {
         // What to show initially
         if (window.history != null) {
             loadHistory(history.state);
@@ -767,12 +766,12 @@ $(function () {
                     };
                     $videoTag.onseeking = function () {
                         $audioTag.currentTime = $videoTag.currentTime;
-                    }
+                    };
                 }
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.
                 // This is to avoid cached or preloaded videos from playing.
-                if (elem[0].pause){
+                if (elem[0].pause) {
                     // Note this doesn't work on iframe embeds.
                     elem[0].pause();
                 }
@@ -900,9 +899,9 @@ $(function () {
                 reportError("No data from this url :(");
                 return;
             }
-        
+
             if (isShuffleOn()) {
-                shuffle(children)
+                shuffle(children);
             }
 
             $.each(children, function (i, item) {
@@ -994,7 +993,7 @@ $(function () {
             }
 
             if (isShuffleOn()) {
-                shuffle(children)
+                shuffle(children);
             }
 
             $.each(children, function (i, item) {

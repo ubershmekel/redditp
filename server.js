@@ -6,9 +6,9 @@ var http = require('http');
 var path = require('path');
 
 var express = require('express');
- 
+
 var app = express();
- 
+
 app.set('port', process.env.PORT || 8080);
 
 const publicFolder = [
@@ -16,18 +16,18 @@ const publicFolder = [
     'css',
     'images',
     'js'
-]
+];
 
 for (let name of publicFolder) {
     app.use('/' + name, express.static(path.join(__dirname, name)));
 }
 
 var server = http.createServer(app);
- 
-app.get('/*', function(req, res) {
+
+app.get('/*', function (req, res) {
     res.sendFile(path.join(__dirname, 'index.html'));
-})
- 
-server.listen(app.get('port'), function(){
-    console.log("Web server listening on port " + app.get('port'));
+});
+
+server.listen(app.get('port'), function () {
+    console.log("Web server listening at: http://localhost:" + app.get('port'));
 });

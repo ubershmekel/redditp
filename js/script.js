@@ -701,6 +701,8 @@ $(function () {
         }
 
         divNode.prependTo(pictureSliderId);
+        fixRedditVideo(imageIndex);
+
         $(pictureSliderId + " div").fadeIn(rp.settings.animationSpeed);
         var oldDiv = $(pictureSliderId + " div:not(:first)");
         oldDiv.fadeOut(rp.settings.animationSpeed, function () {
@@ -714,6 +716,17 @@ $(function () {
             }
         });
     };
+
+    var fixRedditVideo = function (imageIndex) {
+        var photo = rp.photos[imageIndex];
+        if (photo.url.indexOf("//v.redd.it/") < 0) {
+            // only fix reddit videos
+            return;
+        }
+        var url = photo.data.secure_media.reddit_video.dash_url;
+        var player = dashjs.MediaPlayer().create();
+        player.initialize(document.querySelector("video"), url, true);
+    }
 
     var createDiv = function (imageIndex) {
         // Retrieve the accompanying photo based on the index
@@ -745,28 +758,38 @@ $(function () {
                     reportError('Failed to handle url');
                     return divNode;
                 }
+                if (photo.url.indexOf("//v.redd.it/") >= 0) {
+                    // Embedit is wrong here, ignore it.
+                    // I'm ashamed of the spaghetti I'm in, but I'm also tired
+                    // and want to go to sleep with this working.
+                    // elem = document.createElement("video");
+                    elem = $('<video autoplay playsinline loop controls="true" />');
+                }
                 divNode.append(elem);
+
                 $(elem).attr({
                     playsinline: '',
                 });
                 if (photo.sound) {
                     // this case is for videos from v.redd.it domain only
-                    $("<audio loop autoplay " + (rp.settings.sound ? '' : 'muted') + "><source src='" + photo.sound + "' type='audio/aac'/></audio>").appendTo($(elem));
+                    // $("<audio loop autoplay " + (rp.settings.sound ? '' : 'muted') + "><source src='" + photo.sound + "' type='audio/aac'/></audio>").appendTo($(elem));
+                    // console.log("we are here!", photo)
+                    // console.log("we are here!", photo.data.secure_media.reddit_video.dash_url)
 
-                    var $audioTag = $("audio", elem).get(0);
-                    var $videoTag = $("video", divNode).get(0);
+                    // var $audioTag = $("audio", elem).get(0);
+                    // var $videoTag = $("video", divNode).get(0);
 
-                    // sync reddit audio and video tracks
-                    $audioTag.currentTime = $videoTag.currentTime;
-                    $videoTag.onplay = function () {
-                        $audioTag.play();
-                    };
-                    $videoTag.onpause = function () {
-                        $audioTag.pause();
-                    };
-                    $videoTag.onseeking = function () {
-                        $audioTag.currentTime = $videoTag.currentTime;
-                    };
+                    // // sync reddit audio and video tracks
+                    // $audioTag.currentTime = $videoTag.currentTime;
+                    // $videoTag.onplay = function () {
+                    //     $audioTag.play();
+                    // };
+                    // $videoTag.onpause = function () {
+                    //     $audioTag.pause();
+                    // };
+                    // $videoTag.onseeking = function () {
+                    //     $audioTag.currentTime = $videoTag.currentTime;
+                    // };
                 }
                 elem.width('100%').height('100%');
                 // We start paused and play after the fade in.

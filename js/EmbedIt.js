@@ -356,6 +356,9 @@ embedit.transformRedditData = function (pic) {
       // some crossposts don't have a pic.data.media obj?
       return false;
     }
+    // Note that this `DASH_audio.mp4` is now `DASH_AUDIO_128.mp4`.
+    // You can find it in the `.mpd` file, but I don't want to parse that.
+    // Instead - we'll use `dash.min.js` to create the video element.
     pic.sound =
       pic.url.substring(0, pic.url.lastIndexOf("/")) + "/DASH_audio.mp4";
   } else if (pic.url.search(/^http.*imgur.*gifv?$/) > -1) {

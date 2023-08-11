@@ -900,7 +900,12 @@ $(function () {
             subredditUrl = "/r/" + rp.photos[0].subreddit;
         }
 
-        // Note that JSONP requests require `".json?jsonp=?"` here.
+        // Seems since sometime in 2023:
+        // Works - https://www.reddit.com/r/aww/.json?
+        // Fails - https://www.reddit.com/r/aww.json?
+        if (subredditUrl.length > 0 && subredditUrl[subredditUrl.length - 1] !== "/") {
+            subredditUrl += "/";
+        }
         var jsonUrl = embedit.redditBaseUrl + subredditUrl + ".json?" + (rp.session.after ? rp.session.after + "&" : "") + getVars;
 
         var failedAjax = function (/*data*/) {

@@ -657,6 +657,12 @@ $(function () {
         // sound cookie setting
         vid_jq[0].muted = !rp.settings.sound;
 
+        // Disable subtitles by default
+        var subTracks = vid_jq[0].textTracks || [];
+        for (var i = 0; i < subTracks.length; i++) {
+            subTracks[i].mode = 'hidden';
+        }
+
         var onEndFunc = function (/*e*/) {
             if (rp.settings.shouldAutoNextSlide)
                 nextSlide();

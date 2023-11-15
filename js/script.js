@@ -153,6 +153,13 @@ $(function () {
         }
     }
 
+    function copy_to_clipboard(selector) {
+        var link = $(selector)[0];
+        navigator.clipboard.writeText(link.href).then(() => {
+            toastr.info("Copied URL to clipboard.", "", {timeOut: 100});
+        });
+    }
+
     $("#pictureSlider").touchwipe({
         // wipeLeft means the user moved his finger from right to left.
         wipeLeft: nextSlide,
@@ -421,7 +428,12 @@ $(function () {
 
     // Register keyboard events on the whole document
     $(document).keyup(function (e) {
-        if (e.ctrlKey) {
+        var code = (e.keyCode ? e.keyCode : e.which);
+        if (e.ctrlKey || e.metaKey) {
+            // Handle {Ctrl,Cmd}+C to copy image link.
+            if (code == C_KEY) {
+                copy_to_clipboard("#navboxLink");
+            }
             // ctrl key is pressed so we're most likely switching tabs or doing something
             // unrelated to redditp UI
             return;
@@ -435,8 +447,7 @@ $(function () {
         // 40 - down
         // More info: http://stackoverflow.com/questions/302122/jquery-event-keypress-which-key-was-pressed
         // http://stackoverflow.com/questions/1402698/binding-arrow-keys-in-js-jquery
-        var code = (e.keyCode ? e.keyCode : e.which);
-
+        
         switch (code) {
             case C_KEY:
                 $('#controlsDiv .collapser').click();

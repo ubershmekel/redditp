@@ -14,6 +14,7 @@ http://redditp.com
 * u - open user slideshow in new tab
 * f - toggle full screen mode
 * m - toggle sound
+* Ctrl+C/Cmd+C - copy image URL to clipboard
 * Arrow keys, pgup/pgdown, spacebar change slides
 * Swipe gestures on phones
 

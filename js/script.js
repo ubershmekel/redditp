@@ -361,13 +361,11 @@ $(function () {
         */
         if(!item.data.is_gallery){
             var pic = embedit.redditItemToPic(item);
-            console.log(pic)
             if (!pic) {
                 return;
             }
             for (i = 0; i < rp.photos.length; i += 1) {
                 if (pic.url === rp.photos[i].url) {
-                    console.log(pic.url)
                     return;
                 }
             }
@@ -382,11 +380,11 @@ $(function () {
                     "over18": item.data.over_18,
                     "isVideo": item.data.is_video,
                     "subreddit": item.data.subreddit,
-                    "userLink": item.data.author
+                    "userLink": item.data.author,
+                    "type": (item.data.media_metadata[image.media_id].m).split('/')[0]
                 }
                 for (i = 0; i < rp.photos.length; i += 1) {
                     if (pic.url === rp.photos[i].url) {
-                        console.log(pic.url)
                         return;
                     }
                 }
@@ -769,7 +767,6 @@ $(function () {
             // An actual image. Not a video/gif.
             // `preLoadImages` because making a div with a background css does not cause chrome
             // to preload it :/
-            console.log(photo.url)
             preLoadImages(photo.url);
             var cssMap = Object();
             cssMap['display'] = "none";

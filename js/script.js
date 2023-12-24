@@ -359,26 +359,47 @@ $(function () {
             "isVideo": video
         }
         */
-
-        var pic = embedit.redditItemToPic(item);
-        if (!pic) {
-            return;
-        }
-
-        rp.session.foundOneImage = true;
-
-        for (i = 0; i < rp.photos.length; i += 1) {
-            if (pic.url === rp.photos[i].url) {
+        if(!item.data.is_gallery){
+            var pic = embedit.redditItemToPic(item);
+            console.log(pic)
+            if (!pic) {
                 return;
             }
+            for (i = 0; i < rp.photos.length; i += 1) {
+                if (pic.url === rp.photos[i].url) {
+                    console.log(pic.url)
+                    return;
+                }
+            }
+            rp.photos.push(pic);
+            rp.session.foundOneImage = true;
+        } else {
+            $.each(item.data.gallery_data.items, function (i, image) {
+                pic = {
+                    "title": item.data.title,
+                    "url": "https://i.redd.it/"+image.media_id+"."+(item.data.media_metadata[image.media_id].m).split('/')[1],
+                    "commentsLink": item.data.url,
+                    "over18": item.data.over_18,
+                    "isVideo": item.data.is_video,
+                    "subreddit": item.data.subreddit,
+                    "userLink": item.data.author
+                }
+                for (i = 0; i < rp.photos.length; i += 1) {
+                    if (pic.url === rp.photos[i].url) {
+                        console.log(pic.url)
+                        return;
+                    }
+                }
+                rp.photos.push(pic);
+                rp.session.foundOneImage = true;
+            });
         }
-
 
         // Do not preload all images, this is just not performant.
         // Especially in gif or high-res subreddits where each image can be 50 MB.
         // My high-end desktop browser was unresponsive at times.
         //preLoadImages(pic.url);
-        rp.photos.push(pic);
+        
 
         var i = rp.photos.length - 1;
         var numberButton = $("<a />").html(i + 1)
@@ -748,6 +769,7 @@ $(function () {
             // An actual image. Not a video/gif.
             // `preLoadImages` because making a div with a background css does not cause chrome
             // to preload it :/
+            console.log(photo.url)
             preLoadImages(photo.url);
             var cssMap = Object();
             cssMap['display'] = "none";
@@ -757,7 +779,6 @@ $(function () {
             cssMap['background-position'] = "center";
 
             divNode.css(cssMap).addClass("clouds");
-
         } else { //if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
             embedit.embed(photo.url, function (elem) {
                 if (!elem) {
@@ -1021,6 +1042,7 @@ $(function () {
             //log(data);
 
             var children = data.data.images;
+
             if (children.length === 0) {
                 reportError("No data from this url :(");
                 return;
@@ -1029,7 +1051,6 @@ $(function () {
             if (isShuffleOn()) {
                 shuffle(children);
             }
-
             $.each(children, function (i, item) {
                 addImageSlide({
                     url: item.link,

@@ -44,7 +44,9 @@ a:hover {
 .over18 {
     color: #f99;
 }
-
+.gallery {
+    color: rgb(158, 217, 8);
+}
 .navbox ul li a {
     cursor:pointer;
 	

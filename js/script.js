@@ -685,7 +685,7 @@ $(function () {
         $('#navboxSubreddit').attr('href', embedit.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
-        $('#navboxUser').attr('href', 'https://redditp.com' + user).attr('user', "User on reddit");
+        $('#navboxUser').attr('href', window.location.origin + user).attr('user', "User on reddit");
         if (photo.galleryItem){
             $("#navboxGallery").text("Gallery: "+photo.galleryItem+"/"+photo.galleryTotal);
         } else {

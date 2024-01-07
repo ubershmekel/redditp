@@ -653,19 +653,13 @@ $(function () {
 
     var toggleNumberButton = async function (imageIndex,turnOn) {
         if (imageIndex<0){return}   
-        console.log(imageIndex)
         var photo = rp.photos[imageIndex]
         if (!photo.galleryItem){
-            console.log("j")
             var numberButton = $("#numberButton"+(imageIndex+1));
         } else {
             var numberButton = $("#numberButton"+((imageIndex+1)-(rp.photos[imageIndex].galleryItem-1))); 
-            console.log(rp.photos[imageIndex].galleryItem-1)
-            console.log("#numberButton"+((imageIndex+1)-(rp.photos[imageIndex].galleryItem-1)))   
-        } 
-        console.log(numberButton)   
+        }
         if (turnOn) {
-            console.log("ja")
             numberButton.addClass('active');
         } else {
             numberButton.removeClass('active');
@@ -677,7 +671,6 @@ $(function () {
     //
     var animateNavigationBox = async function (imageIndex) {
         var photo = rp.photos[imageIndex];
-        console.log(photo)
         var subreddit = '/r/' + photo.subreddit;
         var user = '/u/' + photo.userLink + '/submitted';
 
@@ -879,7 +872,6 @@ $(function () {
         if (!photo.data.is_gallery){
             return
         }
-        console.log(photo.data)
         var x = (photo.galleryTotal - photo.galleryItem)+1
         nextSlide(x)
     };

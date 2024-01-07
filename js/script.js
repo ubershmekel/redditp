@@ -421,9 +421,10 @@ $(function () {
                 .attr("id", "numberButton" + ((i + 1)-(rp.photos[i].galleryTotal-1)))
                 .addClass("gallery")    
                 .addClass("numberButton")
-            numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}))
             if (pic.over18) {
-                numberButton.addClass("over18");
+                numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}).addClass("over18"))
+            } else {
+                numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}))
             }
             numberButton.click(function () {
                 showImage($(this))

@@ -8,7 +8,7 @@
 
 // TODO: refactor all the globals to use the rp object's namespace.
 var rp = {};
-
+var galleryOffset = 0
 rp.settings = {
     debug: true,
     // Speed of the animation
@@ -374,12 +374,11 @@ $(function () {
             }
             rp.photos.push(pic);
             rp.session.foundOneImage = true;
-
-            var i = rp.photos.length - 1;
-            var numberButton = $("<a />").html(i + 1)
+            var i = rp.photos.length - 1;   
+            var numberButton = $("<a />").html((i+1)-galleryOffset)
                 .data("index", i)
-                .attr("title", rp.photos[i].title)
-                .attr("id", "numberButton" + (i + 1));
+                .attr("title", rp.photos[i].title)  
+                .attr("id", "numberButton" + (i + 1))
             if (pic.over18) {
                 numberButton.addClass("over18");
             }
@@ -389,7 +388,9 @@ $(function () {
             numberButton.addClass("numberButton");
             addNumberButton(numberButton);
         } else {
-            $.each(item.data.gallery_data.items, function (i, image) {
+            const x = (rp.photos.length+1)-galleryOffset
+            galleryOffset+=(item.data.gallery_data.items.length)-1
+            $.each(item.data.gallery_data.items, function (j, image) {
                 pic = {
                     "title": item.data.title,
                     "url": "https://i.redd.it/"+image.media_id+"."+(item.data.media_metadata[image.media_id].m).split('/')[1],
@@ -398,35 +399,36 @@ $(function () {
                     "over18": item.data.over_18,
                     "isVideo": item.data.is_video,
                     "subreddit": item.data.subreddit,
-                    "galleryItem": i+1,
+                    "galleryItem": j+1,
                     "galleryTotal": item.data.gallery_data.items.length,
                     "userLink": item.data.author,
                     "type": (item.data.media_metadata[image.media_id].m).split('/')[0]
                 }; 
                 for (i = 0; i < rp.photos.length; i += 1) {
                     if (pic.url === rp.photos[i].url) {
-                        return;
+                        return; 
                     }
-                }
+                }   
                 rp.photos.push(pic);
                 rp.session.foundOneImage = true;
 
-                var i = rp.photos.length - 1;
-                var numberButton = $("<a />").html(i + 1)
-                    .data("index", i)
-                    .attr("title", rp.photos[i].title)
-                    .attr("id", "numberButton" + (i + 1))
-                    .addClass("gallery")    
-                    .addClass("numberButton")
-                numberButton.append($("<a />").html("/"+rp.photos[i].galleryItem).css({fontSize: 10}))
-                if (pic.over18) {
-                    numberButton.addClass("over18");
-                }
-                numberButton.click(function () {
-                    showImage($(this));
-                });
-                addNumberButton(numberButton);
+                
             });
+            var i = rp.photos.length - 1;
+            var numberButton = $("<a />").html(x)
+                .data("index", i-(rp.photos[i].galleryItem-1))
+                .attr("title", rp.photos[i].title)
+                .attr("id", "numberButton" + ((i + 1)-(rp.photos[i].galleryTotal-1)))
+                .addClass("gallery")    
+                .addClass("numberButton")
+            numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}))
+            if (pic.over18) {
+                numberButton.addClass("over18");
+            }
+            numberButton.click(function () {
+                showImage($(this))
+            });
+            addNumberButton(numberButton);
         }
 
         // Do not preload all images, this is just not performant.
@@ -621,7 +623,7 @@ $(function () {
     // Starts the animation, based on the image index
     //
     // Variable to store if the animation is playing or not
-    var startAnimation = function (imageIndex) {
+    var startAnimation = async function (imageIndex) {
         resetNextSlideTimer();
 
         if (rp.session.isAnimating) {
@@ -637,7 +639,7 @@ $(function () {
         }
 
         rp.session.isAnimating = true;
-        animateNavigationBox(imageIndex);
+        await animateNavigationBox(imageIndex);
         slideBackgroundPhoto(imageIndex);
         preloadNextImage(imageIndex);
 
@@ -649,20 +651,33 @@ $(function () {
         }
     };
 
-    var toggleNumberButton = function (imageIndex, turnOn) {
-        var numberButton = $('#numberButton' + (imageIndex + 1));
+    var toggleNumberButton = async function (imageIndex,turnOn) {
+        if (imageIndex<0){return}   
+        console.log(imageIndex)
+        var photo = rp.photos[imageIndex]
+        if (!photo.galleryItem){
+            console.log("j")
+            var numberButton = $("#numberButton"+(imageIndex+1));
+        } else {
+            var numberButton = $("#numberButton"+((imageIndex+1)-(rp.photos[imageIndex].galleryItem-1))); 
+            console.log(rp.photos[imageIndex].galleryItem-1)
+            console.log("#numberButton"+((imageIndex+1)-(rp.photos[imageIndex].galleryItem-1)))   
+        } 
+        console.log(numberButton)   
         if (turnOn) {
+            console.log("ja")
             numberButton.addClass('active');
         } else {
             numberButton.removeClass('active');
         }
     };
 
+    //  
+    // Animate the navigation box       
     //
-    // Animate the navigation box
-    //
-    var animateNavigationBox = function (imageIndex) {
+    var animateNavigationBox = async function (imageIndex) {
         var photo = rp.photos[imageIndex];
+        console.log(photo)
         var subreddit = '/r/' + photo.subreddit;
         var user = '/u/' + photo.userLink + '/submitted';
 
@@ -671,15 +686,15 @@ $(function () {
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
         $('#navboxUser').attr('href', 'https://redditp.com' + user).attr('user', "User on reddit");
-        if (photo.data.is_gallery){
+        if (photo.galleryItem){
             $("#navboxGallery").text("Gallery: "+photo.galleryItem+"/"+photo.galleryTotal);
         } else {
             $("#navboxGallery").text("")
         }
         document.title = photo.title + " - " + subreddit + " - redditP";
 
-        toggleNumberButton(rp.session.activeIndex, false);
-        toggleNumberButton(imageIndex, true);
+        await toggleNumberButton(rp.session.activeIndex, false);
+        await toggleNumberButton(imageIndex, true);
     };
 
     var playButton = $('<img id="playButton" src="/images/play.svg" />');

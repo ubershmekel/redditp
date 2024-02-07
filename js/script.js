@@ -419,12 +419,11 @@ $(function () {
                 .data("index", i-(rp.photos[i].galleryItem-1))
                 .attr("title", rp.photos[i].title)
                 .attr("id", "numberButton" + ((i + 1)-(rp.photos[i].galleryTotal-1)))
-                .addClass("gallery")    
                 .addClass("numberButton")
+                .addClass("gallery");
+            numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}).addClass("galleryCount"))
             if (pic.over18) {
-                numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}).addClass("over18"))
-            } else {
-                numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}))
+                numberButton.addClass("over18");
             }
             numberButton.click(function () {
                 showImage($(this))

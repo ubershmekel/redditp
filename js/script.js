@@ -17,7 +17,7 @@ rp.settings = {
     timeToNextSlide: 6 * 1000,
     cookieDays: 300,
     nsfw: true,
-    sound: false
+    sound: false,
 };
 
 rp.session = {
@@ -231,6 +231,17 @@ $(function () {
             audioTags[0].muted = !rp.settings.sound;
         } else {
             console.log(audioTags);
+        }
+        var iframes = document.getElementsByTagName('iframe'); // turn sound on/off in embeds. This only works if the embed implements the soundOn/soundOff postMessage API.
+        for (var index=0, len = iframes.length; index < len; index++) { // we have to iterate over all the iframes because some extensions add extra ones to the page—this would break if e.g. tridactyl was installed.
+          const iframe = iframes[index];
+          if (iframe.src.indexOf("redgifs") > -1) { // mostly for redgifs
+            if (rp.settings.sound) {
+              iframe.contentWindow.postMessage("soundOn", "*");
+            } else {
+              iframe.contentWindow.postMessage("soundOff", "*");
+            }
+          }
         }
     };
 

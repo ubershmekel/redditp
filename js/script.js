@@ -716,6 +716,13 @@ $(function () {
             });
         }
     };
+    
+    var startPlayingGfy = function (gfyframe) {
+        if (rp.settings.shouldAutoNextSlide && rp.session.gfy_enhanced_api) {
+            // If gfy_enhanced_api is false, then there's no way for it to detect when the video ends, and it should just use the timeout
+            clearTimeout(rp.session.nextSlideTimeoutId);
+        }
+    }
 
     //
     // Slides the background photos
@@ -741,6 +748,11 @@ $(function () {
             var maybeVid = $('video');
             if (maybeVid.length > 0) {
                 startPlayingVideo(maybeVid);
+            }
+            
+            var maybeGfy = $('.gfyframe');
+            if (maybeGfy.length > 0) {
+              startPlayingGfy(maybeGfy); // I don't think I need to actually duplicate the code from above like this, but this might make things easier to refactor later.
             }
         });
     };

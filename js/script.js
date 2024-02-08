@@ -249,7 +249,7 @@ $(function () {
             if (rp.settings.sound) {
                 iframeTags[0].contentWindow.postMessage("soundOn", "*");
             } else {
-                iframe.contentWindow.postMessage("soundOff", "*");
+                iframeTags[0].contentWindow.postMessage("soundOff", "*");
             }
         } else {
             console.log(iframeTags);

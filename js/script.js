@@ -90,7 +90,7 @@ $(function () {
     //setupFadeoutOnIdle();
 
     var getNextSlideIndex = function (currentIndex,x) {
-        if(!x){
+        if(typeof x !== "number"){
             var x = 1
         }
         if (!rp.settings.nsfw) {

@@ -36,7 +36,9 @@ rp.session = {
 
     foundOneImage: false,
 
-    loadingNextImages: false
+    loadingNextImages: false,
+    
+    gfy_enhanced_api: false,
 };
 
 // Variable to store the images we need to set as background
@@ -88,7 +90,16 @@ $(function () {
     // this fadeout was really inconvenient on mobile phones
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
-
+    
+    window.onmessage = function(message) {
+      if (message.data === "gfy_enhanced_api") {
+        rp.session.gfy_enhanced_api = true;
+      }
+      if (message.data === "gfy_ended") {
+        // next image
+      }
+    }
+    
     var getNextSlideIndex = function (currentIndex) {
         if (!rp.settings.nsfw) {
             // Skip any nsfw if you should
@@ -232,7 +243,7 @@ $(function () {
         } else {
             console.log(audioTags);
         }
-        var iframes = document.getElementsByTagName('iframe'); // turn sound on/off in embeds. This only works if the embed implements the soundOn/soundOff postMessage API.
+        var iframes = document.getElementsByClassName('iframe'); // turn sound on/off in embeds. This only works if the embed implements the soundOn/soundOff postMessage API.
         for (var index=0, len = iframes.length; index < len; index++) { // we have to iterate over all the iframes because some extensions add extra ones to the page—this would break if e.g. tridactyl was installed.
           const iframe = iframes[index];
           if (iframe.src.indexOf("redgifs") > -1) { // mostly for redgifs

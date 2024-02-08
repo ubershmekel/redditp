@@ -17,7 +17,7 @@ rp.settings = {
     timeToNextSlide: 6 * 1000,
     cookieDays: 300,
     nsfw: true,
-    sound: false
+    sound: false,
 };
 
 rp.session = {
@@ -36,7 +36,9 @@ rp.session = {
 
     foundOneImage: false,
 
-    loadingNextImages: false
+    loadingNextImages: false,
+    
+    gfy_enhanced_api: false,
 };
 
 // Variable to store the images we need to set as background
@@ -88,7 +90,17 @@ $(function () {
     // this fadeout was really inconvenient on mobile phones
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
-
+    
+    window.onmessage = function(message) {
+        if (message.data === "gfy_enhanced_api") {
+          rp.session.gfy_enhanced_api = true;
+        }
+        if (message.data === "gfy_ended") {
+            if (rp.settings.shouldAutoNextSlide)
+                nextSlide();
+        }
+    }
+    
     var getNextSlideIndex = function (currentIndex) {
         if (!rp.settings.nsfw) {
             // Skip any nsfw if you should
@@ -231,6 +243,16 @@ $(function () {
             audioTags[0].muted = !rp.settings.sound;
         } else {
             console.log(audioTags);
+        }
+        var iframeTags = document.getElementsByClassName('gfyframe'); // turn sound on/off in embeds. This only works if the embed implements the soundOn/soundOff postMessage API.
+        if (iframeTags.length === 1) {
+            if (rp.settings.sound) {
+                iframeTags[0].contentWindow.postMessage("soundOn", "*");
+            } else {
+                iframeTags[0].contentWindow.postMessage("soundOff", "*");
+            }
+        } else {
+            console.log(iframeTags);
         }
     };
 
@@ -694,6 +716,13 @@ $(function () {
             });
         }
     };
+    
+    var startPlayingGfy = function (gfyframe) {
+        if (rp.settings.shouldAutoNextSlide && rp.session.gfy_enhanced_api) {
+            // If gfy_enhanced_api is false, then there's no way for it to detect when the video ends, and it should just use the timeout
+            clearTimeout(rp.session.nextSlideTimeoutId);
+        }
+    }
 
     //
     // Slides the background photos
@@ -719,6 +748,11 @@ $(function () {
             var maybeVid = $('video');
             if (maybeVid.length > 0) {
                 startPlayingVideo(maybeVid);
+            }
+            
+            var maybeGfy = $('.gfyframe');
+            if (maybeGfy.length > 0) {
+              startPlayingGfy(maybeGfy); // I don't think I need to actually duplicate the code from above like this, but this might make things easier to refactor later.
             }
         });
     };

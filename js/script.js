@@ -92,12 +92,13 @@ $(function () {
     //setupFadeoutOnIdle();
     
     window.onmessage = function(message) {
-      if (message.data === "gfy_enhanced_api") {
-        rp.session.gfy_enhanced_api = true;
-      }
-      if (message.data === "gfy_ended") {
-        // next image
-      }
+        if (message.data === "gfy_enhanced_api") {
+          rp.session.gfy_enhanced_api = true;
+        }
+        if (message.data === "gfy_ended") {
+            if (rp.settings.shouldAutoNextSlide)
+                nextSlide();
+        }
     }
     
     var getNextSlideIndex = function (currentIndex) {
@@ -243,16 +244,15 @@ $(function () {
         } else {
             console.log(audioTags);
         }
-        var iframes = document.getElementsByClassName('iframe'); // turn sound on/off in embeds. This only works if the embed implements the soundOn/soundOff postMessage API.
-        for (var index=0, len = iframes.length; index < len; index++) { // we have to iterate over all the iframes because some extensions add extra ones to the page—this would break if e.g. tridactyl was installed.
-          const iframe = iframes[index];
-          if (iframe.src.indexOf("redgifs") > -1) { // mostly for redgifs
+        var iframeTags = document.getElementsByClassName('gfyframe'); // turn sound on/off in embeds. This only works if the embed implements the soundOn/soundOff postMessage API.
+        if (iframeTags.length === 1) {
             if (rp.settings.sound) {
-              iframe.contentWindow.postMessage("soundOn", "*");
+                iframeTags[0].contentWindow.postMessage("soundOn", "*");
             } else {
-              iframe.contentWindow.postMessage("soundOff", "*");
+                iframe.contentWindow.postMessage("soundOff", "*");
             }
-          }
+        } else {
+            console.log(iframeTags);
         }
     };
 

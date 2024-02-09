@@ -74,7 +74,7 @@ embedit.redGifConvert = function (url, embedFunc) {
   // Redgifs isn't allowing CORS requests to others.
   // access-control-allow-origin: https://www.redgifs.com
   const iframeUrl = 'https://www.redgifs.com/ifr/' + name;
-  embedFunc($('<iframe src="' + iframeUrl + '" frameborder="0" scrolling="no" width="100%" height="100%" allowfullscreen="" style="position:absolute;"></iframe>'));
+  embedFunc($('<iframe class="gfyframe" src="' + iframeUrl + '" frameborder="0" scrolling="no" width="100%" height="100%" allowfullscreen="" style="position:absolute;"></iframe>'));
   return true;
 };
 

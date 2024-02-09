@@ -694,6 +694,26 @@ $(function () {
             });
         }
     };
+    
+    var pauseVideo = function(elem) {
+        if (elem.tagName === "VIDEO") {
+            elem.play();
+        }
+        else if (elem.tagName === "IFRAME" && elem.classList.contains("gfyframe")) {
+            
+        }
+    }
+    
+    var playVideo = function(elem) {
+        if (elem.tagName === "VIDEO") {
+            elem.pause();
+        }
+        else if (elem.tagName === "IFRAME" && elem.classList.contains("gfyframe")) {
+            
+        }
+    }
+    
+    class
 
     //
     // Slides the background photos

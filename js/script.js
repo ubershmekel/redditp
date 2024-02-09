@@ -700,7 +700,8 @@ $(function () {
             elem.play();
         }
         else if (elem.tagName === "IFRAME" && elem.classList.contains("gfyframe")) {
-            
+            elem.contentWindow.postMessage("pause", "*");
+            // todo: make this work without the third-party userscript by setting elem.src = ""
         }
     }
     
@@ -709,7 +710,8 @@ $(function () {
             elem.pause();
         }
         else if (elem.tagName === "IFRAME" && elem.classList.contains("gfyframe")) {
-            
+            elem.contentWindow.postMessage("play", "*");
+            // todo: make this work without the third-party userscript by setting elem.src = ""
         }
     }
     

@@ -714,8 +714,6 @@ $(function () {
             // todo: make this work without the third-party userscript by setting elem.src = ""
         }
     }
-    
-    class
 
     //
     // Slides the background photos

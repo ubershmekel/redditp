@@ -36,7 +36,9 @@ rp.session = {
 
     foundOneImage: false,
 
-    loadingNextImages: false
+    loadingNextImages: false,
+    
+    pauseOnTabAway: true,
 };
 
 // Variable to store the images we need to set as background
@@ -88,6 +90,47 @@ $(function () {
     // this fadeout was really inconvenient on mobile phones
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
+    
+    var becomeInvisible = function(evt) {
+        if (rp.settings.shouldAutoNextSlide)
+            clearTimeout(rp.session.nextSlideTimeoutId);
+        var maybeVid = $("video");
+        if (maybeVid.length > 0) {
+            pauseVideo(maybeVid[0]);
+        }
+        
+        var maybeGfy = $(".gfyframe");
+        if (maybeGfy.length > 0) {
+            console.log("found a gfy, pausing it");
+            pauseVideo(maybeGfy[0]);
+        }
+    }
+    
+    var becomeVisible = function(evt) {
+        var maybeVid = $("video");
+        if (maybeVid.length > 0) {
+            playVideo(maybeVid[0]);
+            return;
+        }
+        
+        var maybeGfy = $(".gfyframe");
+        if (maybeGfy.length > 0) {
+            console.log("found a gfy, pausing it");
+            playVideo(maybeGfy[0]);
+        }
+        console.log("Starting slideshow again");
+        resetNextSlideTimer();
+        console.log("yaaaay");
+    }
+    
+    document.addEventListener("visibilitychange", (vcEvent) => {
+        console.log(document.visibilityState);
+        if (document.visibilityState === "visible") {
+            becomeVisible(vcEvent);
+        } else {
+            becomeInvisible(vcEvent);
+        }
+    });
 
     var getNextSlideIndex = function (currentIndex) {
         if (!rp.settings.nsfw) {

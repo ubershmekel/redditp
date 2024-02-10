@@ -760,7 +760,7 @@ $(function () {
             if (rp.session.gfy_enhanced_api)
                 elem.contentWindow.postMessage("pause", "*");
             else {
-                
+                elem.src = "";
             }
         }
     }
@@ -773,7 +773,7 @@ $(function () {
             if (rp.session.gfy_enhanced_api)
                 elem.contentWindow.postMessage("play", "*");
             else {
-                
+                elem.src = elem.getAttribute("saved-src");
             }
         }
     }

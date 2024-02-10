@@ -17,7 +17,8 @@ rp.settings = {
     timeToNextSlide: 6 * 1000,
     cookieDays: 300,
     nsfw: true,
-    sound: false
+    sound: false,
+    pauseOnTabAway: true,
 };
 
 rp.session = {
@@ -39,8 +40,6 @@ rp.session = {
     loadingNextImages: false,
     
     gfy_enhanced_api: false,
-    
-    pauseOnTabAway: true,
 };
 
 // Variable to store the images we need to set as background
@@ -138,7 +137,7 @@ $(function () {
     }
     
     document.addEventListener("visibilitychange", (vcEvent) => {
-        if (!rp.session.pauseOnTabAway)
+        if (!rp.settings.pauseOnTabAway)
             return;
         if (document.visibilityState === "visible") {
             becomeVisible(vcEvent);

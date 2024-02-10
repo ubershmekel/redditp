@@ -38,6 +38,8 @@ rp.session = {
 
     loadingNextImages: false,
     
+    gfy_enhanced_api: false,
+    
     pauseOnTabAway: true,
 };
 
@@ -91,6 +93,16 @@ $(function () {
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
     
+    window.onmessage = function(message) {
+        if (message.data === "gfy_enhanced_api") {
+          rp.session.gfy_enhanced_api = true;
+        }
+        if (message.data === "gfy_ended") {
+            if (rp.settings.shouldAutoNextSlide)
+                nextSlide();
+        }
+    }
+    
     var becomeInvisible = function(evt) {
         if (rp.settings.shouldAutoNextSlide)
             clearTimeout(rp.session.nextSlideTimeoutId);
@@ -117,6 +129,8 @@ $(function () {
         if (maybeGfy.length > 0) {
             console.log("found a gfy, pausing it");
             playVideo(maybeGfy[0]);
+            if (rp.session.gfy_enhanced_api)
+                return;
         }
         console.log("Starting slideshow again");
         resetNextSlideTimer();
@@ -743,8 +757,11 @@ $(function () {
             elem.play();
         }
         else if (elem.tagName === "IFRAME" && elem.classList.contains("gfyframe")) {
-            elem.contentWindow.postMessage("pause", "*");
-            // todo: make this work without the third-party userscript by setting elem.src = ""
+            if (rp.session.gfy_enhanced_api)
+                elem.contentWindow.postMessage("pause", "*");
+            else {
+                
+            }
         }
     }
     
@@ -753,8 +770,11 @@ $(function () {
             elem.pause();
         }
         else if (elem.tagName === "IFRAME" && elem.classList.contains("gfyframe")) {
-            elem.contentWindow.postMessage("play", "*");
-            // todo: make this work without the third-party userscript by setting elem.src = ""
+            if (rp.session.gfy_enhanced_api)
+                elem.contentWindow.postMessage("play", "*");
+            else {
+                
+            }
         }
     }
 

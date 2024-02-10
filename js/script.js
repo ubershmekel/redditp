@@ -138,7 +138,8 @@ $(function () {
     }
     
     document.addEventListener("visibilitychange", (vcEvent) => {
-        console.log(document.visibilityState);
+        if (!rp.session.pauseOnTabAway)
+            return;
         if (document.visibilityState === "visible") {
             becomeVisible(vcEvent);
         } else {

@@ -5,7 +5,7 @@
   "main": "index.html",
   "dependencies": {},
   "devDependencies": {
-    "express": "^4.15.3"
+    "express": "^4.19.2"
   },
   "scripts": {
     "start": "node server.js",

@@ -89,32 +89,31 @@ $(function () {
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
 
-    var getNextSlideIndex = function (currentIndex,x) {
-        if(!x){
-            var x = 1
+    var getNextSlideIndex = function (currentIndex, skipCount) {
+        if(typeof skipCount !== "number"){
+            var skipCount = 1
         }
         if (!rp.settings.nsfw) {
             // Skip any nsfw if you should
-            for (var i = currentIndex + x; i < rp.photos.length; i++) {
+            for (var i = currentIndex + skipCount; i < rp.photos.length; i++) {
                 if (!rp.photos[i].over18) {
                     return i;
                 }
             }
             return 0;
         }
-        if (isLastImage(getNextSlideIndex) && !rp.session.loadingNextImages) {
+        if (isLastImage(currentIndex) && !rp.session.loadingNextImages) {
             // The only reason we got here and there aren't more pictures yet
             // is because there are no more images to load, start over
             return 0;
         }
         // Just go to the next slide, this should be the common case
-        return currentIndex + x;
+        return currentIndex + skipCount;
     };
-
-    function nextSlide(x) {
-        var index = rp.session.activeIndex + 1;
-        saveHistory(index);
-        startAnimation(index);
+    function nextSlide(skipCount) {
+        var next = getNextSlideIndex(rp.session.activeIndex,skipCount);
+        saveHistory(next);
+        startAnimation(next);
     }  
 
     function prevSlide() {
@@ -873,8 +872,8 @@ $(function () {
         if (!photo.data.is_gallery){
             return
         }
-        var x = (photo.galleryTotal - photo.galleryItem)+1
-        nextSlide(x)
+        var skipCount = (photo.galleryTotal - photo.galleryItem)+1
+        nextSlide(skipCount)
     };
 
     var verifyNsfwMakesSense = function () {

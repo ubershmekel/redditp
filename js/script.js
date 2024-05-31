@@ -110,7 +110,6 @@ $(function () {
         // Just go to the next slide, this should be the common case
         return currentIndex + skipCount;
     };
-
     function nextSlide(skipCount) {
         var next = getNextSlideIndex(rp.session.activeIndex,skipCount);
         saveHistory(next);
@@ -419,12 +418,11 @@ $(function () {
                 .data("index", i-(rp.photos[i].galleryItem-1))
                 .attr("title", rp.photos[i].title)
                 .attr("id", "numberButton" + ((i + 1)-(rp.photos[i].galleryTotal-1)))
-                .addClass("gallery")    
                 .addClass("numberButton")
+                .addClass("gallery");
+            numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}).addClass("galleryCount"))
             if (pic.over18) {
-                numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}).addClass("over18"))
-            } else {
-                numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}))
+                numberButton.addClass("over18");
             }
             numberButton.click(function () {
                 showImage($(this))
@@ -671,6 +669,7 @@ $(function () {
     // Animate the navigation box       
     //
     var animateNavigationBox = async function (imageIndex) {
+        console.log(imageIndex)
         var photo = rp.photos[imageIndex];
         var subreddit = '/r/' + photo.subreddit;
         var user = '/u/' + photo.userLink + '/submitted';

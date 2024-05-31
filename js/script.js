@@ -112,9 +112,9 @@ $(function () {
     };
 
     function nextSlide(x) {
-        var next = getNextSlideIndex(rp.session.activeIndex,x);
-        saveHistory(next);
-        startAnimation(next);
+        var index = rp.session.activeIndex + 1;
+        saveHistory(index);
+        startAnimation(index);
     }  
 
     function prevSlide() {
@@ -671,6 +671,7 @@ $(function () {
     // Animate the navigation box       
     //
     var animateNavigationBox = async function (imageIndex) {
+        console.log(imageIndex)
         var photo = rp.photos[imageIndex];
         var subreddit = '/r/' + photo.subreddit;
         var user = '/u/' + photo.userLink + '/submitted';

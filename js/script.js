@@ -8,7 +8,7 @@
 
 // TODO: refactor all the globals to use the rp object's namespace.
 var rp = {};
-
+var galleryOffset = 0
 rp.settings = {
     debug: true,
     // Speed of the animation
@@ -62,7 +62,7 @@ $(function () {
 
     $("#subredditUrl").text("Loading Reddit Slideshow");
     $("#navboxTitle").text("Loading Reddit Slideshow");
-
+    
     /*var fadeoutWhenIdle = true;
     var setupFadeoutOnIdle = function () {
         $('.fadeOnIdle').fadeTo('fast', 0);
@@ -89,30 +89,32 @@ $(function () {
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
 
-    var getNextSlideIndex = function (currentIndex) {
+    var getNextSlideIndex = function (currentIndex, skipCount) {
+        if(typeof skipCount !== "number"){
+            var skipCount = 1
+        }
         if (!rp.settings.nsfw) {
             // Skip any nsfw if you should
-            for (var i = currentIndex + 1; i < rp.photos.length; i++) {
+            for (var i = currentIndex + skipCount; i < rp.photos.length; i++) {
                 if (!rp.photos[i].over18) {
                     return i;
                 }
             }
             return 0;
         }
-        if (isLastImage(getNextSlideIndex) && !rp.session.loadingNextImages) {
+        if (isLastImage(currentIndex) && !rp.session.loadingNextImages) {
             // The only reason we got here and there aren't more pictures yet
             // is because there are no more images to load, start over
             return 0;
         }
         // Just go to the next slide, this should be the common case
-        return currentIndex + 1;
+        return currentIndex + skipCount;
     };
-
-    function nextSlide() {
-        var next = getNextSlideIndex(rp.session.activeIndex);
+    function nextSlide(skipCount) {
+        var next = getNextSlideIndex(rp.session.activeIndex,skipCount);
         saveHistory(next);
         startAnimation(next);
-    }
+    }  
 
     function prevSlide() {
         var index = rp.session.activeIndex - 1;
@@ -132,7 +134,7 @@ $(function () {
 
     var autoNextSlide = function () {
         if (rp.settings.shouldAutoNextSlide) {
-            // startAnimation takes care of the setTimeout
+            // startAnimation takes care of the setTimeout  
             nextSlide();
         }
     };
@@ -359,40 +361,80 @@ $(function () {
             "isVideo": video
         }
         */
-
-        var pic = embedit.redditItemToPic(item);
-        if (!pic) {
-            return;
-        }
-
-        rp.session.foundOneImage = true;
-
-        for (i = 0; i < rp.photos.length; i += 1) {
-            if (pic.url === rp.photos[i].url) {
+        if(!item.data.is_gallery){
+            var pic = embedit.redditItemToPic(item);
+            if (!pic) {
                 return;
             }
-        }
+            for (i = 0; i < rp.photos.length; i += 1) {
+                if (pic.url === rp.photos[i].url) {
+                    return;
+                }
+            }
+            rp.photos.push(pic);
+            rp.session.foundOneImage = true;
+            var i = rp.photos.length - 1;   
+            var numberButton = $("<a />").html((i+1)-galleryOffset)
+                .data("index", i)
+                .attr("title", rp.photos[i].title)  
+                .attr("id", "numberButton" + (i + 1))
+            if (pic.over18) {
+                numberButton.addClass("over18");
+            }
+            numberButton.click(function () {
+                showImage($(this));
+            });
+            numberButton.addClass("numberButton");
+            addNumberButton(numberButton);
+        } else {
+            const x = (rp.photos.length+1)-galleryOffset
+            galleryOffset+=(item.data.gallery_data.items.length)-1
+            $.each(item.data.gallery_data.items, function (j, image) {
+                pic = {
+                    "title": item.data.title,
+                    "url": "https://i.redd.it/"+image.media_id+"."+(item.data.media_metadata[image.media_id].m).split('/')[1],
+                    "data": item.data,
+                    "commentsLink": item.data.url,
+                    "over18": item.data.over_18,
+                    "isVideo": item.data.is_video,
+                    "subreddit": item.data.subreddit,
+                    "galleryItem": j+1,
+                    "galleryTotal": item.data.gallery_data.items.length,
+                    "userLink": item.data.author,
+                    "type": (item.data.media_metadata[image.media_id].m).split('/')[0]
+                }; 
+                for (i = 0; i < rp.photos.length; i += 1) {
+                    if (pic.url === rp.photos[i].url) {
+                        return; 
+                    }
+                }   
+                rp.photos.push(pic);
+                rp.session.foundOneImage = true;
 
+                
+            });
+            var i = rp.photos.length - 1;
+            var numberButton = $("<a />").html(x)
+                .data("index", i-(rp.photos[i].galleryItem-1))
+                .attr("title", rp.photos[i].title)
+                .attr("id", "numberButton" + ((i + 1)-(rp.photos[i].galleryTotal-1)))
+                .addClass("numberButton")
+                .addClass("gallery");
+            numberButton.append($("<a />").html("/"+rp.photos[i].galleryTotal).css({fontSize: 10}).addClass("galleryCount"))
+            if (pic.over18) {
+                numberButton.addClass("over18");
+            }
+            numberButton.click(function () {
+                showImage($(this))
+            });
+            addNumberButton(numberButton);
+        }
 
         // Do not preload all images, this is just not performant.
         // Especially in gif or high-res subreddits where each image can be 50 MB.
         // My high-end desktop browser was unresponsive at times.
         //preLoadImages(pic.url);
-        rp.photos.push(pic);
 
-        var i = rp.photos.length - 1;
-        var numberButton = $("<a />").html(i + 1)
-            .data("index", i)
-            .attr("title", rp.photos[i].title)
-            .attr("id", "numberButton" + (i + 1));
-        if (pic.over18) {
-            numberButton.addClass("over18");
-        }
-        numberButton.click(function () {
-            showImage($(this));
-        });
-        numberButton.addClass("numberButton");
-        addNumberButton(numberButton);
     };
 
     var arrow = {
@@ -417,10 +459,11 @@ $(function () {
     var W_KEY = 87;
     var S_KEY = 83;
     var U_KEY = 85;
+    var G_KEY = 71;
 
 
     // Register keyboard events on the whole document
-    $(document).keyup(function (e) {
+    $(document).keyup(async function (e) {
         if (e.ctrlKey) {
             // ctrl key is pressed so we're most likely switching tabs or doing something
             // unrelated to redditp UI
@@ -468,13 +511,16 @@ $(function () {
             case arrow.left:
             case arrow.up:
             case W_KEY:
-                return prevSlide();
+                return prevSlide(); 
             case PAGEDOWN:
             case arrow.right:
             case arrow.down:
             case SPACE:
             case S_KEY:
                 return nextSlide();
+            case G_KEY:
+                skipGallery()
+                break;
         }
     });
 
@@ -576,7 +622,7 @@ $(function () {
     // Starts the animation, based on the image index
     //
     // Variable to store if the animation is playing or not
-    var startAnimation = function (imageIndex) {
+    var startAnimation = async function (imageIndex) {
         resetNextSlideTimer();
 
         if (rp.session.isAnimating) {
@@ -592,7 +638,7 @@ $(function () {
         }
 
         rp.session.isAnimating = true;
-        animateNavigationBox(imageIndex);
+        await animateNavigationBox(imageIndex);
         slideBackgroundPhoto(imageIndex);
         preloadNextImage(imageIndex);
 
@@ -604,8 +650,14 @@ $(function () {
         }
     };
 
-    var toggleNumberButton = function (imageIndex, turnOn) {
-        var numberButton = $('#numberButton' + (imageIndex + 1));
+    var toggleNumberButton = async function (imageIndex,turnOn) {
+        if (imageIndex<0){return}   
+        var photo = rp.photos[imageIndex]
+        if (!photo.galleryItem){
+            var numberButton = $("#numberButton"+(imageIndex+1));
+        } else {
+            var numberButton = $("#numberButton"+((imageIndex+1)-(rp.photos[imageIndex].galleryItem-1))); 
+        }
         if (turnOn) {
             numberButton.addClass('active');
         } else {
@@ -613,10 +665,11 @@ $(function () {
         }
     };
 
+    //  
+    // Animate the navigation box       
     //
-    // Animate the navigation box
-    //
-    var animateNavigationBox = function (imageIndex) {
+    var animateNavigationBox = async function (imageIndex) {
+        console.log(imageIndex)
         var photo = rp.photos[imageIndex];
         var subreddit = '/r/' + photo.subreddit;
         var user = '/u/' + photo.userLink + '/submitted';
@@ -625,12 +678,16 @@ $(function () {
         $('#navboxSubreddit').attr('href', embedit.redditBaseUrl + subreddit).html(subreddit);
         $('#navboxLink').attr('href', photo.url).attr('title', photo.title);
         $('#navboxCommentsLink').attr('href', photo.commentsLink).attr('title', "Comments on reddit");
-        $('#navboxUser').attr('href', 'https://redditp.com' + user).attr('user', "User on reddit");
-
+        $('#navboxUser').attr('href', window.location.origin + user).attr('user', "User on reddit");
+        if (photo.galleryItem){
+            $("#navboxGallery").text("Gallery: "+photo.galleryItem+"/"+photo.galleryTotal);
+        } else {
+            $("#navboxGallery").text("")
+        }
         document.title = photo.title + " - " + subreddit + " - redditP";
 
-        toggleNumberButton(rp.session.activeIndex, false);
-        toggleNumberButton(imageIndex, true);
+        await toggleNumberButton(rp.session.activeIndex, false);
+        await toggleNumberButton(imageIndex, true);
     };
 
     var playButton = $('<img id="playButton" src="/images/play.svg" />');
@@ -757,7 +814,6 @@ $(function () {
             cssMap['background-position'] = "center";
 
             divNode.css(cssMap).addClass("clouds");
-
         } else { //if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
             embedit.embed(photo.url, function (elem) {
                 if (!elem) {
@@ -811,7 +867,14 @@ $(function () {
 
         return divNode;
     };
-
+    var skipGallery = async function () { 
+        photo = rp.photos[rp.session.activeIndex];  
+        if (!photo.data.is_gallery){
+            return
+        }
+        var skipCount = (photo.galleryTotal - photo.galleryItem)+1
+        nextSlide(skipCount)
+    };
 
     var verifyNsfwMakesSense = function () {
         // Cases when you forgot NSFW off but went to /r/nsfw
@@ -1021,6 +1084,7 @@ $(function () {
             //log(data);
 
             var children = data.data.images;
+
             if (children.length === 0) {
                 reportError("No data from this url :(");
                 return;
@@ -1029,7 +1093,6 @@ $(function () {
             if (isShuffleOn()) {
                 shuffle(children);
             }
-
             $.each(children, function (i, item) {
                 addImageSlide({
                     url: item.link,

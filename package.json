@@ -3,9 +3,8 @@
   "version": "1.0.0",
   "description": "Convert reddit urls into slideshows",
   "main": "index.html",
-  "dependencies": {},
   "devDependencies": {
-    "express": "^4.15.3"
+    "express": "^4.18.2"
   },
   "scripts": {
     "start": "node server.js",

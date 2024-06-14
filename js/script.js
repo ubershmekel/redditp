@@ -17,7 +17,8 @@ rp.settings = {
     timeToNextSlide: 6 * 1000,
     cookieDays: 300,
     nsfw: true,
-    sound: false
+    sound: false,
+    pauseOnTabAway: true,
 };
 
 rp.session = {
@@ -36,7 +37,9 @@ rp.session = {
 
     foundOneImage: false,
 
-    loadingNextImages: false
+    loadingNextImages: false,
+    
+    gfy_enhanced_api: false,
 };
 
 // Variable to store the images we need to set as background
@@ -88,6 +91,60 @@ $(function () {
     // this fadeout was really inconvenient on mobile phones
     // and instead the minimize buttons should be used.
     //setupFadeoutOnIdle();
+    
+    window.onmessage = function(message) {
+        if (message.data === "gfy_enhanced_api") {
+          rp.session.gfy_enhanced_api = true;
+        }
+        if (message.data === "gfy_ended") {
+            if (rp.settings.shouldAutoNextSlide)
+                nextSlide();
+        }
+    }
+    
+    var becomeInvisible = function(evt) {
+        if (rp.settings.shouldAutoNextSlide)
+            clearTimeout(rp.session.nextSlideTimeoutId);
+        var maybeVid = $("video");
+        if (maybeVid.length > 0) {
+            pauseVideo(maybeVid[0]);
+        }
+        
+        var maybeGfy = $(".gfyframe");
+        if (maybeGfy.length > 0) {
+            console.log("found a gfy, pausing it");
+            pauseVideo(maybeGfy[0]);
+        }
+    }
+    
+    var becomeVisible = function(evt) {
+        var maybeVid = $("video");
+        if (maybeVid.length > 0) {
+            playVideo(maybeVid[0]);
+            return;
+        }
+        
+        var maybeGfy = $(".gfyframe");
+        if (maybeGfy.length > 0) {
+            console.log("found a gfy, pausing it");
+            playVideo(maybeGfy[0]);
+            if (rp.session.gfy_enhanced_api)
+                return;
+        }
+        console.log("Starting slideshow again");
+        resetNextSlideTimer();
+        console.log("yaaaay");
+    }
+    
+    document.addEventListener("visibilitychange", (vcEvent) => {
+        if (!rp.settings.pauseOnTabAway)
+            return;
+        if (document.visibilityState === "visible") {
+            becomeVisible(vcEvent);
+        } else {
+            becomeInvisible(vcEvent);
+        }
+    });
 
     var getNextSlideIndex = function (currentIndex, skipCount) {
         if(typeof skipCount !== "number"){
@@ -751,6 +808,32 @@ $(function () {
             });
         }
     };
+    
+    var pauseVideo = function(elem) {
+        if (elem.tagName === "VIDEO") {
+            elem.play();
+        }
+        else if (elem.tagName === "IFRAME" && elem.classList.contains("gfyframe")) {
+            if (rp.session.gfy_enhanced_api)
+                elem.contentWindow.postMessage("pause", "*");
+            else {
+                elem.src = "";
+            }
+        }
+    }
+    
+    var playVideo = function(elem) {
+        if (elem.tagName === "VIDEO") {
+            elem.pause();
+        }
+        else if (elem.tagName === "IFRAME" && elem.classList.contains("gfyframe")) {
+            if (rp.session.gfy_enhanced_api)
+                elem.contentWindow.postMessage("play", "*");
+            else {
+                elem.src = elem.getAttribute("saved-src");
+            }
+        }
+    }
 
     //
     // Slides the background photos

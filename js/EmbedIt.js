@@ -8,7 +8,7 @@ embedit.imageTypes = {
   redgif: "redgif",
 };
 
-embedit.redditBaseUrl = "http://www.reddit.com";
+embedit.redditBaseUrl = "http://old.reddit.com";
 
 if (typeof window === "undefined") {
   // eslint-disable-next-line no-redeclare
@@ -17,7 +17,7 @@ if (typeof window === "undefined") {
 
 if (window.location && window.location.protocol === "https:") {
   // page is secure
-  embedit.redditBaseUrl = "https://www.reddit.com";
+  embedit.redditBaseUrl = "https://old.reddit.com";
 }
 
 embedit.video = function (webmUrl, mp4Url) {
@@ -73,8 +73,14 @@ embedit.redGifConvert = function (url, embedFunc) {
   // https://github.com/ubershmekel/redditp/issues/138
   // Redgifs isn't allowing CORS requests to others.
   // access-control-allow-origin: https://www.redgifs.com
-  const iframeUrl = 'https://www.redgifs.com/ifr/' + name;
-  embedFunc($('<iframe src="' + iframeUrl + '" frameborder="0" scrolling="no" width="100%" height="100%" allowfullscreen="" style="position:absolute;"></iframe>'));
+  const iframeUrl = "https://www.redgifs.com/ifr/" + name;
+  embedFunc(
+    $(
+      '<iframe src="' +
+        iframeUrl +
+        '" frameborder="0" scrolling="no" width="100%" height="100%" allowfullscreen="" style="position:absolute;"></iframe>'
+    )
+  );
   return true;
 };
 
@@ -231,7 +237,6 @@ embedit.redGifUrlToId = function (url) {
   }
 
   return false;
-
 };
 
 function isImageExtension(url) {

@@ -786,6 +786,10 @@ $(function () {
             // only fix reddit videos
             return;
         }
+        if (!photo.data.secure_media || !photo.data.secure_media.reddit_video) {
+            console.log("Some new reddit videos seem to have a null secure_media. Hmmm.");
+            return;
+        }
         var url = photo.data.secure_media.reddit_video.dash_url;
         var player = dashjs.MediaPlayer().create();
         player.initialize(document.querySelector("video"), url, true);

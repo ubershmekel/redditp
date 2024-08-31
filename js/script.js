@@ -335,6 +335,7 @@ $(function () {
 
         $('#prevButton').click(prevSlide);
         $('#nextButton').click(nextSlide);
+        $('#gallerySkipButton').click(skipGallery);
     };
 
     var addNumberButton = function (numberButton) {
@@ -681,8 +682,12 @@ $(function () {
         $('#navboxUser').attr('href', window.location.origin + user).attr('user', "User on reddit");
         if (photo.galleryItem){
             $("#navboxGallery").text("Gallery: "+photo.galleryItem+"/"+photo.galleryTotal);
+            $("#gallerySkipButton").text("(skip)");
+            $("#navboxGallery").show()
+            $("#gallerySkipButton").show()
         } else {
-            $("#navboxGallery").text("")
+            $("#navboxGallery").hide()
+            $("#gallerySkipButton").hide()
         }
         document.title = photo.title + " - " + subreddit + " - redditP";
 

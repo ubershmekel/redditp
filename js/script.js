@@ -390,6 +390,9 @@ $(function () {
             const x = (rp.photos.length+1)-galleryOffset
             galleryOffset+=(item.data.gallery_data.items.length)-1
             $.each(item.data.gallery_data.items, function (j, image) {
+                if (!item.data.media_metadata[image.media_id].status == "failed") {
+                    return;
+                }
                 pic = {
                     "title": item.data.title,
                     "url": "https://i.redd.it/"+image.media_id+"."+(item.data.media_metadata[image.media_id].m).split('/')[1],

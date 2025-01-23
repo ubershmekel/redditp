@@ -390,7 +390,7 @@ $(function () {
             const x = (rp.photos.length+1)-galleryOffset
             galleryOffset+=(item.data.gallery_data.items.length)-1
             $.each(item.data.gallery_data.items, function (j, image) {
-                if (!item.data.media_metadata[image.media_id].status == "failed") {
+                if (item.data.media_metadata[image.media_id].status == "failed") {
                     return;
                 }
                 pic = {

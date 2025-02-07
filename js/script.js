@@ -1013,7 +1013,7 @@ $(function () {
                 // or maybe the api change for user pages?
                 // First saw it at `https://redditp.com/u/doherty99` in the permalink:
                 // "https://www.reddit.com/r/gonewild/comments/7h7srj/pull_my_hair_and_fuck_me_from_behind/"
-                if (!item || !item.data) {
+                if (!item || !item.data || (item.data.is_gallery && !item.data.gallery_data)) {
                     reportError('invald data item');
                     return;
                 }

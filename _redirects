@@ -1,1 +1,6 @@
+# source dest httpcode
 /r/* / 200
+/u/* / 200
+/user/* / 200
+/domain/* / 200
+/search/* / 200

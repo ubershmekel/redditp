@@ -45,7 +45,7 @@ these URLs yourself:
 
 - You can use an Apache server with the `.htaccess` file.
 - Netlify removed redditp without warning. So now we're moving the hosting to
-  Vercel, Cloudflare, or GitHub pages. Not sure.
+  Vercel, Cloudflare, or GitHub pages. Not sure. See vc.redditp.com for Vercel
 - Use NodeJS (see `package.json`).
 - Use a simple HTTP server and put the subreddit URL in the get parameters like
   `http://localhost?/r/subreddit`.

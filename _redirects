@@ -4,3 +4,4 @@
 /user/* / 200
 /domain/* / 200
 /search/* / 200
+/search* / 200

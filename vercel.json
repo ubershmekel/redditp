@@ -4,6 +4,7 @@
     { "source": "/u/(.*)", "destination": "/index.html" },
     { "source": "/user/(.*)", "destination": "/index.html" },
     { "source": "/domain/(.*)", "destination": "/index.html" },
-    { "source": "/search/(.*)", "destination": "/index.html" }
+    { "source": "/search/(.*)", "destination": "/index.html" },
+    { "source": "/search", "destination": "/index.html" }
   ]
 }

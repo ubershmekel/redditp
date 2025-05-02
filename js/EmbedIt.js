@@ -383,6 +383,8 @@ embedit.transformRedditData = function (pic) {
     ) {
       // Grab the first image from the crosspost parent
       dataSource = pic.data.crosspost_parent_list[0];
+    } else {
+      return false;
     }
 
     var firstItemId = dataSource.gallery_data.items[0].media_id;

@@ -390,6 +390,9 @@ $(function () {
             const x = (rp.photos.length+1)-galleryOffset
             galleryOffset+=(item.data.gallery_data.items.length)-1
             $.each(item.data.gallery_data.items, function (j, image) {
+                if (item.data.media_metadata[image.media_id].status == "failed") {
+                    return;
+                }
                 pic = {
                     "title": item.data.title,
                     "url": "https://i.redd.it/"+image.media_id+"."+(item.data.media_metadata[image.media_id].m).split('/')[1],
@@ -1010,7 +1013,7 @@ $(function () {
                 // or maybe the api change for user pages?
                 // First saw it at `https://redditp.com/u/doherty99` in the permalink:
                 // "https://www.reddit.com/r/gonewild/comments/7h7srj/pull_my_hair_and_fuck_me_from_behind/"
-                if (!item || !item.data) {
+                if (!item || !item.data || (item.data.is_gallery && !item.data.gallery_data)) {
                     reportError('invald data item');
                     return;
                 }

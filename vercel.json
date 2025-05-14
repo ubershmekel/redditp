@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/u/stellaraeee/submitted", "destination": "/404.html" },
+    { "source": "/u/stellaraeee/submitted", "destination": "/dmca.html" },
     { "source": "/r/(.*)", "destination": "/index.html" },
     { "source": "/u/(.*)", "destination": "/index.html" },
     { "source": "/user/(.*)", "destination": "/index.html" },

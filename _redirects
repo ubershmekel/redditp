@@ -1,3 +1,6 @@
+# dmca requests
+/u/stellaraeee/submitted /404.html 404
+
 # source dest httpcode
 /r/* / 200
 /u/* / 200
@@ -6,5 +9,3 @@
 /search/* / 200
 /search / 200
 
-# dmca requests
-/u/stellaraeee/submitted /404.html 404

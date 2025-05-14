@@ -5,3 +5,6 @@
 /domain/* / 200
 /search/* / 200
 /search / 200
+
+# dmca requests
+/u/stellaraeee/submitted /404.html 404

@@ -70,10 +70,41 @@ embedit.redGifConvert = function (url, embedFunc) {
     return false;
   }
 
-  // https://github.com/ubershmekel/redditp/issues/138
-  // Redgifs isn't allowing CORS requests to others.
-  // access-control-allow-origin: https://www.redgifs.com
-  const iframeUrl = "https://www.redgifs.com/ifr/" + name;
+  // Try to fetch video directly from RedGifs API for better quality control
+  $.ajax({
+    url: "https://api.redgifs.com/v2/gifs/" + name,
+    dataType: "json",
+    success: function (data) {
+      if (data && data.gif && data.gif.urls && data.gif.urls.hd) {
+        // Use HD video URL directly with HTML5 video element
+        var videoUrl = data.gif.urls.hd;
+        var video = embedit.video(null, videoUrl);
+        // Enable sound by default (not muted)
+        video.attr("muted", false);
+        embedFunc(video);
+      } else if (data && data.gif && data.gif.urls && data.gif.urls.sd) {
+        // Fallback to SD if HD not available
+        var videoUrl = data.gif.urls.sd;
+        var video = embedit.video(null, videoUrl);
+        video.attr("muted", false);
+        embedFunc(video);
+      } else {
+        // Fallback to iframe if API doesn't return expected data
+        embedit.redGifIframeEmbed(name, embedFunc);
+      }
+    },
+    error: function () {
+      // Fallback to iframe on API error
+      embedit.redGifIframeEmbed(name, embedFunc);
+    },
+  });
+  return true;
+};
+
+embedit.redGifIframeEmbed = function (name, embedFunc) {
+  // https://github.com/ubershmekel/redditp/issues/167
+  // Add ?sound=true to enable sound by default
+  const iframeUrl = "https://www.redgifs.com/ifr/" + name + "?sound=true";
   embedFunc(
     $(
       '<iframe src="' +
@@ -81,7 +112,6 @@ embedit.redGifConvert = function (url, embedFunc) {
         '" frameborder="0" scrolling="no" width="100%" height="100%" allow="autoplay; fullscreen" allowfullscreen="" style="position:absolute;"></iframe>'
     )
   );
-  return true;
 };
 
 embedit.convertors = [

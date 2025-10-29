@@ -78,7 +78,7 @@ embedit.redGifConvert = function (url, embedFunc) {
     $(
       '<iframe src="' +
         iframeUrl +
-        '" frameborder="0" scrolling="no" width="100%" height="100%" allowfullscreen="" style="position:absolute;"></iframe>'
+        '" frameborder="0" scrolling="no" width="100%" height="100%" allow="autoplay; fullscreen" allowfullscreen="" style="position:absolute;"></iframe>'
     )
   );
   return true;
@@ -226,12 +226,20 @@ embedit.gfyUrlToId = function (url) {
 
 embedit.redGifUrlToId = function (url) {
   //https://redgifs.com/ifr/unhappyfluidgrassspider'
-  var matches = url.match(/redgifs.com\/watch\/([\w-]+)\/?/i);
+  // Handle /watch/ URLs (e.g., https://www.redgifs.com/watch/gaseousoblongant)
+  var matches = url.match(/redgifs\.com\/watch\/([\w-]+)/i);
   if (matches && matches.length > 1) {
     return matches[1];
   }
 
-  matches = url.match(/redgifs.com\/ifr\/([\w-]+)\/?/i);
+  // Handle /ifr/ URLs (e.g., https://www.redgifs.com/ifr/unhappyfluidgrassspider)
+  matches = url.match(/redgifs\.com\/ifr\/([\w-]+)/i);
+  if (matches && matches.length > 1) {
+    return matches[1];
+  }
+
+  // Handle direct video URLs with .gifv extension
+  matches = url.match(/redgifs\.com\/([\w-]+)\.gifv?/i);
   if (matches && matches.length > 1) {
     return matches[1];
   }

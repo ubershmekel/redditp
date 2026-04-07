@@ -25,6 +25,11 @@ for (let name of publicFolder) {
 
 var server = http.createServer(app);
 
+app.get('/404', function (req, res) {
+    // For testing the 404 page
+    res.status(404).sendFile(path.join(__dirname, '404.html'));
+});
+
 app.get('/*', function (req, res) {
     res.sendFile(path.join(__dirname, 'index.html'));
 });

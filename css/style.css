@@ -18,7 +18,7 @@ body { overflow:hidden; background-color: #000; color:#fff;}
 
 /* NAVIGATION BOX */
 #navigationBoxes {float: left;}
-a { text-decoration:none; color:#eee; font-weight: bold; }
+a { text-decoration:none; color:#eee; font-weight: bold; border-bottom:1px dotted transparent; }
 a:hover {
     opacity: 1.0;
     border-bottom:1px dotted;
@@ -50,6 +50,11 @@ a:hover {
 .navbox ul li a {
     cursor:pointer;
 	
+}
+#navboxAboutCreator {
+    display: inline-block;
+    min-width: 18px;
+    text-align: center;
 }
 .numberButtonList ul li a:hover { background:#888;  border: 0; }
 .numberButtonList ul li a.active {
@@ -143,4 +148,8 @@ label.checkbox { font-weight: bold; }
     height: 100%;
     cursor: pointer;
 	z-index: 2
+}
+
+.page-404 p {
+    line-height: 2em;
 }

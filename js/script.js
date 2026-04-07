@@ -62,6 +62,23 @@ function reportError(errMessage) {
     toastr.error(errMessage + ', please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>');
 }
 
+function showCreatorPromo() {
+    toastr.info(
+        'I\'m ubershmekel and I made redditp a few years ago. ' +
+        'I make tools and games for devs. Please follow me on ' +
+        '<a href="https://github.com/ubershmekel" target="_blank" rel="noopener noreferrer">GitHub</a> ' +
+        'or <a href="https://x.com/ubershmekel" target="_blank" rel="noopener noreferrer">Twitter/X</a>. ' +
+        'I post rarely, it\'s free, and it would give me a little ego boost.',
+        'Hi?',
+        {
+            closeButton: true,
+            tapToDismiss: true,
+            timeOut: 20000,
+            extendedTimeOut: 5000
+        }
+    );
+}
+
 
 $(function () {
 
@@ -69,6 +86,10 @@ $(function () {
 
     $("#subredditUrl").text("Loading Reddit Slideshow");
     $("#navboxTitle").text("Loading Reddit Slideshow");
+    $("#navboxAboutCreator").click(function (event) {
+        event.preventDefault();
+        showCreatorPromo();
+    });
     
     /*var fadeoutWhenIdle = true;
     var setupFadeoutOnIdle = function () {

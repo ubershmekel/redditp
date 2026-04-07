@@ -48,6 +48,7 @@ async function redditJsonTests() {
     const redditJson = require('../test-data/reddit-image-v2.json');
     const childrenAndAfter = embedit.processRedditJson(redditJson);
     const children = childrenAndAfter.children.map(embedit.redditItemToPic);
+    await fs.promises.mkdir(__dirname + '/../build', {recursive: true});
     await fs.promises.writeFile(__dirname + '/../build/result.json', JSON.stringify(childrenAndAfter, null, 4));
     await fs.promises.writeFile(__dirname + '/../build/children.json', JSON.stringify(children, null, 4));
 }

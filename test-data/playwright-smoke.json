@@ -1,0 +1,41 @@
+{
+  "kind": "Listing",
+  "data": {
+    "after": null,
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "url": "/images/fullscreen.png",
+          "title": "Playwright Mock Slide One",
+          "over_18": false,
+          "subreddit": "pics",
+          "permalink": "/r/pics/comments/mock001/playwright_mock_slide_one/",
+          "author": "mock-user"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "url": "/images/favicon.png",
+          "title": "Playwright Mock Slide Two",
+          "over_18": false,
+          "subreddit": "pics",
+          "permalink": "/r/pics/comments/mock002/playwright_mock_slide_two/",
+          "author": "mock-user"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "url": "/images/favicon-2.png",
+          "title": "Playwright Mock Slide 3",
+          "over_18": false,
+          "subreddit": "pics",
+          "permalink": "/r/pics/comments/mock003/playwright_mock_slide_three/",
+          "author": "mock-user"
+        }
+      }
+    ]
+  }
+}

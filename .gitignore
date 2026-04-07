@@ -46,3 +46,6 @@ build/Release
 node_modules
 /.DS_Store
 /.idea
+/playwright-report
+/test-results
+/build

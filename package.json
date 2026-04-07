@@ -4,12 +4,15 @@
   "description": "Convert reddit urls into slideshows",
   "main": "index.html",
   "devDependencies": {
+    "@playwright/test": "^1.54.1",
     "express": "^4.18.2"
   },
   "scripts": {
     "start": "node server.js",
     "debug": "node --inspect server.js",
-    "test": "node ./nodejs/test-embedit.js"
+    "test": "node ./nodejs/test-embedit.js",
+    "test:playwright": "playwright test",
+    "test:playwright:ui": "playwright test --ui"
   },
   "repository": {
     "type": "git",

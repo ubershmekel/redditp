@@ -36,7 +36,14 @@ rp.session = {
 
     foundOneImage: false,
 
-    loadingNextImages: false
+    loadingNextImages: false,
+
+    // In local Playwright mock mode we load one fixture payload up front
+    // and then stop requesting more pages.
+    mockDataLoaded: false,
+
+    // Test-only visibility into when slideshow code tries to fetch more items.
+    getRedditImagesCallCount: 0
 };
 
 // Variable to store the images we need to set as background
@@ -940,6 +947,21 @@ $(function () {
         return query;
     };
 
+    var getMockFixtureName = function () {
+        var query = parseQuery(window.location.search);
+        var fixtureName = query.mock;
+        if (!fixtureName) {
+            return "";
+        }
+
+        if (!fixtureName.match(/^[a-z0-9._-]+$/i)) {
+            reportError("Invalid mock fixture name");
+            return "";
+        }
+
+        return fixtureName;
+    };
+
     var shuffle = function (arr) {
         var i, j, x;
         for (i = arr.length - 1; i > 0; i--) {
@@ -961,6 +983,18 @@ $(function () {
         //    log("No more images to load, will rotate to start.");
         //    return;
         //}
+
+        // Keep a simple counter exposed for Playwright assertions.
+        rp.session.getRedditImagesCallCount += 1;
+
+        var mockFixtureName = getMockFixtureName();
+        // When a `?mock=...` fixture is active, the first call should load the
+        // local JSON payload and later calls should not try to page further.
+        // We still reach this function on the last slide because normal
+        // slideshow logic asks for "more content" near the end.
+        if (mockFixtureName && rp.session.mockDataLoaded) {
+            return;
+        }
 
         rp.session.loadingNextImages = true;
 
@@ -1046,6 +1080,24 @@ $(function () {
 
         if (rp.settings.debug)
             console.log('Ajax requesting: ' + jsonUrl);
+
+        if (mockFixtureName) {
+            // Local mock mode for Playwright and manual testing. This avoids
+            // live Reddit JSONP requests and serves a deterministic fixture
+            // from `/test-data/<name>.json`.
+            $.ajax({
+                url: '/test-data/' + mockFixtureName + '.json',
+                dataType: 'json',
+                success: function (data) {
+                    rp.session.mockDataLoaded = true;
+                    handleData(data);
+                },
+                error: failedAjax,
+                404: failedAjax,
+                timeout: 5000
+            });
+            return;
+        }
 
         // Note we're still using `jsonp` despite potential issues because
         // `http://www.redditp.com/r/randnsfw` wasn't working with CORS for some reason.

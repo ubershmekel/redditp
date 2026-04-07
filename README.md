@@ -53,6 +53,15 @@ these URLs yourself:
   unknown URLs reach the same `index.html`. This currently only works with a
   custom domain because of where the `.js` and `.css` files are located.
 
+## Local Mock Testing
+
+- Start the local server with `npm start`.
+- Load a routed URL with a mock fixture, for example
+  `http://127.0.0.1:8080/r/pics?mock=playwright-smoke`.
+- Mock fixtures live under `test-data/` and are only used when the `mock`
+  query parameter is present.
+- Run the Playwright smoke test with `npm run test:playwright`.
+
 ## Credits
 
 - Ubershmekel http://yuvalg.com/

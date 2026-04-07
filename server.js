@@ -15,7 +15,8 @@ const publicFolder = [
     '.well-known',
     'css',
     'images',
-    'js'
+    'js',
+    'test-data'
 ];
 
 for (let name of publicFolder) {

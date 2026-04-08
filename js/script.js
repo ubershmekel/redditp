@@ -905,7 +905,7 @@ $(function () {
       cssMap["background-size"] = "contain";
       cssMap["background-position"] = "center";
 
-      divNode.css(cssMap).addClass("clouds");
+      divNode.css(cssMap);
     } else {
       //if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
       embedit.embed(photo.url, function (elem) {

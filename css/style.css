@@ -122,6 +122,7 @@ a:hover {
 .numberButtonList ul li a.active {
   color: #00aaaa;
   -moz-box-shadow: 2px 2px 3px #eee;
+  box-shadow: 2px 2px 3px #eee;
   /* For IE 8 */
   -ms-filter: "progid:DXImageTransform.Microsoft.Shadow(Strength=3, Direction=135, Color='#EEEEEE')";
   /* For IE 5.5 - 7 */
@@ -195,8 +196,6 @@ label.checkbox {
 
 .cam {
   background-image: url("../images/bg_cam_txt.png");
-}
-.clouds {
 }
 .key {
   background-image: url("../images/bg_key_txt.png");

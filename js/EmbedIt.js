@@ -78,8 +78,8 @@ embedit.redGifConvert = function (url, embedFunc) {
     $(
       '<iframe src="' +
         iframeUrl +
-        '" frameborder="0" scrolling="no" width="100%" height="100%" allowfullscreen="" style="position:absolute;"></iframe>'
-    )
+        '" frameborder="0" scrolling="no" width="100%" height="100%" allowfullscreen="" style="position:absolute;"></iframe>',
+    ),
   );
   return true;
 };
@@ -281,7 +281,7 @@ embedit.processRedditJson = function (data) {
 
   if (result.children.length === 0) {
     console.log(
-      "What case is this? Does the data have any length? Is this the standard nothing found case? TODO: debug this"
+      "What case is this? Does the data have any length? Is this the standard nothing found case? TODO: debug this",
     );
     result.children = data;
   }

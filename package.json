@@ -5,11 +5,13 @@
   "main": "index.html",
   "devDependencies": {
     "@playwright/test": "^1.54.1",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "prettier": "^3.8.1"
   },
   "scripts": {
     "start": "node server.js",
     "debug": "node --inspect server.js",
+    "format": "prettier --write .",
     "test": "node ./nodejs/test-embedit.js",
     "test:playwright": "playwright test",
     "test:playwright:ui": "playwright test --ui"

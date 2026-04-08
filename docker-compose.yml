@@ -1,4 +1,4 @@
-version: '2'
+version: "2"
 services:
   redditp:
     image: httpd:2.2.32

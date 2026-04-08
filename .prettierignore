@@ -1,0 +1,6 @@
+build
+node_modules
+test-data
+test-results
+js/jquery.touchwipe.js
+js/js.cookie.js

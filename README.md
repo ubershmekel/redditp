@@ -58,8 +58,8 @@ these URLs yourself:
 - Start the local server with `npm start`.
 - Load a routed URL with a mock fixture, for example
   `http://127.0.0.1:8080/r/pics?mock=playwright-smoke`.
-- Mock fixtures live under `test-data/` and are only used when the `mock`
-  query parameter is present.
+- Mock fixtures live under `test-data/` and are only used when the `mock` query
+  parameter is present.
 - Run the Playwright smoke test with `npm run test:playwright`.
 
 ## Credits

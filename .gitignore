@@ -49,3 +49,4 @@ node_modules
 /playwright-report
 /test-results
 /build
+.claude/settings.local.json

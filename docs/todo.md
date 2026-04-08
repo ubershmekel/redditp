@@ -15,8 +15,11 @@ Domain matching happens in at least three places today:
 
 The note "DO NOT ADD DOMAINS HERE" appears three times because the author knew
 this was wrong but never fixed it. The fix: all domain detection should live in
-`EmbedIt.js` using consistent key-value convertor objects with `detect` regex +
-`convert` function. Remove the duplicated logic from `script.js`.
+`EmbedIt.js` using consistent key-value objects for the domains, with `detect`
+regex only if more precision than domain is needed + `convert` function. Remove
+the duplicated logic from `script.js`. There should probably be two steps - a
+prepare to embed step which mnight fetch data, then a second embed step with the
+ready data.
 
 ---
 

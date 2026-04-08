@@ -1,0 +1,81 @@
+{
+  "kind": "Listing",
+  "data": {
+    "after": null,
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "url": "/images/fullscreen.png",
+          "title": "Regular Slide Before Gallery",
+          "over_18": false,
+          "subreddit": "pics",
+          "permalink": "/r/pics/comments/gal000/regular_slide/",
+          "author": "mock-user"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "url": "https://www.reddit.com/gallery/galtest",
+          "title": "Three Cat Photos Gallery",
+          "over_18": false,
+          "subreddit": "aww",
+          "permalink": "/r/aww/comments/galtest/three_cat_photos_gallery/",
+          "author": "mock-user",
+          "is_gallery": true,
+          "gallery_data": {
+            "items": [
+              { "media_id": "galimg1", "id": 1 },
+              { "media_id": "galimg2", "id": 2 },
+              { "media_id": "galimg3", "id": 3 }
+            ]
+          },
+          "media_metadata": {
+            "galimg1": {
+              "status": "valid",
+              "e": "Image",
+              "m": "image/png",
+              "s": {
+                "u": "https://preview.redd.it/galimg1.png?width=1080",
+                "x": 1080,
+                "y": 1080
+              }
+            },
+            "galimg2": {
+              "status": "valid",
+              "e": "Image",
+              "m": "image/png",
+              "s": {
+                "u": "https://preview.redd.it/galimg2.png?width=1080",
+                "x": 1080,
+                "y": 1080
+              }
+            },
+            "galimg3": {
+              "status": "valid",
+              "e": "Image",
+              "m": "image/png",
+              "s": {
+                "u": "https://preview.redd.it/galimg3.png?width=1080",
+                "x": 1080,
+                "y": 1080
+              }
+            }
+          }
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "url": "/images/favicon-2.png",
+          "title": "Regular Slide After Gallery",
+          "over_18": false,
+          "subreddit": "pics",
+          "permalink": "/r/pics/comments/gal999/regular_slide_after/",
+          "author": "mock-user"
+        }
+      }
+    ]
+  }
+}

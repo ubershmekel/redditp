@@ -13,6 +13,7 @@
     "debug": "node --inspect server.js",
     "format": "prettier --write .",
     "test": "node ./nodejs/test-embedit.js",
+    "test:all": "npm run test && npm run test:playwright",
     "test:playwright": "playwright test",
     "test:playwright:ui": "playwright test --ui"
   },

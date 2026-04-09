@@ -42,6 +42,10 @@ rp.session = {
   // and then stop requesting more pages.
   mockDataLoaded: false,
 
+  // True when the current URL is a self-contained album (e.g. imgur) rather
+  // than a paginated reddit listing — suppresses getRedditImages pagination.
+  isAlbumMode: false,
+
   // Test-only visibility into when slideshow code tries to fetch more items.
   getRedditImagesCallCount: 0,
 };
@@ -238,17 +242,6 @@ $(function () {
     }
   });
 
-  // Arguments are image paths relative to the current page.
-  var preLoadImages = function () {
-    var args_len = arguments.length;
-    for (var i = args_len; i--; ) {
-      var cacheImage = document.createElement("img");
-      cacheImage.src = arguments[i];
-      // Chrome makes the web request without keeping a copy of the image.
-      //rp.cache.push(cacheImage);
-    }
-  };
-
   var cookieNames = {
     nsfwCookie: "nsfwCookie",
     shouldAutoNextSlideCookie: "shouldAutoNextSlideCookie",
@@ -408,64 +401,45 @@ $(function () {
     navboxUls.append(document.createTextNode(" "));
   };
 
+  // Add a single, already-normalised pic object to rp.photos and create its
+  // nav button.  Used both by addImageSlide (reddit items) and getImgurAlbum.
+  var addPic = function (pic) {
+    for (var i = 0; i < rp.photos.length; i += 1) {
+      if (pic.url === rp.photos[i].url) {
+        return;
+      }
+    }
+    rp.photos.push(pic);
+    rp.session.foundOneImage = true;
+    var idx = rp.photos.length - 1;
+    var numberButton = $("<a />")
+      .html(idx + 1 - galleryOffset)
+      .data("index", idx)
+      .attr("title", rp.photos[idx].title)
+      .attr("id", "numberButton" + (idx + 1));
+    if (pic.over18) {
+      numberButton.addClass("over18");
+    }
+    numberButton.click(function () {
+      showImage($(this));
+    });
+    numberButton.addClass("numberButton");
+    addNumberButton(numberButton);
+  };
+
   var addImageSlide = function (item) {
-    /*
-        var pic = {
-            "title": title,
-            "url": url,
-            "commentsLink": commentsLink,
-            "over18": over18,
-            "isVideo": video
-        }
-        */
     if (!item.data.is_gallery) {
       var pic = embedit.redditItemToPic(item);
       if (!pic) {
         return;
       }
-      for (i = 0; i < rp.photos.length; i += 1) {
-        if (pic.url === rp.photos[i].url) {
-          return;
-        }
-      }
-      rp.photos.push(pic);
-      rp.session.foundOneImage = true;
-      var i = rp.photos.length - 1;
-      var numberButton = $("<a />")
-        .html(i + 1 - galleryOffset)
-        .data("index", i)
-        .attr("title", rp.photos[i].title)
-        .attr("id", "numberButton" + (i + 1));
-      if (pic.over18) {
-        numberButton.addClass("over18");
-      }
-      numberButton.click(function () {
-        showImage($(this));
-      });
-      numberButton.addClass("numberButton");
-      addNumberButton(numberButton);
+      addPic(pic);
     } else {
-      const x = rp.photos.length + 1 - galleryOffset;
-      galleryOffset += item.data.gallery_data.items.length - 1;
-      $.each(item.data.gallery_data.items, function (j, image) {
-        pic = {
-          title: item.data.title,
-          url:
-            "https://i.redd.it/" +
-            image.media_id +
-            "." +
-            item.data.media_metadata[image.media_id].m.split("/")[1],
-          data: item.data,
-          commentsLink: item.data.url,
-          over18: item.data.over_18,
-          isVideo: item.data.is_video,
-          subreddit: item.data.subreddit,
-          galleryItem: j + 1,
-          galleryTotal: item.data.gallery_data.items.length,
-          userLink: item.data.author,
-          type: item.data.media_metadata[image.media_id].m.split("/")[0],
-        };
-        for (i = 0; i < rp.photos.length; i += 1) {
+      var galleryStartX = rp.photos.length + 1 - galleryOffset;
+      var galleryPics = embedit.redditGalleryToPics(item);
+      galleryOffset += galleryPics.length - 1;
+      galleryPics.forEach(function (pic) {
+        for (var i = 0; i < rp.photos.length; i += 1) {
           if (pic.url === rp.photos[i].url) {
             return;
           }
@@ -473,21 +447,22 @@ $(function () {
         rp.photos.push(pic);
         rp.session.foundOneImage = true;
       });
-      var i = rp.photos.length - 1;
+      var lastIdx = rp.photos.length - 1;
+      var lastPic = rp.photos[lastIdx];
       var numberButton = $("<a />")
-        .html(x)
-        .data("index", i - (rp.photos[i].galleryItem - 1))
-        .attr("title", rp.photos[i].title)
-        .attr("id", "numberButton" + (i + 1 - (rp.photos[i].galleryTotal - 1)))
+        .html(galleryStartX)
+        .data("index", lastIdx - (lastPic.galleryItem - 1))
+        .attr("title", lastPic.title)
+        .attr("id", "numberButton" + (lastIdx + 1 - (lastPic.galleryTotal - 1)))
         .addClass("numberButton")
         .addClass("gallery");
       numberButton.append(
         $("<a />")
-          .html("/" + rp.photos[i].galleryTotal)
+          .html("/" + lastPic.galleryTotal)
           .css({ fontSize: 10 })
           .addClass("galleryCount"),
       );
-      if (pic.over18) {
+      if (lastPic.over18) {
         numberButton.addClass("over18");
       }
       numberButton.click(function () {
@@ -495,11 +470,6 @@ $(function () {
       });
       addNumberButton(numberButton);
     }
-
-    // Do not preload all images, this is just not performant.
-    // Especially in gif or high-res subreddits where each image can be 50 MB.
-    // My high-end desktop browser was unresponsive at times.
-    //preLoadImages(pic.url);
   };
 
   var arrow = {
@@ -717,10 +687,7 @@ $(function () {
     // Set the active index to the used image index
     rp.session.activeIndex = imageIndex;
 
-    if (
-      isLastImage(rp.session.activeIndex) &&
-      rp.subredditUrl.indexOf("/imgur") !== 0
-    ) {
+    if (isLastImage(rp.session.activeIndex) && !rp.session.isAlbumMode) {
       getRedditImages();
     }
   };
@@ -851,7 +818,7 @@ $(function () {
     }
 
     divNode.prependTo(pictureSliderId);
-    fixRedditVideo(imageIndex);
+    embedit.initDash(rp.photos[imageIndex]);
 
     $(pictureSliderId + " div").fadeIn(rp.settings.animationSpeed);
     var oldDiv = $(pictureSliderId + " div:not(:first)");
@@ -867,95 +834,12 @@ $(function () {
     });
   };
 
-  var fixRedditVideo = function (imageIndex) {
-    var photo = rp.photos[imageIndex];
-    if (photo.url.indexOf("//v.redd.it/") < 0) {
-      // only fix reddit videos
-      return;
-    }
-    if (!photo.data.secure_media || !photo.data.secure_media.reddit_video) {
-      console.log(
-        "Some new reddit videos seem to have a null secure_media. Hmmm.",
-      );
-      return;
-    }
-    var url = photo.data.secure_media.reddit_video.dash_url;
-    var player = dashjs.MediaPlayer().create();
-    player.initialize(document.querySelector("video"), url, true);
-  };
-
   var createDiv = function (imageIndex) {
-    // Retrieve the accompanying photo based on the index
     var photo = rp.photos[imageIndex];
-    //log("Creating div for " + imageIndex + " - " + photo.url);
-
-    // Create a new div and apply the CSS
     var divNode = $("<div />");
-    if (photo.type === embedit.imageTypes.image) {
-      // TODO: REFACTOR BOTH IMAGES AND VIDEOS TO WORK WITH ONE FRAMEWORK - EMBEDIT
-
-      // An actual image. Not a video/gif.
-      // `preLoadImages` because making a div with a background css does not cause chrome
-      // to preload it :/
-      preLoadImages(photo.url);
-      var cssMap = Object();
-      cssMap["display"] = "none";
-      cssMap["background-image"] = "url(" + photo.url + ")";
-      cssMap["background-repeat"] = "no-repeat";
-      cssMap["background-size"] = "contain";
-      cssMap["background-position"] = "center";
-
-      divNode.css(cssMap);
-    } else {
-      //if(photo.type === imageTypes.gfycat || photo.type === imageTypes.gifv) {
-      embedit.embed(photo.url, function (elem) {
-        if (!elem) {
-          reportError("Failed to handle url");
-          return divNode;
-        }
-        if (photo.url.indexOf("//v.redd.it/") >= 0) {
-          // Embedit is wrong here, ignore it.
-          // I'm ashamed of the spaghetti I'm in, but I'm also tired
-          // and want to go to sleep with this working.
-          // elem = document.createElement("video");
-          elem = $('<video autoplay playsinline loop controls="true" />');
-        }
-        divNode.append(elem);
-
-        $(elem).attr({
-          playsinline: "",
-        });
-        if (photo.sound) {
-          // this case is for videos from v.redd.it domain only
-          // $("<audio loop autoplay " + (rp.settings.sound ? '' : 'muted') + "><source src='" + photo.sound + "' type='audio/aac'/></audio>").appendTo($(elem));
-          // console.log("we are here!", photo)
-          // console.log("we are here!", photo.data.secure_media.reddit_video.dash_url)
-          // var $audioTag = $("audio", elem).get(0);
-          // var $videoTag = $("video", divNode).get(0);
-          // // sync reddit audio and video tracks
-          // $audioTag.currentTime = $videoTag.currentTime;
-          // $videoTag.onplay = function () {
-          //     $audioTag.play();
-          // };
-          // $videoTag.onpause = function () {
-          //     $audioTag.pause();
-          // };
-          // $videoTag.onseeking = function () {
-          //     $audioTag.currentTime = $videoTag.currentTime;
-          // };
-        }
-        elem.width("100%").height("100%");
-        // We start paused and play after the fade in.
-        // This is to avoid cached or preloaded videos from playing.
-        if (elem[0].pause) {
-          // Note this doesn't work on iframe embeds.
-          elem[0].pause();
-        }
-      });
-    } // else {
-    //    reportError('Unhandled image type');
-    //}
-
+    embedit.render(photo, divNode, function () {
+      reportError("Failed to handle url");
+    });
     return divNode;
   };
   var skipGallery = async function () {
@@ -1222,71 +1106,6 @@ $(function () {
     });
   };
 
-  var getImgurAlbum = function (url) {
-    var albumID = url.match(/.*\/(.+?$)/)[1];
-    var jsonUrl = "https://api.imgur.com/3/album/" + albumID;
-    //log(jsonUrl);
-    var failedAjax = function (/*data*/) {
-      reportError("Failed ajax, maybe a bad url? Sorry about that :(");
-      failCleanup();
-    };
-    var handleData = function (data) {
-      //log(data);
-
-      var children = data.data.images;
-
-      if (children.length === 0) {
-        reportError("No data from this url :(");
-        return;
-      }
-
-      if (isShuffleOn()) {
-        shuffle(children);
-      }
-      $.each(children, function (i, item) {
-        addImageSlide({
-          url: item.link,
-          title: item.title,
-          over18: item.nsfw,
-          commentsLink: "",
-        });
-      });
-
-      verifyNsfwMakesSense();
-
-      if (!rp.session.foundOneImage) {
-        console.log(jsonUrl);
-        reportError("Sorry, no displayable images found in that url :(");
-      }
-
-      // show the first image
-      if (rp.session.activeIndex === -1) {
-        // was startShow();
-        showDefault();
-      }
-
-      //log("No more pages to load from this subreddit, reloading the start");
-
-      // Show the user we're starting from the top
-      //var numberButton = $("<span />").addClass("numberButton").text("-");
-      //addNumberButton(numberButton);
-
-      rp.session.loadingNextImages = false;
-    };
-
-    $.ajax({
-      url: jsonUrl,
-      dataType: "json",
-      success: handleData,
-      error: failedAjax,
-      404: failedAjax,
-      timeout: 5000,
-      beforeSend: function (xhr) {
-        xhr.setRequestHeader("Authorization", "Client-ID " + "f2edd1ef8e66eaf");
-      },
-    });
-  };
-
   var setupUrls = function () {
     rp.urlData = rp.getRestOfUrl();
     //log(rp.urlData)
@@ -1342,9 +1161,22 @@ $(function () {
   // if ever found even 1 image, don't show the error
   rp.session.foundOneImage = false;
 
-  if (rp.subredditUrl.indexOf("/imgur") === 0) {
-    getImgurAlbum(rp.subredditUrl);
-  } else {
+  rp.session.isAlbumMode = embedit.tryFetchAlbum(rp.subredditUrl, function (pics) {
+    rp.session.loadingNextImages = true;
+    if (isShuffleOn()) shuffle(pics);
+    pics.forEach(addPic);
+    verifyNsfwMakesSense();
+    if (!rp.session.foundOneImage) {
+      reportError("Sorry, no displayable images found in that url :(");
+    }
+    if (rp.session.activeIndex === -1) showDefault();
+    rp.session.loadingNextImages = false;
+  }, function () {
+    reportError("Failed ajax, maybe a bad url? Sorry about that :(");
+    failCleanup();
+  });
+
+  if (!rp.session.isAlbumMode) {
     getRedditImages();
   }
 });

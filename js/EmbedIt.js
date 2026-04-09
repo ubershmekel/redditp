@@ -315,127 +315,111 @@ function decodeEntities(encodedString) {
     });
 }
 
-// Preparers: each entry detects a URL pattern and normalises pic.url / pic.type
-// so that embedit.embed() can render it without needing to know the source domain.
-// Order matters — more specific patterns must come before broader catch-alls.
-embedit.preparers = [
-  {
-    name: "gfycat",
-    detect: /gfycat\.com/,
-    prepare: function (pic) {
-      pic.type = embedit.imageTypes.gfycat;
+// Preparers: keyed by domain string. Values are either a single prepare function
+// (when no further URL inspection is needed) or an array of {detect?, prepare}
+// objects tried in order (most specific first).
+// URLs that match no domain fall through to an image-extension check in transformRedditData.
+embedit.preparers = {
+  "gfycat.com": function (pic) {
+    pic.type = embedit.imageTypes.gfycat;
+    pic.url = pic.url.replace("http://", "https://");
+    return true;
+  },
+  "redgifs.com": function (pic) {
+    pic.type = embedit.imageTypes.redgif;
+    pic.url = pic.url.replace("http://", "https://");
+    return true;
+  },
+  // Note that this `DASH_audio.mp4` is now `DASH_AUDIO_128.mp4`.
+  // You can find it in the `.mpd` file, but I don't want to parse that.
+  // Instead - we'll use `dash.min.js` to create the video element.
+  "v.redd.it": function (pic) {
+    var media =
+      pic.data.media ||
+      (pic.data.crosspost_parent_list &&
+        pic.data.crosspost_parent_list[0] &&
+        pic.data.crosspost_parent_list[0].media);
+    if (!media) {
+      // some crossposts don't have a media obj
+      return false;
+    }
+    pic.type = embedit.imageTypes.gifv;
+    pic.url = media.reddit_video.fallback_url;
+    pic.sound =
+      pic.url.substring(0, pic.url.lastIndexOf("/")) + "/DASH_audio.mp4";
+    // DASH manifest URL for adaptive streaming via dash.js (may be absent on some posts)
+    if (pic.data.secure_media && pic.data.secure_media.reddit_video) {
+      pic.dashUrl = pic.data.secure_media.reddit_video.dash_url;
+    }
+    return true;
+  },
+  // URLs ending in .gif or .gifv are served as video (webm/mp4).
+  // All other imgur URLs get .jpg appended (imgur serves any extension).
+  // The replace removes an /r/<sub>/ prefix if present, e.g. imgur.com/r/aww/x9q6yW9.
+  "imgur.com": function (pic) {
+    if (/gifv?$/.test(pic.url)) {
+      pic.type = embedit.imageTypes.gifv;
       pic.url = pic.url.replace("http://", "https://");
       return true;
-    },
+    }
+    if (pic.url.indexOf("/a/") > 0 || pic.url.indexOf("/gallery/") > 0) {
+      return false; // albums not supported
+    }
+    pic.url = pic.url.replace(/r\/[^ /]+\/(\w+)/, "$1") + ".jpg";
+    pic.type = embedit.imageTypes.image;
+    return true;
   },
-  {
-    name: "redgifs",
-    detect: /redgifs\.com/,
-    prepare: function (pic) {
-      pic.type = embedit.imageTypes.redgif;
-      pic.url = pic.url.replace("http://", "https://");
-      return true;
-    },
-  },
-  {
-    name: "v.redd.it",
-    detect: /\/\/v\.redd\.it\//,
-    prepare: function (pic) {
-      // Note that this `DASH_audio.mp4` is now `DASH_AUDIO_128.mp4`.
-      // You can find it in the `.mpd` file, but I don't want to parse that.
-      // Instead - we'll use `dash.min.js` to create the video element.
-      var media =
-        pic.data.media ||
-        (pic.data.crosspost_parent_list &&
-          pic.data.crosspost_parent_list[0] &&
-          pic.data.crosspost_parent_list[0].media);
-      if (!media) {
-        // some crossposts don't have a media obj
+  "reddit.com": function (pic) {
+    if (pic.url.indexOf("/gallery/") < 0) return false;
+    var dataSource = pic.data;
+    if (!dataSource.gallery_data || !dataSource.gallery_data.items) {
+      if (
+        pic.data.crosspost_parent_list &&
+        pic.data.crosspost_parent_list[0] &&
+        pic.data.crosspost_parent_list[0].gallery_data &&
+        pic.data.crosspost_parent_list[0].gallery_data.items
+      ) {
+        dataSource = pic.data.crosspost_parent_list[0];
+      } else {
         return false;
       }
+    }
+    var firstItemId = dataSource.gallery_data.items[0].media_id;
+    var encodedUrl = dataSource.media_metadata[firstItemId]["s"]["u"];
+    pic.type = embedit.imageTypes.image;
+    if (encodedUrl === undefined) {
+      // some posts don't have the u key, but have gif and mp4 keys
+      encodedUrl = dataSource.media_metadata[firstItemId]["s"]["mp4"];
       pic.type = embedit.imageTypes.gifv;
-      pic.url = media.reddit_video.fallback_url;
-      pic.sound =
-        pic.url.substring(0, pic.url.lastIndexOf("/")) + "/DASH_audio.mp4";
-      // DASH manifest URL for adaptive streaming via dash.js (may be absent on some posts)
-      if (pic.data.secure_media && pic.data.secure_media.reddit_video) {
-        pic.dashUrl = pic.data.secure_media.reddit_video.dash_url;
-      }
-      return true;
-    },
+    }
+    pic.url = decodeEntities(encodedUrl);
+    return true;
   },
-  {
-    // imgur URLs ending in .gif or .gifv are served as video (webm/mp4).
-    // Must be checked before the generic imageExtension preparer.
-    name: "imgurGifv",
-    detect: /^http.*imgur.*gifv?$/,
-    prepare: function (pic) {
-      pic.type = embedit.imageTypes.gifv;
-      pic.url = pic.url.replace("http://", "https://");
-      return true;
-    },
-  },
-  {
-    name: "redditGallery",
-    detect: /reddit\.com\/gallery/,
-    prepare: function (pic) {
-      var dataSource = pic.data;
-      if (!dataSource.gallery_data || !dataSource.gallery_data.items) {
-        if (
-          pic.data.crosspost_parent_list &&
-          pic.data.crosspost_parent_list[0] &&
-          pic.data.crosspost_parent_list[0].gallery_data &&
-          pic.data.crosspost_parent_list[0].gallery_data.items
-        ) {
-          dataSource = pic.data.crosspost_parent_list[0];
-        } else {
-          return false;
-        }
-      }
-      var firstItemId = dataSource.gallery_data.items[0].media_id;
-      var encodedUrl = dataSource.media_metadata[firstItemId]["s"]["u"];
-      pic.type = embedit.imageTypes.image;
-      if (encodedUrl === undefined) {
-        // some posts don't have the u key, but have gif and mp4 keys
-        encodedUrl = dataSource.media_metadata[firstItemId]["s"]["mp4"];
-        pic.type = embedit.imageTypes.gifv;
-      }
-      pic.url = decodeEntities(encodedUrl);
-      return true;
-    },
-  },
-  {
-    name: "imageExtension",
-    detect: /\.(png|jpg|jpeg|gif|bmp)$/i,
-    prepare: function (pic) {
-      pic.type = embedit.imageTypes.image;
-      return true;
-    },
-  },
-  {
-    // imgur URLs without a recognised extension — append .jpg (imgur serves any extension).
-    // The regexp removes an /r/<sub>/ prefix if present, e.g. imgur.com/r/aww/x9q6yW9.
-    name: "imgur",
-    detect: /imgur\.com/,
-    prepare: function (pic) {
-      if (pic.url.indexOf("/a/") > 0 || pic.url.indexOf("/gallery/") > 0) {
-        return false; // albums not supported
-      }
-      pic.url = pic.url.replace(/r\/[^ /]+\/(\w+)/, "$1") + ".jpg";
-      pic.type = embedit.imageTypes.image;
-      return true;
-    },
-  },
-];
+};
 
 embedit.transformRedditData = function (pic) {
   pic.type = embedit.imageTypes.image;
-  for (var i = 0; i < embedit.preparers.length; i++) {
-    var preparer = embedit.preparers[i];
-    if (pic.url.match(preparer.detect)) {
-      return preparer.prepare(pic);
-    }
+  var hostname;
+  try {
+    hostname = new URL(pic.url).hostname;
+  } catch (e) {
+    hostname = "";
   }
+  // Walk up subdomain levels: "i.imgur.com" → "imgur.com", etc.
+  while (hostname) {
+    var prepare = embedit.preparers[hostname];
+    if (prepare) return prepare(pic);
+    var dot = hostname.indexOf(".");
+    if (dot < 0) break;
+    hostname = hostname.slice(dot + 1);
+  }
+
+  // No domain matched — fall back to bare image extension
+  if (/\.(png|jpg|jpeg|gif|bmp)$/i.test(pic.url)) {
+    pic.type = embedit.imageTypes.image;
+    return true;
+  }
+
   if (window.debug) {
     console.log("cannot display url as image: " + pic.url);
   }

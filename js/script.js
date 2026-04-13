@@ -69,20 +69,43 @@ function reportError(errMessage) {
   );
 }
 
-function showCreatorPromo() {
-  toastr.info(
-    "I'm ubershmekel and I made redditp a few years ago. " +
-      "I make tools and games for devs. Please follow me on " +
+function showNote(title, message) {
+  toastr.info(message, title, {
+    closeButton: true,
+    tapToDismiss: true,
+    timeOut: 20000,
+    extendedTimeOut: 5000,
+  });
+}
+
+function showHelp(event) {
+  event.preventDefault();
+  showNote(
+    "Hotkeys",
+    "<table style='border-spacing: 4px 2px'>" +
+      "<tr><td><b>a</b></td><td>toggle auto-next (play/pause)</td></tr>" +
+      "<tr><td><b>t</b></td><td>collapse/uncollapse title</td></tr>" +
+      "<tr><td><b>c</b></td><td>collapse/uncollapse controls</td></tr>" +
+      "<tr><td><b>i</b></td><td>open image in a new tab</td></tr>" +
+      "<tr><td><b>r</b></td><td>open comments in a new tab</td></tr>" +
+      "<tr><td><b>u</b></td><td>open user slideshow in new tab</td></tr>" +
+      "<tr><td><b>f</b></td><td>toggle full screen</td></tr>" +
+      "<tr><td><b>m</b></td><td>toggle sound</td></tr>" +
+      "<tr><td><b>g</b></td><td>skip gallery</td></tr>" +
+      "</table>" +
+      '<a href="https://github.com/ubershmekel/redditp" target="_blank" rel="noopener noreferrer">Source on GitHub</a>',
+  );
+}
+
+function showCreatorPromo(event) {
+  event.preventDefault();
+  showNote(
+    "Hi?",
+    "I'm ubershmekel and I made redditp. " +
+      "I make games and dev tools. Please follow me on " +
       '<a href="https://github.com/ubershmekel" target="_blank" rel="noopener noreferrer">GitHub</a> ' +
       'or <a href="https://x.com/ubershmekel" target="_blank" rel="noopener noreferrer">Twitter/X</a>. ' +
-      "I post rarely, it's free, and it would give me a little ego boost.",
-    "Hi?",
-    {
-      closeButton: true,
-      tapToDismiss: true,
-      timeOut: 20000,
-      extendedTimeOut: 5000,
-    },
+      "I post rarely and it's free.",
   );
 }
 
@@ -91,36 +114,8 @@ $(function () {
 
   $("#subredditUrl").text("Loading Reddit Slideshow");
   $("#navboxTitle").text("Loading Reddit Slideshow");
-  $("#navboxAboutCreator").click(function (event) {
-    event.preventDefault();
-    showCreatorPromo();
-  });
-
-  /*var fadeoutWhenIdle = true;
-    var setupFadeoutOnIdle = function () {
-        $('.fadeOnIdle').fadeTo('fast', 0);
-        var navboxVisible = false;
-        var fadeoutTimer = null;
-        var fadeoutFunction = function () {
-            navboxVisible = false;
-            if (fadeoutWhenIdle) {
-                $('.fadeOnIdle').fadeTo('slow', 0);
-            }
-        };
-        $("body").mousemove(function () {
-            if (navboxVisible) {
-                clearTimeout(fadeoutTimer);
-                fadeoutTimer = setTimeout(fadeoutFunction, 2000);
-                return;
-            }
-            navboxVisible = true;
-            $('.fadeOnIdle').fadeTo('fast', 1);
-            fadeoutTimer = setTimeout(fadeoutFunction, 2000);
-        });
-    };*/
-  // this fadeout was really inconvenient on mobile phones
-  // and instead the minimize buttons should be used.
-  //setupFadeoutOnIdle();
+  $("#helpButton").click(showHelp);
+  $("#navboxAboutCreator").click(showCreatorPromo);
 
   var getNextSlideIndex = function (currentIndex, skipCount) {
     if (typeof skipCount !== "number") {
@@ -1161,20 +1156,24 @@ $(function () {
   // if ever found even 1 image, don't show the error
   rp.session.foundOneImage = false;
 
-  rp.session.isAlbumMode = embedit.tryFetchAlbum(rp.subredditUrl, function (pics) {
-    rp.session.loadingNextImages = true;
-    if (isShuffleOn()) shuffle(pics);
-    pics.forEach(addPic);
-    verifyNsfwMakesSense();
-    if (!rp.session.foundOneImage) {
-      reportError("Sorry, no displayable images found in that url :(");
-    }
-    if (rp.session.activeIndex === -1) showDefault();
-    rp.session.loadingNextImages = false;
-  }, function () {
-    reportError("Failed ajax, maybe a bad url? Sorry about that :(");
-    failCleanup();
-  });
+  rp.session.isAlbumMode = embedit.tryFetchAlbum(
+    rp.subredditUrl,
+    function (pics) {
+      rp.session.loadingNextImages = true;
+      if (isShuffleOn()) shuffle(pics);
+      pics.forEach(addPic);
+      verifyNsfwMakesSense();
+      if (!rp.session.foundOneImage) {
+        reportError("Sorry, no displayable images found in that url :(");
+      }
+      if (rp.session.activeIndex === -1) showDefault();
+      rp.session.loadingNextImages = false;
+    },
+    function () {
+      reportError("Failed ajax, maybe a bad url? Sorry about that :(");
+      failCleanup();
+    },
+  );
 
   if (!rp.session.isAlbumMode) {
     getRedditImages();

@@ -73,7 +73,7 @@ function showNote(title, message) {
   toastr.info(message, title, {
     closeButton: true,
     tapToDismiss: true,
-    timeOut: 20000,
+    timeOut: 60_000,
     extendedTimeOut: 5000,
   });
 }

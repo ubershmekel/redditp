@@ -270,3 +270,47 @@ label.checkbox {
 .page-404 p {
   line-height: 2em;
 }
+
+#toast-container {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 10px 14px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.4;
+  max-width: 320px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+
+.toast.toast-info {
+  background: #2a6496;
+}
+.toast.toast-warning {
+  background: #8a5f00;
+}
+.toast.toast-error {
+  background: #a02020;
+}
+
+.toast-title {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.toast.fade-out {
+  opacity: 0;
+}

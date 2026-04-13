@@ -23,6 +23,12 @@ window.toastr = (function () {
     body.innerHTML = message;
     el.appendChild(body);
 
+    var closeBtn = document.createElement("button");
+    closeBtn.className = "toast-close";
+    closeBtn.textContent = "×";
+    closeBtn.setAttribute("aria-label", "Close");
+    el.appendChild(closeBtn);
+
     var timeout = opts.timeOut !== undefined ? opts.timeOut : 15000;
     var timer;
 

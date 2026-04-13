@@ -100,7 +100,7 @@ function showHelp(event) {
 function showCreatorPromo(event) {
   event.preventDefault();
   showNote(
-    "Hi?",
+    "Hi!",
     "I'm ubershmekel and I made redditp. " +
       "I make games and dev tools. Please follow me on " +
       '<a href="https://github.com/ubershmekel" target="_blank" rel="noopener noreferrer">GitHub</a> ' +

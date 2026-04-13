@@ -23,7 +23,7 @@ window.toastr = (function () {
     body.innerHTML = message;
     el.appendChild(body);
 
-    var timeout = opts.timeOut !== undefined ? opts.timeOut : 5000;
+    var timeout = opts.timeOut !== undefined ? opts.timeOut : 15000;
     var timer;
 
     function dismiss() {

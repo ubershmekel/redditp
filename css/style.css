@@ -323,3 +323,12 @@ label.checkbox {
 .toast a:hover {
   border-bottom: 1px solid;
 }
+
+.alternatives p {
+  /* make a bit of space under each paragrah */
+  margin-bottom: 1em;
+}
+
+.alternatives ul {
+  margin-bottom: 1em;
+}

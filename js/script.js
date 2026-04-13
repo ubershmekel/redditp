@@ -65,7 +65,7 @@ function reportError(errMessage) {
   }
   toastr.error(
     errMessage +
-      ', please alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>',
+      '\nPlease alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>',
   );
 }
 

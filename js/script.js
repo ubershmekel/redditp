@@ -91,7 +91,7 @@ function showHelp(event) {
       "<tr><td><b>u</b></td><td>open user slideshow in new tab</td></tr>" +
       "<tr><td><b>f</b></td><td>toggle full screen</td></tr>" +
       "<tr><td><b>m</b></td><td>toggle sound</td></tr>" +
-      "<tr><td><b>g</b></td><td>skip gallery</td></tr>" +
+      "<tr><td><b>g</b></td><td>next slide (skips rest of gallery)</td></tr>" +
       "</table>" +
       '<a href="https://github.com/ubershmekel/redditp" target="_blank" rel="noopener noreferrer">Source on GitHub</a>',
   );
@@ -838,8 +838,9 @@ $(function () {
     return divNode;
   };
   var skipGallery = async function () {
-    photo = rp.photos[rp.session.activeIndex];
+    var photo = rp.photos[rp.session.activeIndex];
     if (!photo.data.is_gallery) {
+      nextSlide();
       return;
     }
     var skipCount = photo.galleryTotal - photo.galleryItem + 1;

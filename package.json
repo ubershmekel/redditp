@@ -14,8 +14,8 @@
     "format": "prettier --write .",
     "test": "node ./nodejs/test-embedit.js",
     "test:all": "npm run test && npm run test:playwright",
-    "test:playwright": "playwright test",
-    "test:playwright:ui": "playwright test --ui"
+    "test:playwright": "npx playwright test",
+    "test:playwright:ui": "npx playwright test --ui"
   },
   "repository": {
     "type": "git",

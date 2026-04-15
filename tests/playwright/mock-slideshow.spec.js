@@ -14,7 +14,7 @@ test("loads mock slideshow, requests more on the last slide, and wraps back to s
     "href",
     "/images/fullscreen.png",
   );
-  await expect(page.locator("#navboxAboutCreator")).toHaveText("?");
+  await expect(page.locator("#navboxAboutCreator")).toHaveText("redditp");
   await expect
     .poll(async () => {
       return page.evaluate(() => window.rp.session.getRedditImagesCallCount);

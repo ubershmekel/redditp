@@ -719,7 +719,7 @@ $(function () {
     console.log(imageIndex);
     var photo = rp.photos[imageIndex];
     var subreddit = "/r/" + photo.subreddit;
-    var user = "/u/" + photo.userLink + "/submitted";
+    var user = "/user/" + photo.userLink + "/submitted";
 
     $("#navboxTitle").html(photo.title);
     $("#navboxSubreddit")

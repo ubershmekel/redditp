@@ -7,19 +7,6 @@ import { URL } from "url";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Reddit app credentials — register at https://www.reddit.com/prefs/apps
-// Set these in the environment before starting the server.
-const REDDIT_CLIENT_ID = process.env.REDDIT_CLIENT_ID ?? "";
-const REDDIT_CLIENT_SECRET = process.env.REDDIT_CLIENT_SECRET ?? "";
-
-if (!REDDIT_CLIENT_ID || !REDDIT_CLIENT_SECRET) {
-  console.error(
-    "ERROR: REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET must be set in server/.env\n" +
-      "Register a 'script' app at https://www.reddit.com/prefs/apps",
-  );
-  process.exit(1);
-}
-
 const ALLOWED_ORIGINS = new Set([
   "https://redditp.com",
   "https://api.redditp.com",
@@ -36,80 +23,59 @@ const ALLOWED_ORIGINS = new Set([
 const USER_AGENT =
   "web:redditp-proxy:1.0.0 (by /u/ubershmekel; https://redditp.com)";
 
-// ── OAuth token cache ────────────────────────────────────────────────────────
+// Reddit's OAuth app registration is gated behind an approval process as of
+// late 2025 (the "Responsible Builder Policy"), so we fall back to the
+// public, unauthenticated .json endpoints instead of oauth.reddit.com.
+const REDDIT_HOST = "old.reddit.com";
 
-interface OAuthToken {
-  accessToken: string;
-  expiresAt: number; // ms since epoch
+// ── Logging ──────────────────────────────────────────────────────────────────
+// Every line gets a timestamp. We log every request (no dedup/collapsing) —
+// the throttle below is what keeps us from spamming Reddit's API, not the log.
+
+function timestamp(): string {
+  return new Date().toISOString();
 }
 
-let cachedToken: OAuthToken | null = null;
-
-function httpsPost(
-  url: string,
-  body: string,
-  headers: Record<string, string>,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const req = https.request(
-      {
-        hostname: parsed.hostname,
-        path: parsed.pathname + parsed.search,
-        method: "POST",
-        headers: {
-          ...headers,
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Content-Length": Buffer.byteLength(body),
-        },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk: Buffer) => (data += chunk.toString()));
-        res.on("end", () => resolve(data));
-      },
-    );
-    req.on("error", reject);
-    req.write(body);
-    req.end();
-  });
+function log(level: "log" | "error", message: string): void {
+  console[level](`[${timestamp()}] ${message}`);
 }
 
-async function getAccessToken(): Promise<string> {
-  const now = Date.now();
-  if (cachedToken && cachedToken.expiresAt > now + 60_000) {
-    return cachedToken.accessToken;
-  }
+// ── Outbound request throttling ─────────────────────────────────────────────
+// Serialize + space out our own requests to Reddit so we don't get blocked
+// for hammering their unauthenticated endpoint.
 
-  const credentials = Buffer.from(
-    `${REDDIT_CLIENT_ID}:${REDDIT_CLIENT_SECRET}`,
-  ).toString("base64");
+const THROTTLE_INTERVAL_MS = Number(process.env.THROTTLE_INTERVAL_MS) || 1000;
+let throttleQueue: Promise<void> = Promise.resolve();
 
-  const raw = await httpsPost(
-    "https://www.reddit.com/api/v1/access_token",
-    "grant_type=client_credentials",
-    {
-      Authorization: `Basic ${credentials}`,
-      "User-Agent": USER_AGENT,
-    },
+function throttle(): Promise<void> {
+  const next = throttleQueue.then(
+    () => new Promise<void>((resolve) => setTimeout(resolve, THROTTLE_INTERVAL_MS)),
   );
+  throttleQueue = next;
+  return next;
+}
 
-  const parsed = JSON.parse(raw) as {
-    access_token?: string;
-    expires_in?: number;
-    error?: string;
-  };
+// ── Response cache ───────────────────────────────────────────────────────────
+// Short-lived cache so multiple viewers hitting the same subreddit within a
+// few seconds only cost us one request to Reddit.
 
-  if (!parsed.access_token) {
-    throw new Error(`Reddit OAuth failed: ${parsed.error ?? raw}`);
+interface CacheEntry {
+  status: number;
+  body: Buffer;
+  expiresAt: number;
+}
+
+const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS) || 30_000;
+const responseCache = new Map<string, CacheEntry>();
+
+function getCached(key: string): CacheEntry | undefined {
+  const entry = responseCache.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    responseCache.delete(key);
+    return undefined;
   }
-
-  cachedToken = {
-    accessToken: parsed.access_token,
-    expiresAt: now + (parsed.expires_in ?? 3600) * 1000,
-  };
-
-  return cachedToken.accessToken;
+  return entry;
 }
 
 // ── CORS middleware ──────────────────────────────────────────────────────────
@@ -149,7 +115,7 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// Proxy GET requests ending in .json to oauth.reddit.com using app-only OAuth.
+// Proxy GET requests ending in .json to Reddit's public json endpoints.
 // E.g. GET /r/aww/.json?limit=25&after=t3_abc
 app.get("/*", async (req: Request, res: Response) => {
   if (!req.path.endsWith(".json")) {
@@ -157,17 +123,7 @@ app.get("/*", async (req: Request, res: Response) => {
     return;
   }
 
-  let accessToken: string;
-  try {
-    accessToken = await getAccessToken();
-  } catch (err) {
-    console.error("OAuth error:", (err as Error).message);
-    res.status(502).json({ error: "Could not obtain Reddit OAuth token" });
-    return;
-  }
-
-  // Forward query params except jsonp=
-  const targetUrl = new URL(req.path, "https://oauth.reddit.com");
+  const targetUrl = new URL(req.path, `https://${REDDIT_HOST}`);
   for (const [key, value] of Object.entries(req.query)) {
     if (key === "jsonp") continue;
     if (typeof value === "string") {
@@ -175,12 +131,22 @@ app.get("/*", async (req: Request, res: Response) => {
     }
   }
 
+  const cacheKey = targetUrl.pathname + targetUrl.search;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    res.status(cached.status);
+    res.setHeader("Content-Type", "application/json");
+    res.send(cached.body);
+    return;
+  }
+
+  await throttle();
+
   const options = {
     hostname: targetUrl.hostname,
     path: targetUrl.pathname + targetUrl.search,
     method: "GET",
     headers: {
-      Authorization: `bearer ${accessToken}`,
       "User-Agent": USER_AGENT,
       Accept: "application/json",
     },
@@ -193,22 +159,37 @@ app.get("/*", async (req: Request, res: Response) => {
     responded = true;
 
     const status = proxyRes.statusCode ?? 500;
-    res.status(status);
-    res.setHeader("Content-Type", "application/json");
-    proxyRes.pipe(res);
+    const chunks: Buffer[] = [];
+    proxyRes.on("data", (chunk: Buffer) => chunks.push(chunk));
+    proxyRes.on("end", () => {
+      const body = Buffer.concat(chunks);
+      if (status === 200) {
+        responseCache.set(cacheKey, {
+          status,
+          body,
+          expiresAt: Date.now() + CACHE_TTL_MS,
+        });
+      } else {
+        log("error", `Reddit responded ${status} for ${cacheKey}`);
+      }
+      res.status(status);
+      res.setHeader("Content-Type", "application/json");
+      res.send(body);
+    });
   });
 
   proxyReq.on("error", (err) => {
     if (responded) return;
     responded = true;
-    console.error("Proxy request error:", err.message);
-    res.status(502).json({ error: "Failed to reach Reddit API" });
+    log("error", `Proxy request error: ${err.message}`);
+    res.status(502).json({ error: "Failed to reach Reddit" });
   });
 
   proxyReq.setTimeout(10_000, () => {
     if (responded) return;
     responded = true;
     proxyReq.destroy();
+    log("error", `Reddit request timed out for ${cacheKey}`);
     res.status(504).json({ error: "Reddit API timed out" });
   });
 
@@ -219,5 +200,5 @@ app.get("/*", async (req: Request, res: Response) => {
 
 const server = http.createServer(app);
 server.listen(PORT, () => {
-  console.log(`redditp-api proxy listening on http://localhost:${PORT}`);
+  log("log", `redditp-api proxy listening on http://localhost:${PORT}`);
 });

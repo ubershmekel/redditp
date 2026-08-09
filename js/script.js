@@ -9,11 +9,6 @@
 // TODO: refactor all the globals to use the rp object's namespace.
 var rp = {};
 var galleryOffset = 0;
-var localDevApi = false;
-var redditpApiBaseUrl = "https://api.redditp.com";
-if (localDevApi) {
-  redditpApiBaseUrl = "http://localhost:3000";
-}
 rp.settings = {
   debug: true,
   // Speed of the animation
@@ -1129,32 +1124,6 @@ $(function () {
       jsonUrl += "&jsonp=?";
     }
 
-    var tryProxyFallback = function () {
-      console.warn(
-        "Initial ajax failed, trying proxy fallback for url: " + jsonUrl,
-      );
-      // Build the proxy URL: strip &jsonp=? from jsonUrl and rebase onto api.redditp.com
-      var proxyPath = jsonUrl.replace(/&jsonp=\?/, "");
-      // Extract just the path+query after the reddit host
-      var pathMatch = proxyPath.match(/https?:\/\/[^/]+(\/.*)/);
-      if (!pathMatch) {
-        tryArchiveFallback();
-        return;
-      }
-      var proxyUrl = redditpApiBaseUrl + pathMatch[1];
-      $.ajax({
-        url: proxyUrl,
-        dataType: "json",
-        success: handleData,
-        error: tryArchiveFallback,
-        timeout: 10000,
-      });
-    };
-
-    if (localDevApi) {
-      tryProxyFallback();
-      return;
-    }
     // I still haven't been able to catch jsonp 404 events so the timeout
     // is the current solution sadly.
     $.ajax({
@@ -1162,7 +1131,7 @@ $(function () {
       dataType: useJsonP ? "jsonp" : "json",
       jsonp: useJsonP,
       success: handleData,
-      error: tryProxyFallback,
+      error: tryArchiveFallback,
       404: failedAjax,
       timeout: 5000,
     });

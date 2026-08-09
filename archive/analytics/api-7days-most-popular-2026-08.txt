@@ -1,0 +1,113 @@
+root@main1:~# sqlite3 -header -column /opt/sitey/deploy/data/analytics.db "
+SELECT
+  host,
+  path,
+  COUNT(*) AS request_count
+FROM request
+WHERE service_id = 7
+GROUP BY host, path
+ORDER BY request_count DESC
+LIMIT 100;
+"
+host             path                                                                                                                              request_count
+---------------  --------------------------------------------------------------------------------------------------------------------------------  -------------
+api.redditp.com  /r/sssniperwolf_pics/search/.json                                                                                                 22466
+api.redditp.com  /r/sophiecunninghamnsfw/search/.json                                                                                              15036
+api.redditp.com  /.json                                                                                                                            13863
+api.redditp.com  /r/celebnsfw+celebs+celebsgw+celebsnaked+nudecelebsonly/search/.json                                                              10396
+api.redditp.com  /r/gonewild/.json                                                                                                                 9460
+api.redditp.com  /r/PetiteGoneWild/.json                                                                                                           7670
+api.redditp.com  /r/Gonewild18/.json                                                                                                               5647
+api.redditp.com  /r/watchitfortheplot/search/.json                                                                                                 4129
+api.redditp.com  /r/celebevents+celebnsfw+celebrities+celebs+celebsgw+celebsnaked+nudecelebsonly+influencernsfw_global+celebridades_lo/search/.js  4113
+api.redditp.com  /r/nsfw/.json                                                                                                                     3430
+api.redditp.com  /r/earthporn/.json                                                                                                                2995
+api.redditp.com  /r/all/.json                                                                                                                      2919
+api.redditp.com  /r/celinedept+celinedept_esp/search/.json                                                                                         2738
+api.redditp.com  /r/spaceporn/.json                                                                                                                2662
+api.redditp.com  /r/kalogerasisters/search/.json                                                                                                   2433
+api.redditp.com  /r/nsfw+gonewild+boobies+legalteens+realgirls+ass+amateur+ginger+nsfw2+voluptuous+milf+celebs+redheads+girlswithglasses+colleges  2417
+api.redditp.com  /r/celebevents+celebnsfw+celebrities+celebs+celebsgw+celebsnaked+gentlemanboners+nudecelebsonly+watchitfortheplot/search/.json    2167
+api.redditp.com  /r/foodporn/.json                                                                                                                 2138
+api.redditp.com  /r/aww/.json                                                                                                                      1981
+api.redditp.com  /r/funny/.json                                                                                                                    1964
+api.redditp.com  /r/milliebobbybrown2+milliebobbybrownpics+milliebobbybrownhq/search/.json                                                         1802
+api.redditp.com  /r/gifs/.json                                                                                                                     1667
+api.redditp.com  /search/.json                                                                                                                     1533
+api.redditp.com  /r/celebnsfw+watchitfortheplot/search/.json                                                                                       1491
+api.redditp.com  /r/brookemonkthesecond/search/.json                                                                                               1376
+api.redditp.com  /r/girlsfromchess/search/.json                                                                                                    1338
+api.redditp.com  /r/cinna_brit/search/.json                                                                                                        1250
+api.redditp.com  /r/nsfw_alexandrabotez/search/.json                                                                                               1229
+api.redditp.com  /r/angel_reese+angel_reese_/search/.json                                                                                          1217
+api.redditp.com  /r/hottestfemaleathletes/search/.json                                                                                             1156
+api.redditp.com  /r/tiktokporn+tiktoknsfw+tiktokthots/search/.json                                                                                 1140
+api.redditp.com  /r/shakira/search/.json                                                                                                           1128
+api.redditp.com  /r/georginarodriguezgio_+georgina_rodriguezz/search/.json                                                                         1110
+api.redditp.com  /r/gooned/.json                                                                                                                   1103
+api.redditp.com  /r/lydiavioletofficial/search/.json                                                                                               1067
+api.redditp.com  /r/twitchasians+offlinetvgirls/search/.json                                                                                       1055
+api.redditp.com  /r/zendaya/search/.json                                                                                                           1029
+api.redditp.com  /r/cumsluts/.json                                                                                                                 965
+api.redditp.com  /r/wandanaravip/search/.json                                                                                                      936
+api.redditp.com  /r/caitlinclark+caitlinclarkpics/search/.json                                                                                     849
+api.redditp.com  /r/hentai/.json                                                                                                                   805
+api.redditp.com  /r/billieeilishgw/search/.json                                                                                                    757
+api.redditp.com  /r/milf/.json                                                                                                                     721
+api.redditp.com  /r/porn/.json                                                                                                                     685
+api.redditp.com  /r/tittydrop/.json                                                                                                                675
+api.redditp.com  /r/paigebueckersfans/search/.json                                                                                                 671
+api.redditp.com  /r/FemBoys/.json                                                                                                                  648
+api.redditp.com  /r/alishalehmann+alisha_lehmann7/search/.json                                                                                     639
+api.redditp.com  /r/nsfw_gif/.json                                                                                                                 639
+api.redditp.com  /r/oliviadunne+oliviadunnepictures/search/.json                                                                                   627
+api.redditp.com  /r/influencernsfw_global+tiktok_gif/search/.json                                                                                  625
+api.redditp.com  /r/rule34/.json                                                                                                                   624
+api.redditp.com  /r/realgirls/.json                                                                                                                618
+api.redditp.com  /r/nsfw_gifs/.json                                                                                                                593
+api.redditp.com  /r/ass/.json                                                                                                                      574
+api.redditp.com  /r/girlstennis+hottestfemaleathletes/search/.json                                                                                 565
+api.redditp.com  /r/traps/.json                                                                                                                    487
+api.redditp.com  /r/asiansgonewild/.json                                                                                                           472
+api.redditp.com  /r/boobs/.json                                                                                                                    472
+api.redditp.com  /r/dafnekeen+dafnekeenlove/search/.json                                                                                           456
+api.redditp.com  /r/.json                                                                                                                          451
+api.redditp.com  /r/indenavarrettegw+indenavarrettelewd/search/.json                                                                               449
+api.redditp.com  /r/chubby/.json                                                                                                                   422
+api.redditp.com  /r/madisonbeer+madisonbeerlewd/search/.json                                                                                       409
+api.redditp.com  /r/girlsfinishingthejob/.json                                                                                                     405
+api.redditp.com  /r/emmadarcy/search/.json                                                                                                         404
+api.redditp.com  /r/watchitfortheplot/.json                                                                                                        404
+api.redditp.com  /r/thehannahwaddingham/search/.json                                                                                               396
+api.redditp.com  /r/influencernsfw_global/search/.json                                                                                             389
+api.redditp.com  /r/tyla/search/.json                                                                                                              389
+api.redditp.com  /r/alysaliu/search/.json                                                                                                          380
+api.redditp.com  /r/kyliejenner/search/.json                                                                                                       371
+api.redditp.com  /r/celebs/.json                                                                                                                   369
+api.redditp.com  /r/yonnajayy/search/.json                                                                                                         366
+api.redditp.com  /r/xfibiixfan/search/.json                                                                                                        358
+api.redditp.com  /r/kelseyplum/search/.json                                                                                                        355
+api.redditp.com  /r/blowjobs/.json                                                                                                                 349
+api.redditp.com  /r/bustypetite/.json                                                                                                              341
+api.redditp.com  /r/sadiesink/search/.json                                                                                                         338
+api.redditp.com  /r/pics/.json                                                                                                                     334
+api.redditp.com  /r/monicabarbaro/search/.json                                                                                                     326
+api.redditp.com  /r/icespice+icespicegw/search/.json                                                                                               324
+api.redditp.com  /r/kpopfap/.json                                                                                                                  317
+api.redditp.com  /r/GOONED/.json                                                                                                                   304
+api.redditp.com  /r/anal/.json                                                                                                                     302
+api.redditp.com  /r/pussy/.json                                                                                                                    301
+api.redditp.com  /r/pawg/.json                                                                                                                     291
+api.redditp.com  /r/celebritybutts+celebrityasses/search/.json                                                                                     282
+api.redditp.com  /r/tits/.json                                                                                                                     278
+api.redditp.com  /r/valkyraehott/search/.json                                                                                                      273
+api.redditp.com  /r/charlidamelio654/search/.json                                                                                                  265
+api.redditp.com  /r/tarayummyfans/search/.json                                                                                                     262
+api.redditp.com  /r/thelegitboss/search/.json                                                                                                      259
+api.redditp.com  /r/extramile/search/.json                                                                                                         254
+api.redditp.com  /r/gonewild+NSFW_GIF+nsfw+RealGirls+Celebs+nsfw_gifs+pornvids/.json                                                               254
+api.redditp.com  /r/hotwife/.json                                                                                                                  247
+api.redditp.com  /r/models/search/.json                                                                                                            246
+api.redditp.com  /r/onoff/.json                                                                                                                    245
+api.redditp.com  /r/petite/.json                                                                                                                   241
+api.redditp.com  /r/curvy/.json                                                                                                                    235

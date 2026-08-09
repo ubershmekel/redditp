@@ -20,6 +20,43 @@ if (window.location && window.location.protocol === "https:") {
   embedit.redditBaseUrl = "https://old.reddit.com";
 }
 
+// Static cache of popular subreddits' .json listings, snapshotted by
+// archive/extension since Reddit blocks both server-side scraping and new
+// OAuth app registration. No manifest/index is ever fetched by the
+// frontend — that would transfer every cached subreddit name (including
+// NSFW ones) to a visitor regardless of which page they're on. Instead the
+// exact filename is recomputed here from the requested path; a 404 just
+// means it wasn't snapshotted, and falls through to the live fetch.
+embedit.archiveBaseUrl = "https://storage.googleapis.com/uberbuck/redditp-archive/";
+
+// Deterministic 32-bit FNV-1a hash, as 8 hex chars. Must stay byte-for-byte
+// identical to fnv1a() in archive/extension/background.js — this has to
+// compute the exact same filename the extension already saved.
+embedit.fnv1aHash = function (str) {
+  var hash = 0x811c9dc5;
+  for (var i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+};
+
+// Mirrors pathToFilename() in archive/extension/background.js for the
+// "/r/<subName>/.json" case (the only shape ever snapshotted — see the
+// archiveMatch check in script.js). subName may be "" (the bare /r/ front
+// page) or a "sub1+sub2+..." combo.
+embedit.archiveFilenameForSub = function (subName) {
+  var segments = subName ? ["r", subName] : ["r"];
+  segments = segments.map(function (segment) {
+    if (segment.indexOf("+") === -1) return segment;
+    var subs = segment.split("+").sort();
+    var preview = subs.slice(0, 5).join("+");
+    var hash = embedit.fnv1aHash(subs.join("+"));
+    return preview + "-" + hash;
+  });
+  return segments.join("-") + ".json";
+};
+
 embedit.video = function (webmUrl, mp4Url) {
   // imgur is annoying and when you use the <source> tags
   // it tries to redirect you to the gifv page instead of serving

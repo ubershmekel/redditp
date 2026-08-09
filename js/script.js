@@ -1079,6 +1079,39 @@ $(function () {
       return;
     }
 
+    // The static archive cache (see archiveFilenameForSub below) is only a
+    // last resort, tried after both live attempts below fail — the primary
+    // jsonp request is a real browser-issued request straight from the
+    // visitor's own machine to old.reddit.com (not through the blocked
+    // server), so plenty of real visitors still get live, fresh data that
+    // way. Only for a plain default-sort subreddit request with no
+    // pagination/extra query params, since that's the only variant that
+    // was actually snapshotted — anything else (sort, t=, after=, random)
+    // has no archive fallback at all: we never guess at "close enough"
+    // cached data, only exact matches or nothing.
+    var archiveMatch =
+      !rp.session.after &&
+      getVars.length === 0 &&
+      subredditUrl !== "/r/randnsfw/" &&
+      subredditUrl !== "/r/random/" &&
+      subredditUrl.match(/^\/r\/([^/]*)\/?$/);
+
+    var tryArchiveFallback = function () {
+      if (!archiveMatch) {
+        failedAjax();
+        return;
+      }
+      $.ajax({
+        url:
+          embedit.archiveBaseUrl +
+          embedit.archiveFilenameForSub(archiveMatch[1]),
+        dataType: "json",
+        success: handleData,
+        error: failedAjax,
+        timeout: 5000,
+      });
+    };
+
     // Note we're still using `jsonp` despite potential issues because
     // `http://www.redditp.com/r/randnsfw` wasn't working with CORS for some reason.
     // https://github.com/ubershmekel/redditp/issues/104
@@ -1103,7 +1136,7 @@ $(function () {
       // Extract just the path+query after the reddit host
       var pathMatch = proxyPath.match(/https?:\/\/[^/]+(\/.*)/);
       if (!pathMatch) {
-        failedAjax();
+        tryArchiveFallback();
         return;
       }
       var proxyUrl = redditpApiBaseUrl + pathMatch[1];
@@ -1111,7 +1144,7 @@ $(function () {
         url: proxyUrl,
         dataType: "json",
         success: handleData,
-        error: failedAjax,
+        error: tryArchiveFallback,
         timeout: 10000,
       });
     };

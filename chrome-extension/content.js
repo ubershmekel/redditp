@@ -27,6 +27,7 @@
     loadingMore: false,
     advanceAfterLoad: false,
     loadRequest: 0,
+    openRequest: 0,
     enrichments: new Map(),
     nativeRestores: new WeakMap(),
     oldOverflow: "",
@@ -265,6 +266,74 @@
     return result || fallbackCommentsUrl;
   }
 
+  function elementsIncludingOpenShadows(root, selector) {
+    const results = Array.from(root.querySelectorAll(selector));
+    if (root.shadowRoot) {
+      results.push(...elementsIncludingOpenShadows(root.shadowRoot, selector));
+    }
+    root.querySelectorAll("*").forEach((element) => {
+      if (element.shadowRoot) {
+        results.push(
+          ...elementsIncludingOpenShadows(element.shadowRoot, selector),
+        );
+      }
+    });
+    return results;
+  }
+
+  function isSinglePostPage() {
+    return /\/comments\/[^/]+/i.test(location.pathname);
+  }
+
+  function unresolvedAdaptivePlayerExists() {
+    return Array.from(
+      document.querySelectorAll(
+        "shreddit-player[preview]:not([packaged-media-json])",
+      ),
+    ).some(
+      (player) =>
+        Boolean(player.getAttribute("preview")) &&
+        !elementsIncludingOpenShadows(player, "video").some((video) =>
+          (video.currentSrc || video.getAttribute("src") || "").startsWith(
+            "blob:",
+          ),
+        ),
+    );
+  }
+
+  function adaptiveBlobVideo(root) {
+    return elementsIncludingOpenShadows(root, "video").find((video) =>
+      (video.currentSrc || video.getAttribute("src") || "").startsWith("blob:"),
+    );
+  }
+
+  function requestPlayerStart(player) {
+    if (!player?.getAttribute("preview")) return false;
+    const video = elementsIncludingOpenShadows(player, "video").find(
+      (candidate) =>
+        !(candidate.currentSrc || candidate.getAttribute("src") || ""),
+    );
+    if (!video || typeof video.click !== "function") return false;
+    video.click();
+    return true;
+  }
+
+  function requestAdaptivePlayerStart() {
+    document
+      .querySelectorAll("shreddit-player[preview]:not([packaged-media-json])")
+      .forEach(requestPlayerStart);
+  }
+
+  async function waitForAdaptivePlayer(request) {
+    if (!isSinglePostPage() || !unresolvedAdaptivePlayerExists()) return;
+    requestAdaptivePlayerStart();
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await wait(100);
+      if (!state.open || request !== state.openRequest) return;
+      if (!unresolvedAdaptivePlayerExists()) return;
+    }
+  }
+
   function mediaFromNode(node, sourceUrl) {
     const media = [];
     const seen = new Set();
@@ -279,12 +348,7 @@
     // On old Reddit post pages the real adaptive player is already attached
     // to a MediaSource blob. A second video element is only a muted, low-frame
     // rate seek preview, so preserve and reuse the live player when available.
-    const nativeVideo = Array.from(node.querySelectorAll("video")).find(
-      (video) =>
-        (video.currentSrc || video.getAttribute("src") || "").startsWith(
-          "blob:",
-        ),
-    );
+    const nativeVideo = adaptiveBlobVideo(node);
     if (nativeVideo) {
       media.push({
         kind: "native-video",
@@ -318,9 +382,22 @@
     }
 
     node.querySelectorAll("shreddit-player").forEach((player) => {
+      const preview = player.getAttribute("preview") || "";
+      const isSeekPreview = /\/CMAF_96\.mp4(?:$|[?#])/i.test(preview);
+      const packagedUrl = packagedVideoUrl(player);
+      if (!packagedUrl && isSeekPreview && player.ownerDocument === document) {
+        media.push({
+          kind: "pending-native-video",
+          url: absoluteUrl(player.getAttribute("src")) || sourceUrl,
+          poster: absoluteUrl(player.getAttribute("poster")),
+          playerElement: player,
+        });
+        return;
+      }
+      const playablePreview = isSeekPreview ? "" : preview;
       const playerUrl =
-        packagedVideoUrl(player) ||
-        absoluteUrl(player.getAttribute("preview")) ||
+        packagedUrl ||
+        absoluteUrl(playablePreview) ||
         absoluteUrl(player.getAttribute("src")) ||
         firstHref(player, ["source"]);
       add("video", playerUrl, player.getAttribute("poster"));
@@ -328,7 +405,12 @@
     // A shreddit-player may also contain its HLS source element. That is an
     // alternate rendition of the same post, not a second slide (and Chromium
     // cannot play the HLS URL directly).
-    if (media.some((item) => item.kind === "video")) return media;
+    if (
+      media.some(
+        (item) => item.kind === "video" || item.kind === "pending-native-video",
+      )
+    )
+      return media;
     node.querySelectorAll("video").forEach((video) => {
       const source =
         video.currentSrc ||
@@ -429,6 +511,7 @@
         commentsUrl: comments,
         sourceUrl: source,
         postKey,
+        postNode: node,
       };
       const media = mediaFromNode(node, source);
       if (!media.length)
@@ -630,6 +713,43 @@
     return card;
   }
 
+  async function upgradePendingAdaptiveSlide(slide) {
+    if (
+      slide.kind !== "pending-native-video" ||
+      !slide.playerElement ||
+      slide.adaptiveUpgrade === "pending"
+    )
+      return;
+    slide.adaptiveUpgrade = "pending";
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (!slide.adaptiveStartRequested) {
+        slide.adaptiveStartRequested = requestPlayerStart(slide.playerElement);
+      }
+      const nativeVideo = adaptiveBlobVideo(slide.playerElement);
+      if (nativeVideo) {
+        slide.kind = "native-video";
+        slide.nativeElement = nativeVideo;
+        slide.adaptiveUpgrade = "done";
+        if (state.open && state.slides[state.index] === slide) render();
+        return;
+      }
+      await wait(100);
+    }
+    slide.kind = "link";
+    slide.adaptiveUpgrade = "failed";
+    if (state.open && state.slides[state.index] === slide) render();
+  }
+
+  function showMediaFailure(mediaElement, slide) {
+    if (
+      state.open &&
+      state.slides[state.index] === slide &&
+      mediaElement.parentNode === mediaBox
+    ) {
+      mediaBox.replaceChildren(linkCard(slide, true));
+    }
+  }
+
   function render() {
     stopMedia();
     const hasSlides = state.slides.length > 0;
@@ -658,11 +778,9 @@
       const img = element("img", "redditp__image", "");
       img.alt = slide.title;
       img.src = slide.url;
-      img.addEventListener(
-        "error",
-        () => mediaBox.replaceChildren(linkCard(slide, true)),
-        { once: true },
-      );
+      img.addEventListener("error", () => showMediaFailure(img, slide), {
+        once: true,
+      });
       mediaBox.append(img);
     } else if (slide.kind === "video") {
       const video = element("video", "redditp__video", "");
@@ -677,13 +795,20 @@
       video.addEventListener("ended", () => {
         if (state.autoPlaying) move(1);
       });
-      video.addEventListener(
-        "error",
-        () => mediaBox.replaceChildren(linkCard(slide, true)),
-        { once: true },
-      );
+      video.addEventListener("error", () => showMediaFailure(video, slide), {
+        once: true,
+      });
       mediaBox.append(video);
       video.play().catch(() => {});
+    } else if (slide.kind === "pending-native-video") {
+      if (slide.poster) {
+        const poster = element("img", "redditp__image", "");
+        poster.alt = slide.title;
+        poster.src = slide.poster;
+        mediaBox.append(poster);
+      } else {
+        mediaBox.append(linkCard(slide, false));
+      }
     } else if (slide.kind === "native-video" && slide.nativeElement) {
       const video = slide.nativeElement;
       const placeholder = document.createComment("redditp native video");
@@ -730,7 +855,10 @@
     }
     scheduleAuto();
     void enrichSlide(slide);
-    if (state.index === state.slides.length - 1) void loadMoreAtEnd(false);
+    void upgradePendingAdaptiveSlide(slide);
+    if (!isSinglePostPage() && state.index === state.slides.length - 1) {
+      void loadMoreAtEnd(false);
+    }
   }
 
   function move(delta) {
@@ -837,6 +965,7 @@
       state.open &&
       state.slides.length > 1 &&
       slide?.kind !== "video" &&
+      slide?.kind !== "pending-native-video" &&
       slide?.kind !== "native-video"
     ) {
       state.autoTimer = setTimeout(() => move(1), 6000);
@@ -860,6 +989,20 @@
     if (video) video.muted = !state.sound;
   }
 
+  function toggleVideoFromSurface(event) {
+    const video = event.target.closest?.("video.redditp__video");
+    if (!video || event.button !== 0) return;
+    const bounds = video.getBoundingClientRect();
+    // Leave the browser's native control strip alone. Reddit also attaches a
+    // click handler to its video element; intercept clicks on the picture so
+    // the two handlers do not pause and immediately resume each other.
+    if (event.clientY >= bounds.bottom - 56) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
+  }
+
   function close() {
     if (!state.open) return;
     state.open = false;
@@ -867,6 +1010,7 @@
     state.loadingMore = false;
     state.advanceAfterLoad = false;
     state.loadRequest += 1;
+    state.openRequest += 1;
     clearTimeout(state.autoTimer);
     autoButton.textContent = "auto";
     stopMedia();
@@ -875,14 +1019,24 @@
     document.removeEventListener("keydown", onKeyDown, true);
   }
 
-  function open() {
-    state.slides = extractSlides();
-    state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
+  async function open() {
+    const request = ++state.openRequest;
     state.oldOverflow = document.documentElement.style.overflow;
     state.open = true;
     root.hidden = false;
     document.documentElement.style.overflow = "hidden";
     document.addEventListener("keydown", onKeyDown, true);
+    state.slides = [];
+    emptyTitle.textContent = "Preparing Reddit video…";
+    emptyText.textContent = "Waiting for Reddit's full-quality player.";
+    render();
+    await waitForAdaptivePlayer(request);
+    if (!state.open || request !== state.openRequest) return;
+    emptyTitle.textContent = "No posts found on this page";
+    emptyText.textContent =
+      "Scroll Reddit to load some posts, then try presentation mode again.";
+    state.slides = extractSlides();
+    state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
     render();
     closeButton.focus({ preventScroll: true });
   }
@@ -916,6 +1070,7 @@
   }
 
   closeButton.addEventListener("click", close);
+  mediaBox.addEventListener("click", toggleVideoFromSurface, true);
   prevButton.addEventListener("click", () => move(-1));
   nextButton.addEventListener("click", () => move(1));
   autoButton.addEventListener("click", toggleAuto);

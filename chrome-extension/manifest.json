@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "redditp Presentation Mode",
-  "version": "0.3.2",
+  "version": "0.3.6",
   "description": "Turn the Reddit page you are browsing into a media slideshow.",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": ["https://reddit.com/*", "https://*.reddit.com/*"],

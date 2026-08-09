@@ -131,6 +131,148 @@ test("old Reddit reuses its live adaptive video instead of the seek preview", as
   );
 });
 
+test("current Reddit reuses adaptive video inside an open player shadow root", async ({
+  page,
+}) => {
+  const detailUrl =
+    "https://www.reddit.com/r/test/comments/shadowvideo/post/?redditp=1";
+  await page.route(detailUrl, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `
+        <shreddit-post id="t3_shadowvideo" post-title="Shadow video" post-type="video" content-href="https://v.redd.it/shadowvideo" permalink="/r/test/comments/shadowvideo/post/">
+          <shreddit-player src="https://v.redd.it/shadowvideo/HLSPlaylist.m3u8" preview="https://v.redd.it/shadowvideo/CMAF_96.mp4"></shreddit-player>
+        </shreddit-post>
+        <div style="height: 4000px"></div>
+      `,
+    }),
+  );
+  await page.goto(detailUrl);
+  await page.locator("shreddit-player").evaluate((player) => {
+    window.__redditpScrollCalls = 0;
+    const originalScrollTo = window.scrollTo.bind(window);
+    window.scrollTo = (...args) => {
+      window.__redditpScrollCalls += 1;
+      originalScrollTo(...args);
+    };
+    window.__redditTargetClicks = 0;
+    window.__redditVideoPaused = true;
+    const shadow = player.attachShadow({ mode: "open" });
+    const video = document.createElement("video");
+    video.id = "shadow-adaptive-video";
+    video.muted = true;
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      get: () => window.__redditVideoPaused,
+    });
+    video.play = () => {
+      window.__redditVideoPaused = false;
+      return Promise.resolve();
+    };
+    video.pause = () => {
+      window.__redditVideoPaused = true;
+    };
+    video.addEventListener("click", () => {
+      window.__redditTargetClicks += 1;
+      if (!video.getAttribute("src")) {
+        video.src = URL.createObjectURL(
+          new Blob(["not real media"], { type: "video/mp4" }),
+        );
+      }
+    });
+    shadow.append(video);
+  });
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  await expect(
+    page.locator(".redditp__media #shadow-adaptive-video"),
+  ).toBeVisible();
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(
+    page.locator(".redditp__media video[src*='CMAF_96']"),
+  ).toHaveCount(0);
+  await page
+    .locator("#shadow-adaptive-video")
+    .click({ position: { x: 300, y: 300 } });
+  await expect
+    .poll(() => page.evaluate(() => window.__redditVideoPaused))
+    .toBe(true);
+  expect(await page.evaluate(() => window.__redditTargetClicks)).toBe(1);
+  await page
+    .locator("#shadow-adaptive-video")
+    .click({ position: { x: 300, y: 300 } });
+  await expect
+    .poll(() => page.evaluate(() => window.__redditVideoPaused))
+    .toBe(false);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__redditpScrollCalls)).toBe(0);
+
+  await page.keyboard.press("Escape");
+  const restored = await page.locator("shreddit-player").evaluate((player) => {
+    const video = player.shadowRoot.querySelector("#shadow-adaptive-video");
+    return Boolean(video && video.parentNode === player.shadowRoot);
+  });
+  expect(restored).toBe(true);
+});
+
+test("a dormant adaptive player upgrades when its feed slide is reached", async ({
+  page,
+}) => {
+  await page.setContent(`
+    <base href="https://www.reddit.com/">
+    <shreddit-post id="t3_image" post-title="First image" content-href="https://i.redd.it/first.jpg" permalink="/r/test/comments/image/first/"></shreddit-post>
+    <shreddit-post id="t3_feedvideo" post-title="Feed video" post-type="video" content-href="https://v.redd.it/feedvideo" permalink="/r/test/comments/feedvideo/post/">
+      <shreddit-player src="https://v.redd.it/feedvideo/HLSPlaylist.m3u8" preview="https://v.redd.it/feedvideo/CMAF_96.mp4" poster="https://external-preview.redd.it/feedvideo.png"></shreddit-player>
+    </shreddit-post>
+  `);
+  await page.locator("shreddit-player").evaluate((player) => {
+    window.__feedPlayerStarts = 0;
+    const shadow = player.attachShadow({ mode: "open" });
+    const video = document.createElement("video");
+    video.id = "feed-adaptive-video";
+    video.addEventListener("click", () => {
+      window.__feedPlayerStarts += 1;
+      if (!video.getAttribute("src")) {
+        video.src = URL.createObjectURL(
+          new Blob(["not real media"], { type: "video/mp4" }),
+        );
+      }
+    });
+    shadow.append(video);
+  });
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  await expect(page.locator(".redditp__title")).toHaveText("First image");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Feed video");
+  await expect
+    .poll(() => page.evaluate(() => window.__feedPlayerStarts))
+    .toBe(1);
+  await expect
+    .poll(() =>
+      page.locator("shreddit-player").evaluate((player) => {
+        const video =
+          document.querySelector("#feed-adaptive-video") ||
+          player.shadowRoot.querySelector("#feed-adaptive-video");
+        return {
+          src: video?.getAttribute("src") || "",
+          parent:
+            video?.parentElement?.className || video?.parentNode?.nodeName,
+        };
+      }),
+    )
+    .toMatchObject({ src: /^blob:/, parent: "redditp__media" });
+  await expect(
+    page.locator(".redditp__media #feed-adaptive-video"),
+  ).toBeVisible();
+  expect(await page.evaluate(() => window.__feedPlayerStarts)).toBe(1);
+  await expect(
+    page.locator(".redditp__media video[src*='CMAF_96']"),
+  ).toHaveCount(0);
+});
+
 test("redditp=1 asks the extension to activate on Reddit URLs", async ({
   page,
 }) => {

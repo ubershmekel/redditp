@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "redditp Presentation Mode",
+  "version": "0.1.0",
+  "description": "Turn the Reddit page you are browsing into a media slideshow.",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["https://reddit.com/*", "https://*.reddit.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "favicon.png",
+    "32": "favicon.png",
+    "48": "favicon.png",
+    "128": "favicon.png"
+  },
+  "action": {
+    "default_title": "Open redditp presentation mode",
+    "default_icon": {
+      "16": "favicon.png",
+      "32": "favicon.png"
+    }
+  },
+  "commands": {
+    "open-presentation": {
+      "suggested_key": {
+        "default": "Alt+P",
+        "mac": "Alt+P"
+      },
+      "description": "Open redditp presentation mode"
+    }
+  }
+}

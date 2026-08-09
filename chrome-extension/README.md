@@ -33,7 +33,8 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 Reaching the final slide automatically scrolls the underlying Reddit feed and
 preloads newly rendered posts. Pressing next while that load is still running
 queues the navigation; if Reddit has no more posts, it wraps to the first slide.
-Single-post `/comments/` pages do not trigger this feed-loading scroll.
+Single-post `/comments/` pages do not trigger this feed-loading scroll. The
+slide counter shows `loading more` while this background preload is active.
 
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 

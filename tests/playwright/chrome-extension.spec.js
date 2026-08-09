@@ -115,7 +115,9 @@ test("old Reddit reuses its live adaptive video instead of the seek preview", as
   await page.addScriptTag({ path: extensionScript });
 
   await expect(page.locator(".redditp__media #adaptive-video")).toBeVisible();
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "1 / 1 · loading more",
+  );
   await expect(page.locator("#adaptive-video")).toHaveJSProperty(
     "controls",
     true,
@@ -188,7 +190,7 @@ test("current Reddit reuses adaptive video inside an open player shadow root", a
   await expect(
     page.locator(".redditp__media #shadow-adaptive-video"),
   ).toBeVisible();
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toContainText("1 / 1");
   await expect(
     page.locator(".redditp__media video[src*='CMAF_96']"),
   ).toHaveCount(0);
@@ -355,7 +357,7 @@ test("current Reddit ignores repeated non-post article cards", async ({
   );
 
   await expect(page.locator(".redditp__title")).toHaveText("A real UFC post");
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toContainText("1 / 1");
 });
 
 test("extension recognizes Reddit search media cards and packaged video", async ({
@@ -463,7 +465,9 @@ test("thumbnail-only search results upgrade from post HTML to their actual video
     "src",
     previewUrl,
   );
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "1 / 1 · loading more",
+  );
   await expect(page.locator(".redditp__title")).toHaveText(
     "Video search result",
   );
@@ -479,7 +483,9 @@ test("the final slide automatically loads newly rendered Reddit posts", async ({
       <div style="height: 4000px"></div>
     `,
   );
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "1 / 1 · loading more",
+  );
   await page.evaluate(() => {
     document.body.insertAdjacentHTML(
       "beforeend",

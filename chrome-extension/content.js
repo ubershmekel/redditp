@@ -756,7 +756,11 @@
     empty.hidden = hasSlides;
     details.hidden = controls.hidden = !hasSlides;
     count.textContent = hasSlides
-      ? `${state.index + 1} / ${state.slides.length}`
+      ? `${state.index + 1} / ${state.slides.length}${
+          state.loadingMore && state.index === state.slides.length - 1
+            ? " · loading more"
+            : ""
+        }`
       : "0 posts";
     if (!hasSlides) return;
 
@@ -918,9 +922,7 @@
     state.loadingMore = true;
     state.advanceAfterLoad = Boolean(advanceWhenReady);
     const request = ++state.loadRequest;
-    if (advanceWhenReady) {
-      count.textContent = `${state.index + 1} / ${state.slides.length} · loading more`;
-    }
+    count.textContent = `${state.index + 1} / ${state.slides.length} · loading more`;
 
     let added = appendNewPosts();
     try {

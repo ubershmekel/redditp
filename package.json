@@ -12,6 +12,7 @@
     "start": "node server.js",
     "debug": "node --inspect server.js",
     "format": "prettier --write .",
+    "package:extension": "node ./nodejs/package-extension.js",
     "test": "node ./nodejs/test-embedit.js",
     "test:all": "npm run test && npm run test:playwright",
     "test:playwright": "npx playwright test",

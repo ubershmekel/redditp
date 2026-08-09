@@ -22,6 +22,7 @@ The same action closes presentation mode when it is already open.
 - Left arrow or Page Up: previous slide
 - Escape: close
 - F: enter or leave browser fullscreen, when available
+- M: toggle video sound
 - Swipe horizontally: previous or next slide
 - **Auto**: advance every six seconds
 
@@ -29,15 +30,26 @@ Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 
 ## Supported page shapes
 
-The extractor recognizes current Reddit `shreddit-post` elements, old Reddit
-`.thing.link` elements, and common article/post-container fallbacks. This covers
-home and popular feeds, subreddit listings, search results, and user pages on
-both old and current Reddit.
+The extractor recognizes current Reddit `shreddit-post` elements, both current
+Reddit search renderers (`search-media-post-unit` and `search-post-unit`), old
+Reddit `.thing.link` listings, old Reddit combined-search cards, and common
+article/post-container fallbacks. This covers home and popular feeds, subreddit
+listings, search results, post pages, and user pages on both old and current
+Reddit.
 
 Only posts currently rendered in the page can be included. On an infinite scroll
-feed, scroll first to load more posts, then start presentation mode. Direct
-images and browser-readable videos are shown in place. Unsupported link types
+feed, scroll first to load more posts, then start presentation mode. Direct and
+preview images, lazy-loaded Reddit galleries, animated images, ordinary HTML
+video, `shreddit-player` video, packaged Reddit MP4 video, Imgur, Redgifs, and
+YouTube embeds are handled when their rendered URLs are available. Video starts
+muted and can be unmuted from the compact control bar. Unsupported link types
 remain useful as title cards with links to the media and comments.
+
+Some search result formats expose only a small custom thumbnail. When one of
+those slides is shown, redditp reads that post's normal Reddit HTML in the
+background and upgrades the thumbnail to its actual image, video, or gallery. If
+Reddit returns a login, quarantine, or challenge page, the thumbnail remains
+available as the fallback.
 
 ## Files
 

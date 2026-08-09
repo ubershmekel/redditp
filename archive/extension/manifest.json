@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "redditp Snapshot Downloader",
+  "version": "1.0.0",
+  "description": "Opens real browser tabs to Reddit's .json listings and downloads them, for building a static cache of redditp's most popular subreddits.",
+  "permissions": ["tabs", "downloads", "scripting", "storage"],
+  "host_permissions": ["https://old.reddit.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

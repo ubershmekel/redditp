@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>redditp Snapshot Downloader</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        width: 480px;
+        padding: 10px;
+      }
+      textarea {
+        width: 100%;
+        height: 160px;
+        font-family: monospace;
+        font-size: 11px;
+        box-sizing: border-box;
+      }
+      #log {
+        width: 100%;
+        height: 160px;
+        overflow-y: auto;
+        background: #111;
+        color: #0f0;
+        font-family: monospace;
+        font-size: 11px;
+        padding: 6px;
+        box-sizing: border-box;
+        white-space: pre-wrap;
+      }
+      button {
+        margin: 6px 4px 6px 0;
+      }
+      .row {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      #progressText {
+        font-family: monospace;
+        font-size: 12px;
+      }
+      #progressBar {
+        width: 100%;
+        height: 6px;
+        margin: 4px 0 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      One path per line. Fetched from
+      <code>old.reddit.com&lt;path&gt;</code> via a real tab, saved to
+      <code>Downloads/redditp-snapshot/&lt;path&gt;.json</code>.
+    </p>
+    <textarea id="urls"></textarea>
+    <label>
+      <input type="checkbox" id="manualMode" />
+      Manual mode (click Next between each URL instead of auto 3s throttle)
+    </label>
+    <div class="row">
+      <button id="start">Start</button>
+      <button id="next" disabled>Next</button>
+      <button id="stop">Stop</button>
+      <button id="reset">Reset to defaults</button>
+      <span id="progressText"></span>
+    </div>
+    <progress id="progressBar" value="0" max="1"></progress>
+    <div id="log"></div>
+    <script src="default-urls.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

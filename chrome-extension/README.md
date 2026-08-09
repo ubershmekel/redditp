@@ -30,6 +30,10 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - Swipe horizontally: previous or next slide
 - **Auto**: advance every six seconds
 
+Reaching the final slide automatically scrolls the underlying Reddit feed and
+preloads newly rendered posts. Pressing next while that load is still running
+queues the navigation; if Reddit has no more posts, it wraps to the first slide.
+
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 
 ## Supported page shapes

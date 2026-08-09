@@ -188,11 +188,53 @@ test("extension extracts current Reddit post elements on a mobile viewport", asy
   await expect(page.locator(".redditp__controls")).toBeInViewport();
 });
 
+test("current Reddit ignores repeated non-post article cards", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `
+      <article class="sidebar-card"><h3>He tagged him!!!</h3></article>
+      <article class="w-full">
+        <shreddit-post
+          id="t3_realpost"
+          post-title="A real UFC post"
+          author="fighter"
+          subreddit-prefixed-name="r/ufc"
+          content-href="https://i.redd.it/ufc.jpg"
+          permalink="/r/ufc/comments/realpost/a_real_ufc_post/"
+        >
+          <img src="https://i.redd.it/ufc.jpg" width="800" height="600" alt="Fight">
+        </shreddit-post>
+      </article>
+      <article class="sidebar-card"><h3>He tagged him!!!</h3></article>
+      <article></article>
+    `,
+  );
+
+  await expect(page.locator(".redditp__title")).toHaveText("A real UFC post");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+});
+
 test("extension recognizes Reddit search media cards and packaged video", async ({
   page,
 }) => {
   const videoUrl =
     "https://packaged-media.redd.it/br6s0bbf3gqe1/pb/m2-res_392p.mp4?m=DASHPlaylist.mpd";
+  const hlsUrl = "https://v.redd.it/br6s0bbf3gqe1/HLSPlaylist.m3u8";
+  const packagedMedia = JSON.stringify({
+    playbackMp4s: {
+      permutations: [
+        {
+          source: {
+            url: videoUrl,
+            dimensions: { width: 392, height: 490 },
+            videoCodec: "H264",
+          },
+        },
+      ],
+    },
+  });
   await page.route(videoUrl, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 3000));
     await route.abort();
@@ -212,8 +254,8 @@ test("extension recognizes Reddit search media cards and packaged video", async 
       <search-telemetry-tracker data-faceplate-tracking-context='{"post":{"title":"Nature..."},"subreddit":{"name":"LoveTrash"}}'>
         <div data-id="search-media-post-unit">
           <a href="/r/LoveTrash/comments/1jhztnq/nature/">
-            <shreddit-player src="${videoUrl}" poster="https://external-preview.redd.it/nature.png">
-              <source src="${videoUrl}">
+            <shreddit-player src="${hlsUrl}" packaged-media-json='${packagedMedia}' poster="https://external-preview.redd.it/nature.png">
+              <source src="${hlsUrl}">
               <img class="preview-image" alt="media poster" src="https://external-preview.redd.it/nature.png">
             </shreddit-player>
           </a>
@@ -279,9 +321,38 @@ test("thumbnail-only search results upgrade from post HTML to their actual video
     "src",
     previewUrl,
   );
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
   await expect(page.locator(".redditp__title")).toHaveText(
     "Video search result",
   );
+});
+
+test("the final slide automatically loads newly rendered Reddit posts", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `
+      <shreddit-post id="t3_first" post-title="First loaded post" content-href="https://i.redd.it/first-loaded.jpg" permalink="/r/test/comments/first/first_loaded_post/"></shreddit-post>
+      <div style="height: 4000px"></div>
+    `,
+  );
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await page.evaluate(() => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `
+        <shreddit-post id="t3_second" post-title="Newly loaded post" content-href="https://i.redd.it/newly-loaded.jpg" permalink="/r/test/comments/second/newly_loaded_post/"></shreddit-post>
+        <shreddit-post id="t3_third" post-title="Another loaded post" content-href="https://i.redd.it/another-loaded.jpg" permalink="/r/test/comments/third/another_loaded_post/"></shreddit-post>
+      `,
+    );
+  });
+
+  await expect(page.locator(".redditp__title")).toHaveText("First loaded post");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 3");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Newly loaded post");
+  await expect(page.locator(".redditp__count")).toHaveText("2 / 3");
 });
 
 test("extension expands lazy Reddit galleries in order without decorative duplicates", async ({

@@ -6,15 +6,15 @@
     return;
   }
 
-  const POST_SELECTOR = [
+  const SPECIFIC_POST_SELECTOR = [
     "shreddit-post",
     ".thing.link",
     ".search-result.search-result-link",
     "[data-id='search-media-post-unit']",
     "[data-testid='search-post-unit']",
     "[data-testid='post-container']",
-    "article",
   ].join(",");
+  const POST_SELECTOR = `${SPECIFIC_POST_SELECTOR},article`;
   const IMAGE_URL_RE = /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i;
   const VIDEO_URL_RE = /\.(?:m3u8|mp4|webm)(?:$|[?#])/i;
   const state = {
@@ -24,6 +24,9 @@
     autoTimer: null,
     autoPlaying: false,
     sound: false,
+    loadingMore: false,
+    advanceAfterLoad: false,
+    loadRequest: 0,
     enrichments: new Map(),
     nativeRestores: new WeakMap(),
     oldOverflow: "",
@@ -322,6 +325,10 @@
         firstHref(player, ["source"]);
       add("video", playerUrl, player.getAttribute("poster"));
     });
+    // A shreddit-player may also contain its HLS source element. That is an
+    // alternate rendition of the same post, not a second slide (and Chromium
+    // cannot play the HLS URL directly).
+    if (media.some((item) => item.kind === "video")) return media;
     node.querySelectorAll("video").forEach((video) => {
       const source =
         video.currentSrc ||
@@ -367,8 +374,16 @@
     const candidates = Array.from(
       document.querySelectorAll(POST_SELECTOR),
     ).filter((node) => {
-      const parent = node.parentElement?.closest(POST_SELECTOR);
-      return !parent;
+      // Current Reddit wraps shreddit-post in a generic article. Prefer the
+      // element that carries the actual post identity and metadata. In the
+      // inverse shape (a specific search container wrapping an article), keep
+      // the specific outer container.
+      if (node.matches("article") && node.querySelector(SPECIFIC_POST_SELECTOR))
+        return false;
+      const specificParent = node.parentElement?.closest(
+        SPECIFIC_POST_SELECTOR,
+      );
+      return !specificParent;
     });
     if (candidates.length) return candidates;
 
@@ -397,6 +412,13 @@
         trackingData(node).post?.id ||
         (comments.match(/\/comments\/([^/]+)/) || [])[1] ||
         "";
+      // `article` is only a last-resort compatibility selector. Current
+      // Reddit also uses it for unrelated sidebar cards and placeholders; do
+      // not turn those into repeated generic "Reddit post" slides.
+      const explicitPostNode = node.matches(
+        "shreddit-post, .thing.link, .search-result.search-result-link, [data-id='search-media-post-unit'], [data-testid='search-post-unit'], [data-testid='post-container']",
+      );
+      if (!explicitPostNode && !postKey && !comments) return;
       if (postKey && seenPosts.has(postKey)) return;
       if (postKey) seenPosts.add(postKey);
       const source = contentUrl(node, comments);
@@ -708,13 +730,102 @@
     }
     scheduleAuto();
     void enrichSlide(slide);
+    if (state.index === state.slides.length - 1) void loadMoreAtEnd(false);
   }
 
   function move(delta) {
     if (!state.slides.length) return;
+    if (state.loadingMore) {
+      if (delta > 0 && state.index === state.slides.length - 1) {
+        state.advanceAfterLoad = true;
+        count.textContent = `${state.index + 1} / ${state.slides.length} · loading more`;
+        return;
+      }
+      if (delta < 0) {
+        state.loadRequest += 1;
+        state.loadingMore = false;
+        state.advanceAfterLoad = false;
+        document.documentElement.style.overflow = "hidden";
+      } else {
+        return;
+      }
+    }
+    if (delta > 0 && state.index === state.slides.length - 1) {
+      void loadMoreAtEnd(true);
+      return;
+    }
     state.index =
       (state.index + delta + state.slides.length) % state.slides.length;
     render();
+  }
+
+  function postIdentity(slide) {
+    if (slide.postKey) return `post:${slide.postKey}`;
+    if (slide.commentsUrl) return `comments:${slide.commentsUrl}`;
+    return `fallback:${slide.title}|${slide.sourceUrl}`;
+  }
+
+  function appendNewPosts() {
+    const existingPosts = new Set(state.slides.map(postIdentity));
+    const additions = extractSlides().filter(
+      (slide) => !existingPosts.has(postIdentity(slide)),
+    );
+    if (additions.length) state.slides.push(...additions);
+    return additions.length;
+  }
+
+  function wait(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  async function loadMoreAtEnd(advanceWhenReady) {
+    if (state.loadingMore) {
+      if (advanceWhenReady) {
+        state.advanceAfterLoad = true;
+        count.textContent = `${state.index + 1} / ${state.slides.length} · loading more`;
+      }
+      return;
+    }
+    if (!state.open || state.index !== state.slides.length - 1) return;
+    state.loadingMore = true;
+    state.advanceAfterLoad = Boolean(advanceWhenReady);
+    const request = ++state.loadRequest;
+    if (advanceWhenReady) {
+      count.textContent = `${state.index + 1} / ${state.slides.length} · loading more`;
+    }
+
+    let added = appendNewPosts();
+    try {
+      if (!added) {
+        document.documentElement.style.overflow = state.oldOverflow;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const scrollingElement = document.scrollingElement;
+          window.scrollTo(0, scrollingElement?.scrollHeight || 0);
+          await wait(200);
+          if (!state.open || request !== state.loadRequest) return;
+          added = appendNewPosts();
+          if (added) break;
+        }
+      }
+    } finally {
+      if (state.open && request === state.loadRequest) {
+        document.documentElement.style.overflow = "hidden";
+        state.loadingMore = false;
+      }
+    }
+
+    if (!state.open || request !== state.loadRequest) return;
+    const shouldAdvance = state.advanceAfterLoad;
+    state.advanceAfterLoad = false;
+    if (added && shouldAdvance) {
+      state.index += 1;
+      render();
+    } else if (!added && shouldAdvance) {
+      state.index = 0;
+      render();
+    } else {
+      count.textContent = `${state.index + 1} / ${state.slides.length}`;
+    }
   }
 
   function scheduleAuto() {
@@ -753,6 +864,9 @@
     if (!state.open) return;
     state.open = false;
     state.autoPlaying = false;
+    state.loadingMore = false;
+    state.advanceAfterLoad = false;
+    state.loadRequest += 1;
     clearTimeout(state.autoTimer);
     autoButton.textContent = "auto";
     stopMedia();

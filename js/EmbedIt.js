@@ -41,20 +41,30 @@ embedit.fnv1aHash = function (str) {
   return (hash >>> 0).toString(16).padStart(8, "0");
 };
 
-// Mirrors pathToFilename() in archive/extension/background.js for the
-// "/r/<subName>/.json" case (the only shape ever snapshotted — see the
-// archiveMatch check in script.js). subName may be "" (the bare /r/ front
-// page) or a "sub1+sub2+..." combo.
-embedit.archiveFilenameForSub = function (subName) {
-  var segments = subName ? ["r", subName] : ["r"];
-  segments = segments.map(function (segment) {
-    if (segment.indexOf("+") === -1) return segment;
-    var subs = segment.split("+").sort();
-    var preview = subs.slice(0, 5).join("+");
-    var hash = embedit.fnv1aHash(subs.join("+"));
-    return preview + "-" + hash;
-  });
-  return segments.join("-") + ".json";
+// Mirrors pathToFilename() in archive/extension/background.js exactly (same
+// algorithm, generic over any path — not just "/r/..." shapes), given the
+// same kind of path used to build jsonUrl elsewhere in script.js:
+//   "/r/gonewild/.json" -> "r-gonewild.json"
+//   "/r/.json" (bare /r/, empty subreddit) -> "r.json"
+//   "/.json" (the actual site root — old.reddit.com's own front page,
+//     distinct from the "/r/" case above) -> "root.json", via the same
+//     empty-segments fallback background.js uses.
+embedit.archiveFilenameForPath = function (path) {
+  var clean = path.replace(/^\/+|\/+$/g, "");
+  var segments = clean
+    .split("/")
+    .filter(function (s) {
+      return s && s !== ".json";
+    })
+    .map(function (segment) {
+      if (segment.indexOf("+") === -1) return segment;
+      var subs = segment.split("+").sort();
+      var preview = subs.slice(0, 5).join("+");
+      var hash = embedit.fnv1aHash(subs.join("+"));
+      return preview + "-" + hash;
+    });
+  var base = segments.length ? segments.join("-") : "root";
+  return base + ".json";
 };
 
 embedit.video = function (webmUrl, mp4Url) {

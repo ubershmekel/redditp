@@ -55,3 +55,8 @@ chrome.commands.onCommand.addListener(async (command) => {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   await showPresentation(tabs[0]);
 });
+
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (message?.type !== "activate-from-url" || !sender.tab) return;
+  void showPresentation(sender.tab);
+});

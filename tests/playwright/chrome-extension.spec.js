@@ -9,6 +9,10 @@ const extensionStyles = path.resolve(
   __dirname,
   "../../chrome-extension/presentation.css",
 );
+const autoActivateScript = path.resolve(
+  __dirname,
+  "../../chrome-extension/auto-activate.js",
+);
 
 async function startPresentation(page, html) {
   await page.setContent(`<base href="https://www.reddit.com/">${html}`);
@@ -89,6 +93,69 @@ test("old Reddit combined-search cards upgrade their outbound media", async ({
     "src",
     videoUrl,
   );
+});
+
+test("old Reddit reuses its live adaptive video instead of the seek preview", async ({
+  page,
+}) => {
+  await page.setContent(`
+    <base href="https://old.reddit.com/">
+    <div class="thing link" data-url="https://v.redd.it/adaptive" data-author="runner" data-subreddit="MadeMeSmile" data-permalink="/r/MadeMeSmile/comments/adaptive/post/">
+      <a class="title">Adaptive video</a>
+      <div id="native-player"><video id="adaptive-video" class="portrait" muted></video></div>
+      <video id="seek-preview" class="portrait" muted src="https://v.redd.it/adaptive/CMAF_96.mp4"></video>
+    </div>
+  `);
+  await page.locator("#adaptive-video").evaluate((video) => {
+    video.src = URL.createObjectURL(
+      new Blob(["not real media"], { type: "video/mp4" }),
+    );
+  });
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  await expect(page.locator(".redditp__media #adaptive-video")).toBeVisible();
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator("#adaptive-video")).toHaveJSProperty(
+    "controls",
+    true,
+  );
+  await expect(page.locator(".redditp__media #seek-preview")).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#native-player > #adaptive-video")).toHaveCount(1);
+  await expect(page.locator("#adaptive-video")).toHaveClass("portrait");
+  await expect(page.locator("#adaptive-video")).toHaveJSProperty(
+    "controls",
+    false,
+  );
+});
+
+test("redditp=1 asks the extension to activate on Reddit URLs", async ({
+  page,
+}) => {
+  const url =
+    "https://old.reddit.com/r/MadeMeSmile/comments/adaptive/post/?redditp=1";
+  await page.route(url, (route) =>
+    route.fulfill({ contentType: "text/html", body: "<main>Reddit</main>" }),
+  );
+  await page.goto(url);
+  await page.evaluate(() => {
+    window.__redditpMessage = null;
+    window.chrome = {
+      runtime: {
+        sendMessage(message) {
+          window.__redditpMessage = message;
+          return Promise.resolve();
+        },
+      },
+    };
+  });
+  await page.addScriptTag({ path: autoActivateScript });
+
+  await expect
+    .poll(() => page.evaluate(() => window.__redditpMessage))
+    .toEqual({ type: "activate-from-url" });
 });
 
 test("extension extracts current Reddit post elements on a mobile viewport", async ({

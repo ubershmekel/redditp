@@ -25,6 +25,7 @@
     autoPlaying: false,
     sound: false,
     enrichments: new Map(),
+    nativeRestores: new WeakMap(),
     oldOverflow: "",
     pointerStart: null,
   };
@@ -270,6 +271,25 @@
       if (!normalized || seen.has(key)) return;
       seen.add(key);
       media.push({ kind, url: normalized, poster: absoluteUrl(poster) });
+    }
+
+    // On old Reddit post pages the real adaptive player is already attached
+    // to a MediaSource blob. A second video element is only a muted, low-frame
+    // rate seek preview, so preserve and reuse the live player when available.
+    const nativeVideo = Array.from(node.querySelectorAll("video")).find(
+      (video) =>
+        (video.currentSrc || video.getAttribute("src") || "").startsWith(
+          "blob:",
+        ),
+    );
+    if (nativeVideo) {
+      media.push({
+        kind: "native-video",
+        url: sourceUrl,
+        poster: absoluteUrl(nativeVideo.getAttribute("poster")),
+        nativeElement: nativeVideo,
+      });
+      return media;
     }
 
     const galleryFigures = Array.from(
@@ -550,7 +570,24 @@
   root.append(stage, prevButton, nextButton, details, controls, closeButton);
 
   function stopMedia() {
-    mediaBox.querySelectorAll("video").forEach((video) => video.pause());
+    mediaBox.querySelectorAll("video").forEach((video) => {
+      video.pause();
+      const restore = state.nativeRestores.get(video);
+      if (!restore) return;
+      video.removeEventListener("ended", restore.endedHandler);
+      if (restore.className === null) video.removeAttribute("class");
+      else video.setAttribute("class", restore.className);
+      if (restore.style === null) video.removeAttribute("style");
+      else video.setAttribute("style", restore.style);
+      video.controls = restore.controls;
+      video.muted = restore.muted;
+      video.loop = restore.loop;
+      video.autoplay = restore.autoplay;
+      if (restore.placeholder.isConnected) {
+        restore.placeholder.replaceWith(video);
+      }
+      state.nativeRestores.delete(video);
+    });
     mediaBox.replaceChildren();
   }
 
@@ -625,6 +662,39 @@
       );
       mediaBox.append(video);
       video.play().catch(() => {});
+    } else if (slide.kind === "native-video" && slide.nativeElement) {
+      const video = slide.nativeElement;
+      const placeholder = document.createComment("redditp native video");
+      const endedHandler = () => {
+        if (
+          state.open &&
+          state.autoPlaying &&
+          state.slides[state.index]?.nativeElement === video
+        ) {
+          move(1);
+        }
+      };
+      video.parentNode.insertBefore(placeholder, video);
+      state.nativeRestores.set(video, {
+        placeholder,
+        className: video.getAttribute("class"),
+        style: video.getAttribute("style"),
+        controls: video.controls,
+        muted: video.muted,
+        loop: video.loop,
+        autoplay: video.autoplay,
+        endedHandler,
+      });
+      video.className = "redditp__video";
+      video.removeAttribute("style");
+      video.controls = true;
+      video.playsInline = true;
+      video.autoplay = true;
+      video.muted = !state.sound;
+      video.loop = !state.autoPlaying;
+      video.addEventListener("ended", endedHandler);
+      mediaBox.append(video);
+      video.play().catch(() => {});
     } else if (slide.kind === "embed") {
       const iframe = element("iframe", "redditp__embed", "");
       iframe.src = slide.url;
@@ -655,7 +725,8 @@
       state.autoPlaying &&
       state.open &&
       state.slides.length > 1 &&
-      slide?.kind !== "video"
+      slide?.kind !== "video" &&
+      slide?.kind !== "native-video"
     ) {
       state.autoTimer = setTimeout(() => move(1), 6000);
     }

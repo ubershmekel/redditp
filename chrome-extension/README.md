@@ -15,8 +15,12 @@ API.
 ## Use it
 
 On an `old.reddit.com`, `www.reddit.com`, or other `reddit.com` listing page,
-click the extension button or press `Ctrl+Shift+Y` (`Command+Shift+Y` on macOS).
-The same action closes presentation mode when it is already open.
+click the extension button or press `Alt+P`. The same action closes presentation
+mode when it is already open.
+
+Add `redditp=1` to any Reddit URL to start presentation mode automatically, for
+example https://old.reddit.com/r/pics/?redditp=1 or
+https://www.reddit.com/search/?q=formula1&redditp=1.
 
 - Right arrow, Page Down, or Space: next slide
 - Left arrow or Page Up: previous slide
@@ -40,10 +44,11 @@ Reddit.
 Only posts currently rendered in the page can be included. On an infinite scroll
 feed, scroll first to load more posts, then start presentation mode. Direct and
 preview images, lazy-loaded Reddit galleries, animated images, ordinary HTML
-video, `shreddit-player` video, packaged Reddit MP4 video, Imgur, Redgifs, and
-YouTube embeds are handled when their rendered URLs are available. Video starts
-muted and can be unmuted from the compact control bar. Unsupported link types
-remain useful as title cards with links to the media and comments.
+video, old Reddit's adaptive video player (including audio), `shreddit-player`
+video, packaged Reddit MP4 video, Imgur, Redgifs, and YouTube embeds are handled
+when their rendered URLs are available. Video starts muted and can be unmuted
+from the compact control bar. Unsupported link types remain useful as title
+cards with links to the media and comments.
 
 Some search result formats expose only a small custom thumbnail. When one of
 those slides is shown, redditp reads that post's normal Reddit HTML in the
@@ -55,6 +60,7 @@ available as the fallback.
 
 - `manifest.json`: extension metadata, permissions, and shortcut
 - `background.js`: toolbar and keyboard-command launcher
+- `auto-activate.js`: opt-in `redditp=1` URL launcher
 - `content.js`: Reddit DOM extraction and slideshow behavior
 - `presentation.css`: isolated, responsive presentation UI
 - `favicon.png`: extension and toolbar icon

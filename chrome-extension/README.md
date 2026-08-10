@@ -48,13 +48,11 @@ listings, search results, post pages, and user pages on both old and current
 Reddit.
 
 Only posts currently rendered in the page can be included. On an infinite scroll
-feed, scroll first to load more posts, then start presentation mode. Direct and
-preview images, lazy-loaded Reddit galleries, animated images, ordinary HTML
-video, Reddit's live adaptive video players (including players rendered inside
-open shadow roots), packaged Reddit MP4 video, Imgur, Redgifs, and YouTube
-embeds are handled when their rendered URLs are available. Video starts muted
-and can be unmuted from the compact control bar. Unsupported link types remain
-useful as title cards with links to the media and comments.
+feed, scroll first to load more posts, then start presentation mode. Images,
+galleries, and video hosted by Reddit are shown, along with the media of the few
+link hosts Reddit posts commonly use. Video starts muted and can be unmuted from
+the compact control bar. Unsupported link types remain useful as title cards
+with links to the media and comments.
 
 On a direct video post, redditp initializes Reddit's dormant adaptive player
 before opening it. Reddit's low-frame-rate `CMAF_96.mp4` seek preview is never

@@ -360,6 +360,29 @@ test("current Reddit ignores repeated non-post article cards", async ({
   await expect(page.locator(".redditp__count")).toContainText("1 / 1");
 });
 
+test("a linked watch page becomes that host's player frame", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `
+      <shreddit-post
+        id="t3_framed"
+        post-title="Linked clip"
+        author="poster"
+        subreddit-prefixed-name="r/clips"
+        content-href="https://videohost.example/watch/some-clip-id"
+        permalink="/r/clips/comments/framed/linked_clip/"
+      ></shreddit-post>
+    `,
+  );
+
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    "https://videohost.example/ifr/some-clip-id",
+  );
+});
+
 test("extension recognizes Reddit search media cards and packaged video", async ({
   page,
 }) => {

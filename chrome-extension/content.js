@@ -208,14 +208,6 @@
         url: `https://i.imgur.com/${match[1]}.${extension || "jpg"}`,
       };
     }
-    if (hostname === "redgifs.com") {
-      const match = parsed.pathname.match(/\/(?:watch|ifr)\/([\w-]+)/i);
-      if (match)
-        return {
-          kind: "embed",
-          url: `https://www.redgifs.com/ifr/${match[1]}`,
-        };
-    }
     if (hostname === "youtu.be" || hostname.endsWith("youtube.com")) {
       const id =
         hostname === "youtu.be"
@@ -224,6 +216,13 @@
       if (id && /^[\w-]+$/.test(id)) {
         return { kind: "embed", url: `https://www.youtube.com/embed/${id}` };
       }
+    }
+    // Several video hosts linked from Reddit publish a watch page at
+    // /watch/<id> and the matching player frame at /ifr/<id> on the same
+    // origin. Follow that convention instead of naming individual sites.
+    const framed = parsed.pathname.match(/^\/(?:watch|ifr)\/([\w-]+)\/?$/i);
+    if (framed) {
+      return { kind: "embed", url: `${parsed.origin}/ifr/${framed[1]}` };
     }
     return null;
   }

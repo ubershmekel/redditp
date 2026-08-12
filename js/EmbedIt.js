@@ -88,12 +88,12 @@ embedit.video = function (webmUrl, mp4Url) {
         console.error("Empty video urls given");
         return;
     }
-    
+
     if(mp4Url)
         url = mp4Url
     else
         url = webmUrl
-    
+
     if (Modernizr.video.webm && webmUrl) {
         // Thank you http://diveintohtml5.info/detect.html
         // try WebM
@@ -324,7 +324,7 @@ embedit.processRedditJson = function (data) {
   return result;
 };
 
-embedit.redditItemToPic = function (item) {
+embedit.redditGenericItemToPic = function (item) {
   var pic = {
     url: item.data.url || item.data.link_url,
     title: item.data.title || item.data.link_title,
@@ -335,6 +335,25 @@ embedit.redditItemToPic = function (item) {
     data: item.data,
   };
 
+  // flair
+  switch (item.data.link_flair_type) {
+    case "text":
+    case "richtext": // backwards compatible with "text"
+      if (item.data.link_flair_text) {
+        pic.flairText = item.data.link_flair_text;
+        pic.flairForeground = item.data.link_flair_text_color === "dark"
+          ? "black"
+          : "white";
+        pic.flairBackground = item.data.link_flair_background_color;
+      }
+      break;
+  }
+
+  return pic;
+}
+
+embedit.redditItemToPic = function (item) {
+  var pic = embedit.redditGenericItemToPic(item);
   if (!embedit.transformRedditData(pic)) {
     return null;
   }
@@ -478,21 +497,17 @@ embedit.transformRedditData = function (pic) {
 embedit.redditGalleryToPics = function (item) {
   var pics = [];
   var total = item.data.gallery_data.items.length;
+  var genericPic = embedit.redditGenericItemToPic(item);
   $.each(item.data.gallery_data.items, function (j, image) {
     var mediaId = image.media_id;
-    var mime = item.data.media_metadata[mediaId].m; // e.g. "image/jpeg"
-    var extension = mime.split("/")[1]; // "jpeg"
-    var mimePrefix = mime.split("/")[0]; // "image" or "video"
+    var mime = item.data.media_metadata[mediaId].m; // e.g. "image/jpeg" or "video/mp4"
+    var [mimePrefix, extension] = mime.split("/"); // "image" or "video", "jpeg" or "mp4"
     pics.push({
-      title: item.data.title,
+      ...genericPic,
       url: "https://i.redd.it/" + mediaId + "." + extension,
-      data: item.data,
       commentsLink: item.data.url,
-      over18: item.data.over_18,
-      subreddit: item.data.subreddit,
       galleryItem: j + 1,
       galleryTotal: total,
-      userLink: item.data.author,
       type: mimePrefix,
     });
   });

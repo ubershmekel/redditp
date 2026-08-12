@@ -155,6 +155,9 @@ a:hover {
     Arial,
     Sans-serif;
 }
+.navbox h3 > * + * {
+  margin-left: 10px;
+}
 .navbox p {
   padding: 20px 20px 20px 20px;
   font-family:
@@ -167,6 +170,11 @@ a:hover {
   position: absolute;
   bottom: 5px;
   right: 5px;
+}
+
+#navboxFlair {
+  border-radius: 12px;
+  padding: 0 6px 0 6px;
 }
 
 .nbmenu {

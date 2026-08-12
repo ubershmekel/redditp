@@ -62,6 +62,13 @@ these URLs yourself:
   parameter is present.
 - Run the Playwright smoke test with `npm run test:playwright`.
 
+## Project history
+
+redditp launched on July 4, 2012 and accumulated 374 commits over more than
+fourteen years. Read [the history of redditp](docs/history.md) for the launch
+story, a commit-category breakdown and timeline, and the project's transition to
+archived data and a browser extension as Reddit restricts API access.
+
 ## Credits
 
 - Ubershmekel http://yuvalg.com/

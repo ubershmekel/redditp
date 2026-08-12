@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Opens real browser tabs to Reddit's .json listings and downloads them, for building a static cache of redditp's most popular subreddits.",
   "permissions": ["tabs", "downloads", "scripting", "storage"],
-  "host_permissions": ["https://old.reddit.com/*"],
+  "host_permissions": ["https://old.reddit.com/*", "https://www.reddit.com/*"],
   "background": {
     "service_worker": "background.js"
   },

@@ -451,6 +451,324 @@ suite("processRedditJson", () => {
 });
 
 // ---------------------------------------------------------------------------
+// archiveFilenameForPath — reddit request path -> bucket object name
+// ---------------------------------------------------------------------------
+
+suite("archiveFilenameForPath — default sort", () => {
+  test("plain subreddit", () => {
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/gifs/.json"),
+      "r-gifs.json",
+    );
+  });
+
+  test("bare /r/ becomes r.json", () => {
+    assert.strictEqual(embedit.archiveFilenameForPath("/r/.json"), "r.json");
+  });
+
+  test("site root becomes root.json, distinct from bare /r/", () => {
+    assert.strictEqual(embedit.archiveFilenameForPath("/.json"), "root.json");
+  });
+
+  test("subreddit name casing is preserved verbatim", () => {
+    // Reddit paths are case-insensitive but bucket object names are not, so
+    // the snapshot's casing is the only one that resolves.
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/EarthPorn/.json"),
+      "r-EarthPorn.json",
+    );
+  });
+});
+
+suite("archiveFilenameForPath — multireddits", () => {
+  test("short combo is sorted, so any order gives one file", () => {
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/celebs+celebnsfw/.json"),
+      embedit.archiveFilenameForPath("/r/celebnsfw+celebs/.json"),
+    );
+  });
+
+  test("combo over 5 subs is truncated to a preview plus a hash", () => {
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/b+a+c+d+e+f+g/.json"),
+      "r-a+b+c+d+e-ab284527.json",
+    );
+  });
+
+  test("combos sharing their first 5 subs do not collide", () => {
+    // The whole reason the hash exists — a preview alone would map both of
+    // these onto "r-a+b+c+d+e.json" and one would silently overwrite the
+    // other in the bucket.
+    assert.notStrictEqual(
+      embedit.archiveFilenameForPath("/r/a+b+c+d+e+f/.json"),
+      embedit.archiveFilenameForPath("/r/a+b+c+d+e+g/.json"),
+    );
+  });
+});
+
+suite("archiveFilenameForPath — top listings", () => {
+  test("each time window is its own file", () => {
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/gifs/top/.json?t=month"),
+      "r-gifs-top-t-month.json",
+    );
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/gifs/top/.json?t=year"),
+      "r-gifs-top-t-year.json",
+    );
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/gifs/top/.json?t=all"),
+      "r-gifs-top-t-all.json",
+    );
+  });
+
+  test("top window never collides with the default-sort file", () => {
+    assert.notStrictEqual(
+      embedit.archiveFilenameForPath("/r/gifs/top/.json?t=all"),
+      embedit.archiveFilenameForPath("/r/gifs/.json"),
+    );
+  });
+
+  test("query params are sorted, so param order does not matter", () => {
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/gifs/.json?b=2&a=1"),
+      embedit.archiveFilenameForPath("/r/gifs/.json?a=1&b=2"),
+    );
+  });
+
+  test("multireddit top listing combines both rules", () => {
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/celebs+celebnsfw/top/.json?t=all"),
+      "r-celebnsfw+celebs-2e7e104d-top-t-all.json",
+    );
+  });
+
+  test("path separators cannot escape the flat bucket namespace", () => {
+    // Object names are flat by design; a value that decodes to a slash must
+    // not turn into a nested path or climb out of the prefix.
+    const name = embedit.archiveFilenameForPath("/r/gifs/.json?x=%2F..%2Fetc");
+    assert.ok(!name.includes("/"), "should not contain a slash: " + name);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archiveMatchesPath — which requests the archive is allowed to answer
+// ---------------------------------------------------------------------------
+
+suite("archiveMatchesPath — eligible", () => {
+  test("plain subreddit", () => {
+    assert.strictEqual(embedit.archiveMatchesPath("/r/gifs/", "", null), true);
+  });
+
+  test("site root", () => {
+    assert.strictEqual(embedit.archiveMatchesPath("/", "", null), true);
+  });
+
+  test("multireddit", () => {
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/celebs+celebnsfw/", "", null),
+      true,
+    );
+  });
+
+  test("top with each snapshotted window", () => {
+    ["month", "year", "all"].forEach((window) => {
+      assert.strictEqual(
+        embedit.archiveMatchesPath("/r/gifs/top/", "t=" + window, null),
+        true,
+        "expected t=" + window + " to match",
+      );
+    });
+  });
+});
+
+suite("archiveMatchesPath — ineligible", () => {
+  test("pagination is never archived", () => {
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/gifs/", "", "t3_abc123"),
+      false,
+    );
+  });
+
+  test("random subreddits are meant to differ per request", () => {
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/random/", "", null),
+      false,
+    );
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/randnsfw/", "", null),
+      false,
+    );
+  });
+
+  test("unsnapshotted top windows do not fall back to a nearby one", () => {
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/gifs/top/", "t=hour", null),
+      false,
+    );
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/gifs/top/", "t=week", null),
+      false,
+    );
+  });
+
+  test("other sorts are not archived", () => {
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/gifs/new/", "", null),
+      false,
+    );
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/gifs/controversial/", "t=all", null),
+      false,
+    );
+  });
+
+  test("t= is only meaningful on a top listing", () => {
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/gifs/", "t=all", null),
+      false,
+    );
+  });
+
+  test("extra query params disqualify an otherwise-eligible path", () => {
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/gifs/top/", "t=all&limit=100", null),
+      false,
+    );
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/gifs/", "limit=100", null),
+      false,
+    );
+  });
+
+  test("top listing needs a subreddit", () => {
+    assert.strictEqual(
+      embedit.archiveMatchesPath("/r/top/", "t=all", null),
+      // "/r/top/" is the default-sort shape for a subreddit named "top",
+      // not a top listing — and with a t= param it matches nothing.
+      false,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Filename parity with the snapshot tool
+//
+// archive/extension/background.js computes the same filenames when writing
+// the bucket's contents that the frontend computes when reading them, from
+// two separate copies of the algorithm. Nothing at runtime would catch them
+// drifting apart: the frontend would just start requesting names that were
+// never uploaded and quietly get 404s. So the two are compared directly.
+// ---------------------------------------------------------------------------
+
+// Everything in background.js above fetchOne() is chrome-API-free, so it can
+// be evaluated standalone here. Returns null if the marker is gone, which
+// the suites below assert on rather than silently skipping their checks.
+const EXTENSION_MARKER = "async function fetchOne";
+
+function loadExtensionHelpers() {
+  const fs = require("fs");
+  const path = require("path");
+  const source = fs.readFileSync(
+    path.join(__dirname, "../archive/extension/background.js"),
+    "utf8",
+  );
+  const prelude = source.split(EXTENSION_MARKER)[0];
+  if (prelude.length === source.length) return null;
+  return new Function(
+    prelude +
+      "\nreturn { pathToFilename: pathToFilename, listingUrl: listingUrl };",
+  )();
+}
+
+suite("filename parity with archive/extension/background.js", () => {
+  const extension = loadExtensionHelpers();
+
+  test("extension helpers could be loaded", () => {
+    // Guards the split above: if background.js is restructured so the marker
+    // disappears, this fails loudly instead of silently skipping the parity
+    // checks below.
+    assert.ok(
+      extension,
+      "did not find '" + EXTENSION_MARKER + "' in background.js",
+    );
+  });
+
+  const paths = [
+    "/.json",
+    "/r/.json",
+    "/r/gifs/.json",
+    "/r/EarthPorn/.json",
+    "/r/gifs/top/.json?t=month",
+    "/r/gifs/top/.json?t=year",
+    "/r/gifs/top/.json?t=all",
+    "/r/celebs+celebnsfw/.json",
+    "/r/celebs+celebnsfw/top/.json?t=all",
+    "/r/b+a+c+d+e+f+g/top/.json?t=all",
+    "/r/gifs/.json?a=1&b=2",
+  ];
+
+  paths.forEach((urlPath) => {
+    test("agrees on " + urlPath, () => {
+      assert.ok(extension, "extension helpers not loaded");
+      // The extension prefixes the download folder; the bucket is flat.
+      const written = extension
+        .pathToFilename(urlPath)
+        .replace("redditp-snapshot/", "");
+      assert.strictEqual(embedit.archiveFilenameForPath(urlPath), written);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listingUrl — the human-openable page recorded inside each saved file
+//
+// Shares the parity suite's loader; declared after it so `extension` exists.
+// ---------------------------------------------------------------------------
+
+suite("listingUrl", () => {
+  const extension = loadExtensionHelpers();
+
+  test("drops the .json view segment", () => {
+    assert.strictEqual(
+      extension.listingUrl("/r/gifs/.json"),
+      "https://www.reddit.com/r/gifs",
+    );
+  });
+
+  test("keeps the sort and time window a reader would need", () => {
+    assert.strictEqual(
+      extension.listingUrl("/r/gifs/top/.json?t=month"),
+      "https://www.reddit.com/r/gifs/top?t=month",
+    );
+  });
+
+  test("normalizes the host, so it does not vary per run", () => {
+    // The file's fetch_url records which host actually served the bytes;
+    // this one has to mean the same thing regardless of that choice.
+    assert.ok(
+      extension
+        .listingUrl("/r/gifs/.json")
+        .startsWith("https://www.reddit.com/"),
+    );
+  });
+
+  test("site root stays a valid URL", () => {
+    assert.strictEqual(
+      extension.listingUrl("/.json"),
+      "https://www.reddit.com/",
+    );
+  });
+
+  test("multireddit keeps its raw + form, not the hashed filename form", () => {
+    assert.strictEqual(
+      extension.listingUrl("/r/celebs+celebnsfw/top/.json?t=all"),
+      "https://www.reddit.com/r/celebs+celebnsfw/top?t=all",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 

@@ -1,8 +1,10 @@
 // Curated from GA4 pageviews (analytics-2025-Pages_and_screens...) and server
 // request logs (api-7days-most-popular), top 100 from each source, merged and
-// deduped case/order-insensitively. Multi-subreddit combos keep their raw
-// "+"-joined form here — background.js sorts and hashes them into a bounded
-// filename at fetch time. Edit freely in the popup.
+// deduped case/order-insensitively. These are the *base* (hot) listing paths;
+// the popup expands each one into whichever sort variants are checked (see
+// SORT_VARIANTS below). Multi-subreddit combos keep their raw "+"-joined form
+// here — background.js sorts and hashes them into a bounded filename at fetch
+// time. Edit freely in the popup.
 const DEFAULT_URL_PATHS = [
   "/r/gonewild/.json",
   "/r/nsfw/.json",
@@ -151,3 +153,39 @@ const DEFAULT_URL_PATHS = [
   "/r/gonewild+NSFW_GIF+nsfw+RealGirls+Celebs+nsfw_gifs+pornvids/.json",
   "/r/models/.json",
 ];
+
+// Sort variants each base path can be expanded into. "hot" is the bare
+// listing the base paths already are; the rest are Reddit's /top listings
+// with a time window, which is what makes an archived snapshot worth
+// anything — /top?t=all barely changes, so a cached copy stays useful long
+// after the hot listing has gone stale.
+const SORT_VARIANTS = [
+  { id: "hot", label: "hot", suffix: "/.json" },
+  { id: "top-month", label: "top month", suffix: "/top/.json?t=month" },
+  { id: "top-year", label: "top year", suffix: "/top/.json?t=year" },
+  { id: "top-all", label: "top all", suffix: "/top/.json?t=all" },
+];
+
+// "/r/gifs/.json" + "/top/.json?t=year" -> "/r/gifs/top/.json?t=year"
+function applyVariant(basePath, variant) {
+  const stem = basePath
+    .split("?")[0]
+    .replace(/\/?\.json$/, "")
+    .replace(/\/+$/, "");
+  return `${stem}${variant.suffix}`;
+}
+
+// Variant-major, not path-major: every base path is fetched as hot before
+// any /top request is made. At 5-15s per download a full 4-variant run is
+// hours long, so an interrupted run should leave a complete hot snapshot
+// behind rather than a complete snapshot of the first quarter of the list.
+function expandPaths(basePaths, variantIds) {
+  const chosen = SORT_VARIANTS.filter((v) => variantIds.includes(v.id));
+  const out = [];
+  for (const variant of chosen) {
+    for (const basePath of basePaths) {
+      out.push(applyVariant(basePath, variant));
+    }
+  }
+  return out;
+}

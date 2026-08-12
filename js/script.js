@@ -1074,24 +1074,18 @@ $(function () {
       return;
     }
 
-    // The static archive cache (see archiveFilenameForPath below) is only a
-    // last resort, tried after both live attempts below fail — the primary
-    // jsonp request is a real browser-issued request straight from the
-    // visitor's own machine to old.reddit.com (not through the blocked
-    // server), so plenty of real visitors still get live, fresh data that
-    // way. Only for a plain default-sort request with no pagination/extra
-    // query params, since that's the only variant that was actually
-    // snapshotted — anything else (sort, t=, after=, random) has no archive
-    // fallback at all: we never guess at "close enough" cached data, only
-    // exact matches or nothing. Covers both "/r/<sub>/" (including the bare
-    // "/r/" case) and the true site root "/" (old.reddit.com's own front
-    // page — a different, also-snapshotted endpoint from "/r/").
-    var archiveMatch =
-      !rp.session.after &&
-      getVars.length === 0 &&
-      subredditUrl !== "/r/randnsfw/" &&
-      subredditUrl !== "/r/random/" &&
-      (subredditUrl === "/" || /^\/r\/[^/]*\/?$/.test(subredditUrl));
+    // The static archive cache is only a last resort, tried after both live
+    // attempts below fail — the primary jsonp request is a real
+    // browser-issued request straight from the visitor's own machine to
+    // old.reddit.com (not through the blocked server), so plenty of real
+    // visitors still get live, fresh data that way. Only request shapes that
+    // were actually snapshotted are eligible; see
+    // embedit.archiveMatchesPath for the exact rule.
+    var archiveMatch = embedit.archiveMatchesPath(
+      subredditUrl,
+      getVars,
+      rp.session.after,
+    );
 
     var tryArchiveFallback = function () {
       if (!archiveMatch) {
@@ -1101,7 +1095,9 @@ $(function () {
       $.ajax({
         url:
           embedit.archiveBaseUrl +
-          embedit.archiveFilenameForPath(subredditUrl + ".json"),
+          embedit.archiveFilenameForPath(
+            subredditUrl + ".json" + (getVars.length ? "?" + getVars : ""),
+          ),
         dataType: "json",
         success: handleData,
         error: failedAjax,

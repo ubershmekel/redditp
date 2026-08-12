@@ -36,9 +36,19 @@
         gap: 6px;
         align-items: center;
       }
-      #progressText {
+      #progressText,
+      #expandedCount,
+      #historyText {
         font-family: monospace;
         font-size: 12px;
+      }
+      #expandedCount {
+        margin: 4px 0;
+        color: #555;
+      }
+      body > label {
+        display: block;
+        margin: 2px 0;
       }
       #progressBar {
         width: 100%;
@@ -49,14 +59,28 @@
   </head>
   <body>
     <p>
-      One path per line. Fetched from
-      <code>old.reddit.com&lt;path&gt;</code> via a real tab, saved to
-      <code>Downloads/redditp-snapshot/&lt;path&gt;.json</code>.
+      One base path per line. Each is expanded into the sort variants checked
+      below, fetched from the host below via a real tab, and saved to
+      <code>Downloads/redditp-snapshot/</code>.
     </p>
     <textarea id="urls"></textarea>
     <label>
+      Host:
+      <select id="host">
+        <option value="https://old.reddit.com">old.reddit.com</option>
+        <option value="https://www.reddit.com">www.reddit.com</option>
+      </select>
+    </label>
+    <div class="row" id="variants"></div>
+    <div id="expandedCount"></div>
+    <label>
+      <input type="checkbox" id="skipDownloaded" checked />
+      Skip paths already downloaded (resume an interrupted run)
+    </label>
+    <label>
       <input type="checkbox" id="manualMode" />
-      Manual mode (click Next between each URL instead of auto 3s throttle)
+      Manual mode (click Next between each URL instead of the auto 5-15s
+      throttle)
     </label>
     <div class="row">
       <button id="start">Start</button>
@@ -67,6 +91,10 @@
     </div>
     <progress id="progressBar" value="0" max="1"></progress>
     <div id="log"></div>
+    <div class="row">
+      <span id="historyText"></span>
+      <button id="clearHistory">Clear manifest history</button>
+    </div>
     <script src="default-urls.js"></script>
     <script src="popup.js"></script>
   </body>

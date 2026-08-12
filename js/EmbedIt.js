@@ -20,14 +20,15 @@ if (window.location && window.location.protocol === "https:") {
   embedit.redditBaseUrl = "https://old.reddit.com";
 }
 
-// Static cache of popular subreddits' .json listings, snapshotted by
-// archive/extension since Reddit blocks both server-side scraping and new
-// OAuth app registration. No manifest/index is ever fetched by the
+// Static cache of popular subreddits' public .json listings, gathered by
+// archive/extension (see its README) and used only as a last resort when a
+// live request doesn't succeed. No manifest/index is ever fetched by the
 // frontend — that would transfer every cached subreddit name (including
 // NSFW ones) to a visitor regardless of which page they're on. Instead the
 // exact filename is recomputed here from the requested path; a 404 just
 // means it wasn't snapshotted, and falls through to the live fetch.
-embedit.archiveBaseUrl = "https://storage.googleapis.com/uberbuck/redditp-archive/";
+embedit.archiveBaseUrl =
+  "https://storage.googleapis.com/uberbuck/redditp-archive/";
 
 // Deterministic 32-bit FNV-1a hash, as 8 hex chars. Must stay byte-for-byte
 // identical to fnv1a() in archive/extension/background.js — this has to
@@ -49,8 +50,16 @@ embedit.fnv1aHash = function (str) {
 //   "/.json" (the actual site root — old.reddit.com's own front page,
 //     distinct from the "/r/" case above) -> "root.json", via the same
 //     empty-segments fallback background.js uses.
+//   "/r/gifs/top/.json?t=year" -> "r-gifs-top-t-year.json" — query params
+//     are part of the listing's identity (each /top window is a different
+//     listing), sorted so param order can't change the name.
+embedit.archiveSlug = function (value) {
+  return value.replace(/[^A-Za-z0-9+_.-]/g, "_");
+};
+
 embedit.archiveFilenameForPath = function (path) {
-  var clean = path.replace(/^\/+|\/+$/g, "");
+  var parts = path.split("?");
+  var clean = parts[0].replace(/^\/+|\/+$/g, "");
   var segments = clean
     .split("/")
     .filter(function (s) {
@@ -62,9 +71,64 @@ embedit.archiveFilenameForPath = function (path) {
       var preview = subs.slice(0, 5).join("+");
       var hash = embedit.fnv1aHash(subs.join("+"));
       return preview + "-" + hash;
-    });
-  var base = segments.length ? segments.join("-") : "root";
-  return base + ".json";
+    })
+    .map(embedit.archiveSlug);
+  if (!segments.length) segments = ["root"];
+
+  var query = parts[1] || "";
+  var pairs = query
+    ? query.split("&").map(function (pair) {
+        var eq = pair.indexOf("=");
+        var key = eq === -1 ? pair : pair.substr(0, eq);
+        var value = eq === -1 ? "" : pair.substr(eq + 1);
+        return [decodeURIComponent(key), decodeURIComponent(value)];
+      })
+    : [];
+  pairs.sort(function (a, b) {
+    return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+  });
+  var queryParts = pairs.map(function (pair) {
+    return embedit.archiveSlug(pair[0]) + "-" + embedit.archiveSlug(pair[1]);
+  });
+
+  return segments.concat(queryParts).join("-") + ".json";
+};
+
+// Which requests the archive can answer. Lives next to
+// archiveFilenameForPath because the two together define what the archive
+// contains — a path only has a meaningful filename if it's a shape the
+// snapshot tool actually fetched.
+//
+// Deliberately narrow: we serve an exact match of a snapshotted listing or
+// nothing at all, never a "close enough" substitute for what was asked for.
+//   - default sort, no query params: "/r/<sub>/" (including the bare "/r/"
+//     case) and the site root "/" (reddit's own front page, a separate
+//     snapshotted endpoint from "/r/").
+//   - "/r/<sub>/top/" with exactly "?t=month|year|all" — the archive's most
+//     durable entries, since a top-of-all-time listing barely changes and a
+//     months-old copy is still substantively correct.
+// Pagination (after=), and the random subreddits, are never archived: the
+// first has no stable identity to cache under, the second is meant to
+// differ on every request.
+//
+// subredditUrl is expected in the trailing-slash-normalized form script.js
+// builds; getVars is the raw query string, without "?".
+embedit.archiveMatchesPath = function (subredditUrl, getVars, after) {
+  if (after) return false;
+  if (subredditUrl === "/r/randnsfw/" || subredditUrl === "/r/random/") {
+    return false;
+  }
+
+  if (!getVars) {
+    return subredditUrl === "/" || /^\/r\/[^/]*\/?$/.test(subredditUrl);
+  }
+
+  var pairs = getVars.split("&");
+  if (pairs.length !== 1) return false;
+  return (
+    /^t=(month|year|all)$/.test(pairs[0]) &&
+    /^\/r\/[^/]+\/top\/?$/.test(subredditUrl)
+  );
 };
 
 embedit.video = function (webmUrl, mp4Url) {

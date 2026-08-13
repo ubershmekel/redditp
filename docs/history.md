@@ -165,14 +165,62 @@ Increasingly defensive years. Redgifs changed their API, which I patched with an
 iframe that fixed playback and broke auto-next — a stop-gap I described as such
 at the time, and which then sat there for years.
 
-And the hosting. Netlify removed redditp without warning, so I bounced between
-GitHub Pages, Cloudflare, and Vercel, leaving a trail of `Create CNAME` /
-`Delete CNAME` / `Update CNAME` behind me. The 2025 log is an incident report
-written in real time: "Try to please cloudflare's build and deploy", "Maybe we
-also need to delete `_redirects` to appease cloudflare's SPA behavior", "Woops,
-I only modifed the redirects file", "Fix didn't work, maybe no asterisk will
-work", "Let's try vercel.json instead". All of that just to make `/r/gifs` and
-`/search` load.
+And the hosting, which has its own fourteen-year lineage. redditp ran on
+WebFaction from 2012 to 2019 — shared Apache hosting, which is why so much of
+the early history is `.htaccess` regexes. Then Netlify, free, from 2019. That
+was a good six years.
+
+It ended on April 30, 2025 with a DMCA takedown. Which, to be fair, is the
+occupational hazard of running a site whose entire function is displaying other
+people's images full-screen — including from subreddits I never had to name for
+anyone to guess. I complied with the DMCAs. The problem was that Netlify
+wouldn't tell me when one arrived — they'd just take redditp down, and I'd find
+out the way everyone else did. When I asked about it, Netlify support's response
+was:
+
+> To help avoid any future issues with your account, we highly recommend
+> subscribing to our Pro Plan. With this plan, clients are contacted first
+> before any decisions are made regarding the disabling of their website.
+
+Being told in advance that your site is about to go dark: a premium feature. The
+repo still carries the souvenir of that month, `New dmca.html for these cases`.
+
+So I scrambled, bouncing between GitHub Pages, Cloudflare, and Vercel, leaving a
+trail of `Create CNAME` / `Delete CNAME` / `Update CNAME` behind me. The 2025
+log is an incident report written in real time: "Try to please cloudflare's
+build and deploy", "Maybe we also need to delete `_redirects` to appease
+cloudflare's SPA behavior", "Woops, I only modifed the redirects file", "Fix
+didn't work, maybe no asterisk will work", "Let's try vercel.json instead". All
+of that just to make `/r/gifs` and `/search` load.
+
+Vercel is where it landed — chosen specifically to avoid paying for a plan I
+didn't think I should need.
+
+#### $24 a month for a static site
+
+The DMCA scramble left redditp on Vercel, and for eleven months it worked. The
+problem was the bill. redditp is a handful of static files, but it was serving
+**21.4 million edge requests a month**, and that came to **$24/month**. Not
+ruinous, but absurd for what is essentially one HTML file, one JS file, and some
+redirects. I wasn't paying for compute. I was paying for the privilege of being
+popular on someone else's platform.
+
+So I left Netlify to avoid paying extra, and Vercel had me paying extra anyway.
+Lol. That's the entire argument for owning your own box, in one sentence.
+
+So I did the reasonable thing and wrote a whole deployment platform to avoid a
+$24 bill. [sitey](https://github.com/ubershmekel/sitey) does the
+git-push-to-deploy, HTTPS-certificates, dashboard part that Vercel and Netlify
+do, except pointed at a server you rent yourself. On
+[March 31, 2026](https://old.reddit.com/r/redditp/comments/1s84da0/big_migration_moving_redditp_from_vercel_to/)
+the migration was done: redditp moved to Hetzner for **$5/month**, and that box
+has room for everything else too.
+
+The full lineage: WebFaction (2012–2019) → Netlify (2019–2025) → a month of
+GitHub Pages and Cloudflare panic → Vercel (2025–2026) → my own Hetzner box.
+Hosting, routing and ops is the single largest category in this repo's history.
+I landed on a VPS which seems safe just a few months before it stopped
+mattering.
 
 ### 2026: the lockout
 
@@ -249,7 +297,8 @@ I wrote 250 of the commits. The other 82 came from other people, and the list is
 long:
 
 - **felixs-alt** (16) — galleries, crossposts, gallery counts and colors
-- **Marek Sebera** (12)
+- **Marek Sebera** (12) - refined sound support for Reddit-hosted videos and
+  more
 - **Artyom Silivonchik** (8) — the v.redd.it audio/video sync, done with no
   external libraries
 - **Nathaniel Clark** (6)

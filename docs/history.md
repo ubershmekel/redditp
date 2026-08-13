@@ -283,6 +283,6 @@ Fourteen years, 374 commits, one small interface bent repeatedly around a very
 large platform. The archive keeps a piece of it visible and the extension moves
 the idea somewhere harder to revoke.
 
-Cheers, and thanks, y'all,
+Cheers and thanks y'all,
 
 Yuval Greenfield (ubershmekel)

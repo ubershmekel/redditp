@@ -14,7 +14,7 @@ test("loads mock slideshow, requests more on the last slide, and wraps back to s
     "href",
     "/images/fullscreen.png",
   );
-  await expect(page.locator("#navboxAboutCreator")).toHaveText("redditp");
+  await expect(page.locator("#navboxAboutCreator")).toHaveText("redditp (rip)");
   await expect
     .poll(async () => {
       return page.evaluate(() => window.rp.session.getRedditImagesCallCount);
@@ -61,14 +61,13 @@ test("loads mock slideshow, requests more on the last slide, and wraps back to s
   await expect(page.locator("#numberButton1")).toHaveClass(/active/);
 });
 
-test("shows the maker promo when the question mark link is clicked", async ({
-  page,
-}) => {
+test("the redditp (rip) link points at the memorial post", async ({ page }) => {
   await page.goto("/r/pics?mock=playwright-smoke");
 
-  await page.locator("#navboxAboutCreator").click();
-
-  const toast = page.locator(".toast-info");
-  await expect(toast).toContainText("ubershmekel");
-  await expect(toast).toContainText("GitHub");
+  const ripLink = page.locator("#navboxAboutCreator");
+  await expect(ripLink).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/r/redditp/comments/1vn2v9g/in_loving_memory_of_redditp_20142026_a/",
+  );
+  await expect(ripLink).toHaveAttribute("target", "_blank");
 });

@@ -9,6 +9,11 @@
 // TODO: refactor all the globals to use the rp object's namespace.
 var rp = {};
 var galleryOffset = 0;
+// Reddit locked down the API in 2026, so most failures are permanent now.
+// See docs/history.md and this post for the whole story.
+rp.ripPostUrl =
+  "https://www.reddit.com/r/redditp/comments/1vn2v9g/in_loving_memory_of_redditp_20142026_a/";
+
 rp.settings = {
   debug: true,
   // Speed of the animation
@@ -65,7 +70,9 @@ function reportError(errMessage) {
   }
   toastr.error(
     errMessage +
-      '\nPlease alert ubershmekel on <a href="https://github.com/ubershmekel/redditp/issues">github</a>',
+      '\nYou can <a href="https://github.com/ubershmekel/redditp/issues">report it on github</a>,' +
+      " but redditp may just be broken forever now — " +
+      `<a href="${rp.ripPostUrl}">here's what happened</a>.`,
   );
 }
 
@@ -97,25 +104,12 @@ function showHelp(event) {
   );
 }
 
-function showCreatorPromo(event) {
-  event.preventDefault();
-  showNote(
-    "Hi!",
-    "I'm ubershmekel and I made redditp. " +
-      "I make games and dev tools. Please follow me on " +
-      '<a href="https://github.com/ubershmekel" target="_blank" rel="noopener noreferrer">GitHub</a> ' +
-      'or <a href="https://x.com/ubershmekel" target="_blank" rel="noopener noreferrer">Twitter/X</a>. ' +
-      "I post rarely and it's free.",
-  );
-}
-
 $(function () {
   var pictureSliderId = "#pictureSlider";
 
   $("#subredditUrl").text("Loading Reddit Slideshow");
   $("#navboxTitle").text("Loading Reddit Slideshow");
   $("#helpButton").click(showHelp);
-  $("#navboxAboutCreator").click(showCreatorPromo);
 
   var getNextSlideIndex = function (currentIndex, skipCount) {
     if (typeof skipCount !== "number") {

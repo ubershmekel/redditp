@@ -351,3 +351,10 @@ label.checkbox {
 .alternatives ul {
   margin-bottom: 1em;
 }
+
+.rip-link {
+  background-color: rgba(250, 250, 250, 0.1);
+  color: rgb(170, 170, 170);
+  border-radius: 10px 10px 0 0;
+  padding: 4px;
+}

@@ -19,11 +19,17 @@ const files = [
   "auto-activate.js",
   "presentation.css",
   "favicon.png",
+  "icon-128.png",
 ];
 
-const manifest = JSON.parse(fs.readFileSync(path.join(srcDir, "manifest.json"), "utf8"));
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(srcDir, "manifest.json"), "utf8"),
+);
 const stageDir = path.join(buildDir, "chrome-extension");
-const zipPath = path.join(buildDir, `redditp-extension-v${manifest.version}.zip`);
+const zipPath = path.join(
+  buildDir,
+  `redditp-extension-v${manifest.version}.zip`,
+);
 
 fs.rmSync(stageDir, { recursive: true, force: true });
 fs.mkdirSync(stageDir, { recursive: true });
@@ -52,8 +58,13 @@ if (process.platform === "win32") {
   );
 } else {
   // -X strips extra file attributes so the zip is reproducible across machines.
-  execFileSync("zip", ["-r", "-X", zipPath, "."], { cwd: stageDir, stdio: "inherit" });
+  execFileSync("zip", ["-r", "-X", zipPath, "."], {
+    cwd: stageDir,
+    stdio: "inherit",
+  });
 }
 
 const kb = (fs.statSync(zipPath).size / 1024).toFixed(1);
-console.log(`Packaged v${manifest.version} -> ${path.relative(root, zipPath)} (${kb} KB)`);
+console.log(
+  `Packaged v${manifest.version} -> ${path.relative(root, zipPath)} (${kb} KB)`,
+);

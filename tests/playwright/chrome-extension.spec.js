@@ -629,3 +629,119 @@ test("injecting the extension action again toggles presentation mode", async ({
   await page.addScriptTag({ path: extensionScript });
   await expect(page.locator("#redditp-presentation")).toBeVisible();
 });
+
+test("a thumbnail-only search result upgrades again after reopening", async ({
+  page,
+}) => {
+  const postUrl = "https://www.reddit.com/r/test/comments/reopen/clip/";
+  const thumbnailUrl = "https://external-preview.redd.it/reopen-thumb.png";
+  const previewUrl = "https://v.redd.it/reopen123/DASH_480.mp4";
+  await page.route(thumbnailUrl, async (route) => {
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"></svg>',
+    });
+  });
+  await page.route(postUrl, async (route) => {
+    await route.fulfill({
+      contentType: "text/html",
+      body: `<shreddit-post id="t3_reopen" post-title="Reopened clip" post-type="video" content-href="https://v.redd.it/reopen123" permalink="/r/test/comments/reopen/clip/"><shreddit-player src="https://v.redd.it/reopen123/HLSPlaylist.m3u8" preview="${previewUrl}" poster="${thumbnailUrl}"></shreddit-player></shreddit-post>`,
+    });
+  });
+  await page.route(previewUrl, async (route) => {
+    await route.abort();
+  });
+  await startPresentation(
+    page,
+    `<search-telemetry-tracker data-faceplate-tracking-context='{"post":{"id":"t3_reopen","title":"Reopened clip"},"subreddit":{"name":"test"}}'><div data-testid="search-post-unit"><h2><a href="${postUrl}">Reopened clip</a></h2><a href="${postUrl}" aria-label="Reopened clip thumbnail image"><faceplate-img data-testid="search_post_thumbnail" src="${thumbnailUrl}" alt="Reopened clip"></faceplate-img></a></div></search-telemetry-tracker>`,
+  );
+  await expect(page.locator(".redditp__video")).toHaveAttribute(
+    "src",
+    previewUrl,
+  );
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+
+  await expect(page.locator(".redditp__video")).toHaveAttribute(
+    "src",
+    previewUrl,
+  );
+});
+
+test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
+  await startPresentation(
+    page,
+    `<div class="thing link" data-url="https://i.redd.it/one.jpg" data-permalink="/r/pics/comments/one/a/"><a class="title" href="https://i.redd.it/one.jpg">Only post</a></div>`,
+  );
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+
+  const prevented = await page.evaluate(() =>
+    ["f", "m"].map((key) => {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(event);
+      return event.defaultPrevented;
+    }),
+  );
+  expect(prevented).toEqual([false, false]);
+
+  // The unmodified key still works.
+  await page.keyboard.press("m");
+  await expect(
+    page.locator(".redditp__button", { hasText: "sound on" }),
+  ).toBeVisible();
+});
+
+test("auto-advance keeps moving when a video slide fails to load", async ({
+  page,
+}) => {
+  await page.route("https://v.redd.it/broken/DASH_480.mp4", async (route) => {
+    await route.abort();
+  });
+  await page.route("https://i.redd.it/second.jpg", async (route) => {
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"></svg>',
+    });
+  });
+  await startPresentation(
+    page,
+    `<div class="thing link" data-url="https://v.redd.it/broken/DASH_480.mp4" data-permalink="/r/v/comments/one/a/"><a class="title" href="https://v.redd.it/broken/DASH_480.mp4">Broken video</a></div>
+     <div class="thing link" data-url="https://i.redd.it/second.jpg" data-permalink="/r/pics/comments/two/b/"><a class="title" href="https://i.redd.it/second.jpg">Second post</a></div>`,
+  );
+  await expect(page.locator(".redditp__title")).toHaveText("Broken video");
+  await expect(page.locator(".redditp__link-icon")).toHaveText(
+    "Image unavailable",
+  );
+
+  await page.locator(".redditp__button", { hasText: "auto" }).click();
+  await expect(page.locator(".redditp__title")).toHaveText("Second post", {
+    timeout: 9000,
+  });
+});
+
+test("Tab cycles focus inside the presentation instead of the page behind it", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `<div class="thing link" data-url="https://i.redd.it/one.jpg" data-permalink="/r/pics/comments/one/a/"><a class="title" href="https://i.redd.it/one.jpg">Only post</a></div>
+     <a id="behind" href="https://www.reddit.com/r/all/">A link on the Reddit page</a>`,
+  );
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+
+  for (let press = 0; press < 12; press += 1) {
+    await page.keyboard.press("Tab");
+    const insideDialog = await page.evaluate(() =>
+      Boolean(document.activeElement?.closest("#redditp-presentation")),
+    );
+    expect(insideDialog).toBe(true);
+  }
+});

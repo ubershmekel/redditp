@@ -1,4 +1,4 @@
-# redditp Chrome extension
+# Presentation Mode for Reddit — Chrome extension
 
 This Manifest V3 extension turns the Reddit listing currently open in Chrome
 into an in-page media slideshow. It reads the posts rendered in the browser,
@@ -10,7 +10,7 @@ API.
 1. Open `chrome://extensions` in Chrome.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select this `chrome-extension` folder.
-4. Pin **redditp Presentation Mode** if you want its button in the toolbar.
+4. Pin **Presentation Mode for Reddit** if you want its button in the toolbar.
 
 ## Use it
 
@@ -28,7 +28,12 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - F: enter or leave browser fullscreen, when available
 - M: toggle video sound
 - Swipe horizontally: previous or next slide
+- Tab: cycle the controls; focus stays inside the presentation
 - **Auto**: advance every six seconds
+
+These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
+through to the browser, so Ctrl+F and friends keep working while presentation
+mode is open.
 
 Reaching the final slide automatically scrolls the underlying Reddit feed and
 preloads newly rendered posts. Pressing next while that load is still running
@@ -72,4 +77,8 @@ available as the fallback.
 - `auto-activate.js`: opt-in `redditp=1` URL launcher
 - `content.js`: Reddit DOM extraction and slideshow behavior
 - `presentation.css`: isolated, responsive presentation UI
-- `favicon.png`: extension and toolbar icon
+- `favicon.png`: small toolbar icon (64px)
+- `icon-128.png`: store and extensions-page icon (128px)
+
+`nodejs/package-extension.js` lists the files that go into the upload; add any
+new runtime file there as well as to `manifest.json`.

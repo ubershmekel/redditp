@@ -15,6 +15,8 @@
     "[data-testid='post-container']",
   ].join(",");
   const POST_SELECTOR = `${SPECIFIC_POST_SELECTOR},article`;
+  const FOCUSABLE_SELECTOR =
+    "a[href], button:not([disabled]), video[controls], iframe";
   const IMAGE_URL_RE = /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i;
   const VIDEO_URL_RE = /\.(?:m3u8|mp4|webm)(?:$|[?#])/i;
   const state = {
@@ -419,8 +421,8 @@
       add("video", source, video.getAttribute("poster"));
     });
     node.querySelectorAll("source").forEach((source) => {
-      const sourceUrl = source.getAttribute("src");
-      if (isVideoUrl(sourceUrl)) add("video", sourceUrl);
+      const elementSource = source.getAttribute("src");
+      if (isVideoUrl(elementSource)) add("video", elementSource);
     });
 
     // A player poster is not a separate slide. Prefer the actual video when
@@ -445,8 +447,8 @@
     const external = externalMedia(sourceUrl);
     if (external) add(external.kind, external.url);
     node.querySelectorAll("iframe[src]").forEach((iframe) => {
-      const media = externalMedia(iframe.getAttribute("src"));
-      if (media) add(media.kind, media.url);
+      const iframeMedia = externalMedia(iframe.getAttribute("src"));
+      if (iframeMedia) add(iframeMedia.kind, iframeMedia.url);
     });
     return media;
   }
@@ -746,6 +748,10 @@
       mediaElement.parentNode === mediaBox
     ) {
       mediaBox.replaceChildren(linkCard(slide, true));
+      // A video that never loaded will never fire "ended", so auto-advance has
+      // to fall back to the timer instead of waiting on playback forever.
+      slide.mediaFailed = true;
+      scheduleAuto();
     }
   }
 
@@ -764,6 +770,9 @@
     if (!hasSlides) return;
 
     const slide = state.slides[state.index];
+    // Revisiting a slide retries its media, so a past failure must not keep
+    // forcing the timer path.
+    slide.mediaFailed = false;
     title.textContent = slide.title;
     const galleryLabel = slide.galleryItem
       ? `gallery ${slide.galleryItem}/${slide.galleryTotal}`
@@ -812,7 +821,10 @@
       } else {
         mediaBox.append(linkCard(slide, false));
       }
-    } else if (slide.kind === "native-video" && slide.nativeElement) {
+    } else if (
+      slide.kind === "native-video" &&
+      slide.nativeElement?.parentNode
+    ) {
       const video = slide.nativeElement;
       const placeholder = document.createComment("redditp native video");
       const endedHandler = () => {
@@ -961,13 +973,19 @@
     clearTimeout(state.autoTimer);
     state.autoTimer = null;
     const slide = state.slides[state.index];
+    // A playing video advances the slideshow from its own "ended" event. Only
+    // a video that is actually playing can do that, so a failed one still
+    // needs the timer.
+    const videoDrivesAdvance =
+      !slide?.mediaFailed &&
+      (slide?.kind === "video" ||
+        slide?.kind === "pending-native-video" ||
+        slide?.kind === "native-video");
     if (
       state.autoPlaying &&
       state.open &&
       state.slides.length > 1 &&
-      slide?.kind !== "video" &&
-      slide?.kind !== "pending-native-video" &&
-      slide?.kind !== "native-video"
+      !videoDrivesAdvance
     ) {
       state.autoTimer = setTimeout(() => move(1), 6000);
     }
@@ -1027,6 +1045,10 @@
     root.hidden = false;
     document.documentElement.style.overflow = "hidden";
     document.addEventListener("keydown", onKeyDown, true);
+    // Slides are rebuilt from the live page on every open, so the previous
+    // run's enrichment results no longer refer to anything. Keeping them would
+    // make enrichSlide skip every thumbnail it had already upgraded once.
+    state.enrichments.clear();
     state.slides = [];
     emptyTitle.textContent = "Preparing Reddit video…";
     emptyText.textContent = "Waiting for Reddit's full-quality player.";
@@ -1042,8 +1064,39 @@
     closeButton.focus({ preventScroll: true });
   }
 
+  function focusableElements() {
+    return Array.from(root.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+      (element) => !element.hidden && element.getClientRects().length > 0,
+    );
+  }
+
+  function trapFocus(event) {
+    const focusable = focusableElements();
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (!root.contains(active)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function onKeyDown(event) {
     if (!state.open) return;
+    // Never swallow browser and OS shortcuts such as Ctrl+F or Cmd+M; every
+    // binding below is a bare key.
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === "Tab") {
+      trapFocus(event);
+      return;
+    }
     if (
       event.key === "ArrowRight" ||
       event.key === "PageDown" ||

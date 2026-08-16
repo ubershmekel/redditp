@@ -49,7 +49,8 @@ let throttleQueue: Promise<void> = Promise.resolve();
 
 function throttle(): Promise<void> {
   const next = throttleQueue.then(
-    () => new Promise<void>((resolve) => setTimeout(resolve, THROTTLE_INTERVAL_MS)),
+    () =>
+      new Promise<void>((resolve) => setTimeout(resolve, THROTTLE_INTERVAL_MS)),
   );
   throttleQueue = next;
   return next;

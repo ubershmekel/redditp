@@ -5,6 +5,8 @@ into an in-page media slideshow. It reads the posts rendered in the browser,
 using the user's normal Reddit session; it does not call Reddit's public JSON
 API.
 
+[Install the extension from the Chrome Web Store](https://redditp.com/extension).
+
 ## Install for development
 
 1. Open `chrome://extensions` in Chrome.

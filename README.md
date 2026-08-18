@@ -4,6 +4,8 @@ A full screen reddit presentation or slide show.
 
 http://redditp.com
 
+[Install Presentation Mode for Reddit from the Chrome Web Store](https://redditp.com/extension).
+
 ## Hotkeys
 
 - a - toggles auto-next (play/pause)

@@ -28,6 +28,13 @@ const linkPreviewPostFixture = fs.readFileSync(
   ),
   "utf8",
 );
+const staleVideoOverlayFixture = fs.readFileSync(
+  path.resolve(
+    __dirname,
+    "../../test-data/chrome-extension-stale-video-overlay.html",
+  ),
+  "utf8",
+);
 
 async function startPresentation(page, html) {
   await page.setContent(`<base href="https://www.reddit.com/">${html}`);
@@ -864,6 +871,28 @@ test("one close click cancels a direct post that is still preparing video", asyn
   await expect(page.locator("#redditp-presentation")).toBeHidden();
   await page.waitForTimeout(4500);
   await expect(page.locator("#redditp-presentation")).toBeHidden();
+});
+
+test("a new extension instance retires a stale overlay and recovers its live video", async ({
+  page,
+}) => {
+  await startPresentation(page, staleVideoOverlayFixture);
+
+  await expect(page.locator("#redditp-presentation")).toHaveCount(1);
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "Streamer gets knocked out after threatening to slap Tiki Ghosn",
+  );
+  await expect(page.locator(".redditp__video")).toHaveAttribute(
+    "src",
+    "blob:https://www.reddit.com/sanitized-live-video",
+  );
+  await expect(page.locator(".redditp__link-card")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Close presentation mode" }).click();
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  await expect(page.locator("shreddit-player > #stale-live-video")).toHaveCount(
+    1,
+  );
 });
 
 test("redditp brand opens the extension README on GitHub", async ({ page }) => {

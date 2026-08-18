@@ -6,6 +6,22 @@
     return;
   }
 
+  // Reloading or updating an unpacked extension creates a fresh isolated
+  // JavaScript world, so the marker above is no longer visible even though an
+  // older presentation can still be mounted in the page. Retire cooperating
+  // versions first, then click older versions' close buttons so they restore
+  // any live Reddit video they moved into their overlay.
+  document.dispatchEvent(new Event("redditp:presentation-retire"));
+  Array.from(
+    document.querySelectorAll("#redditp-presentation.redditp"),
+  ).forEach((staleRoot) => {
+    const staleClose = staleRoot.querySelector(".redditp__close");
+    if (staleClose && typeof staleClose.click === "function") {
+      staleClose.click();
+    }
+    staleRoot.remove();
+  });
+
   const SPECIFIC_POST_SELECTOR = [
     "shreddit-post",
     ".thing.link",
@@ -1277,6 +1293,12 @@
     document.removeEventListener("keydown", onKeyDown, true);
   }
 
+  function retire() {
+    close();
+    root.remove();
+    document.removeEventListener("redditp:presentation-retire", retire);
+  }
+
   async function open() {
     if (state.open || state.opening) return;
     const request = ++state.openRequest;
@@ -1410,6 +1432,7 @@
     updateSetting("controlsCollapsed", !state.settings.controlsCollapsed);
   });
   mediaBox.addEventListener("click", toggleVideoFromSurface, true);
+  document.addEventListener("redditp:presentation-retire", retire);
   prevButton.addEventListener("click", () => move(-1));
   nextButton.addEventListener("click", () => move(1));
   autoButton.addEventListener("click", toggleAuto);

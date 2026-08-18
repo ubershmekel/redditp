@@ -1,0 +1,37 @@
+<shreddit-post
+  id="t3_1r7wt8a"
+  post-title="Streamer gets knocked out after threatening to slap Tiki Ghosn"
+  post-type="video"
+  content-href="https://v.redd.it/uowtbhaij7kg1"
+  permalink="/r/ufc/comments/1r7wt8a/streamer_gets_knocked_out_after_threatening_to/"
+>
+  <shreddit-player
+    src="https://v.redd.it/uowtbhaij7kg1/HLSPlaylist.m3u8"
+    preview="https://v.redd.it/uowtbhaij7kg1/CMAF_96.mp4"
+    poster="https://external-preview.redd.it/ufc-video-poster.png"
+  >
+    <span id="native-video-home"></span>
+  </shreddit-player>
+</shreddit-post>
+
+<!-- A sanitized reproduction of the duplicate overlay found in the supplied
+     DevTools DOM. The stale extension instance owns Reddit's live blob video. -->
+<section class="redditp" id="redditp-presentation" role="dialog">
+  <div class="redditp__media">
+    <video
+      id="stale-live-video"
+      src="blob:https://www.reddit.com/sanitized-live-video"
+      poster="https://external-preview.redd.it/ufc-video-poster.png"
+      controls
+    ></video>
+  </div>
+  <button class="redditp__close" type="button" aria-label="Close presentation mode">×</button>
+</section>
+
+<script>
+  document.querySelector(".redditp__close").addEventListener("click", function () {
+    document.querySelector("#native-video-home").after(
+      document.querySelector("#stale-live-video"),
+    );
+  });
+</script>

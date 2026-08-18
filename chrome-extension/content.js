@@ -77,6 +77,15 @@
     }
   }
 
+  function redditPageUrl(label, kind) {
+    if (!label) return "";
+    const prefix = kind === "user" ? "u/" : "r/";
+    const name = label.startsWith(prefix) ? label.slice(prefix.length) : label;
+    if (!name) return "";
+    const path = kind === "user" ? "user" : "r";
+    return `https://www.reddit.com/${path}/${encodeURIComponent(name)}/`;
+  }
+
   function textOf(element) {
     return element
       ? (element.textContent || "").replace(/\s+/g, " ").trim()
@@ -1010,9 +1019,23 @@
     const galleryLabel = slide.galleryItem
       ? `gallery ${slide.galleryItem}/${slide.galleryTotal}`
       : "";
-    meta.textContent = [slide.community, galleryLabel, slide.author]
-      .filter(Boolean)
-      .join(" · ");
+    const metaItems = [];
+    if (slide.community) {
+      const communityLink = element("a", "redditp__meta-link", slide.community);
+      communityLink.href = redditPageUrl(slide.community, "community");
+      metaItems.push(communityLink);
+    }
+    if (galleryLabel) metaItems.push(document.createTextNode(galleryLabel));
+    if (slide.author) {
+      const authorLink = element("a", "redditp__meta-link", slide.author);
+      authorLink.href = redditPageUrl(slide.author, "user");
+      metaItems.push(authorLink);
+    }
+    meta.replaceChildren();
+    metaItems.forEach((item, index) => {
+      if (index) meta.append(document.createTextNode(" · "));
+      meta.append(item);
+    });
     const sourceHref = slide.url || slide.sourceUrl || slide.commentsUrl;
     sourceLink.hidden = !sourceHref;
     if (sourceHref) sourceLink.href = sourceHref;

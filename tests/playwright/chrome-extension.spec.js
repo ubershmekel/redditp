@@ -349,6 +349,14 @@ test("extension extracts current Reddit post elements on a mobile viewport", asy
   await expect(page.locator(".redditp__meta")).toHaveText(
     "r/nature · u/photographer",
   );
+  await expect(page.locator(".redditp__meta-link").nth(0)).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/r/nature/",
+  );
+  await expect(page.locator(".redditp__meta-link").nth(1)).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/user/photographer/",
+  );
   await expect(page.locator(".redditp__controls")).toBeVisible();
   await expect(page.locator(".redditp__close")).toBeInViewport();
   await expect(page.locator(".redditp__controls")).toBeInViewport();

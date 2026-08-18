@@ -703,6 +703,42 @@ test("small link-preview images are not stretched beyond their natural size", as
   });
 });
 
+test("a large current Reddit link preview expands to the full stage", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const previewBase = "https://external-preview.redd.it/sandu-preview.jpeg";
+  await page.route(`${previewBase}*`, async (route) => {
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="680"></svg>',
+    });
+  });
+  await startPresentation(
+    page,
+    `<shreddit-post post-title="Linked article" content-href="https://example.com/article" permalink="/r/ukraine/comments/1vrzyuh/post/">
+      <img role="presentation" src="${previewBase}?width=640" srcset="${previewBase}?width=640 640w, ${previewBase}?width=1080 1080w" width="640" height="403">
+      <img data-post-media-primary src="${previewBase}?width=640" srcset="${previewBase}?width=640 640w, ${previewBase}?width=1080 1080w" width="640" height="403" alt="Linked article">
+    </shreddit-post>`,
+  );
+
+  const dimensions = await page.locator(".redditp__image").evaluate((image) => {
+    const bounds = image.getBoundingClientRect();
+    return {
+      naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight,
+      displayWidth: Math.round(bounds.width),
+      displayHeight: Math.round(bounds.height),
+    };
+  });
+  expect(dimensions).toEqual({
+    naturalWidth: 1080,
+    naturalHeight: 680,
+    displayWidth: 1920,
+    displayHeight: 1080,
+  });
+});
+
 test("a subreddit link thumbnail upgrades to the direct post's large preview", async ({
   page,
 }) => {
@@ -762,8 +798,8 @@ test("a subreddit link thumbnail upgrades to the direct post's large preview", a
   expect(dimensions).toEqual({
     naturalWidth: 1200,
     naturalHeight: 675,
-    displayWidth: 1200,
-    displayHeight: 675,
+    displayWidth: 1280,
+    displayHeight: 720,
   });
 });
 

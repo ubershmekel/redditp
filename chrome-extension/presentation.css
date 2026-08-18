@@ -84,6 +84,11 @@
   background: #000;
 }
 
+#redditp-presentation .redditp__image--expand {
+  width: 100%;
+  height: 100%;
+}
+
 #redditp-presentation .redditp__empty {
   position: relative;
   z-index: 2;

@@ -35,6 +35,8 @@
     "a[href], button:not([disabled]), input:not([disabled]), video[controls], iframe";
   const IMAGE_URL_RE = /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i;
   const VIDEO_URL_RE = /\.(?:m3u8|mp4|webm)(?:$|[?#])/i;
+  const MIN_EXPAND_IMAGE_LONG_EDGE = 1000;
+  const MIN_EXPAND_IMAGE_SHORT_EDGE = 600;
   const SETTINGS_KEY = "redditpPresentationSettings";
   const README_URL =
     "https://github.com/ubershmekel/redditp/blob/main/chrome-extension/README.md";
@@ -982,6 +984,16 @@
     }
   }
 
+  function expandLargeImage(image) {
+    const longEdge = Math.max(image.naturalWidth, image.naturalHeight);
+    const shortEdge = Math.min(image.naturalWidth, image.naturalHeight);
+    image.classList.toggle(
+      "redditp__image--expand",
+      longEdge >= MIN_EXPAND_IMAGE_LONG_EDGE &&
+        shortEdge >= MIN_EXPAND_IMAGE_SHORT_EDGE,
+    );
+  }
+
   function render() {
     stopMedia();
     const hasSlides = state.slides.length > 0;
@@ -1045,10 +1057,11 @@
     if (slide.kind === "image") {
       const img = element("img", "redditp__image", "");
       img.alt = slide.title;
-      img.src = slide.url;
+      img.addEventListener("load", () => expandLargeImage(img), { once: true });
       img.addEventListener("error", () => showMediaFailure(img, slide), {
         once: true,
       });
+      img.src = slide.url;
       mediaBox.append(img);
     } else if (slide.kind === "video") {
       const video = element("video", "redditp__video", "");

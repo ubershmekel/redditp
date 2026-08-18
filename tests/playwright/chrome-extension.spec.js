@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const { test, expect } = require("@playwright/test");
 
 const extensionScript = path.resolve(
@@ -12,6 +13,20 @@ const extensionStyles = path.resolve(
 const autoActivateScript = path.resolve(
   __dirname,
   "../../chrome-extension/auto-activate.js",
+);
+const linkPreviewFeedFixture = fs.readFileSync(
+  path.resolve(
+    __dirname,
+    "../../test-data/chrome-extension-link-preview-feed.html",
+  ),
+  "utf8",
+);
+const linkPreviewPostFixture = fs.readFileSync(
+  path.resolve(
+    __dirname,
+    "../../test-data/chrome-extension-link-preview-post.html",
+  ),
+  "utf8",
 );
 
 async function startPresentation(page, html) {
@@ -383,6 +398,33 @@ test("a linked watch page becomes that host's player frame", async ({
   );
 });
 
+test("YouTube embeds preserve the requested start time and send a referrer", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `
+      <shreddit-post
+        id="t3_youtube"
+        post-title="YouTube interview"
+        author="poster"
+        subreddit-prefixed-name="r/ukraine"
+        content-href="https://www.youtube.com/watch?v=l74r1s8y7uY&amp;t=1167s"
+        permalink="/r/ukraine/comments/youtube/interview/"
+      ></shreddit-post>
+    `,
+  );
+
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    "https://www.youtube.com/embed/l74r1s8y7uY?start=1167",
+  );
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "referrerpolicy",
+    "strict-origin-when-cross-origin",
+  );
+});
+
 test("extension recognizes Reddit search media cards and packaged video", async ({
   page,
 }) => {
@@ -612,6 +654,228 @@ test("portrait images are contained by the stage instead of clipped", async ({
     expect(dimensions.controlsBottom).toBeLessThanOrEqual(viewport.height);
     expect(dimensions.objectFit).toBe("contain");
   }
+});
+
+test("small link-preview images are not stretched beyond their natural size", async ({
+  page,
+}) => {
+  const previewUrl = "https://external-preview.redd.it/link-preview.png";
+  await page.route(previewUrl, async (route) => {
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="868" height="488"></svg>',
+    });
+  });
+  await startPresentation(
+    page,
+    `<shreddit-post post-title="Linked article" content-href="https://example.com/article" permalink="/r/news/comments/preview/article/"><img src="${previewUrl}" width="640" height="360" alt="Linked article"></shreddit-post>`,
+  );
+
+  const size = await page.locator(".redditp__image").evaluate((image) => {
+    const bounds = image.getBoundingClientRect();
+    return {
+      width: bounds.width,
+      height: bounds.height,
+      naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight,
+    };
+  });
+  expect(size).toEqual({
+    width: 868,
+    height: 488,
+    naturalWidth: 868,
+    naturalHeight: 488,
+  });
+});
+
+test("a subreddit link thumbnail upgrades to the direct post's large preview", async ({
+  page,
+}) => {
+  const feedUrl = "https://www.reddit.com/r/ukraine/?redditp=1";
+  const postUrl =
+    "https://www.reddit.com/r/ukraine/comments/1vrzyuh/we_cannot_turn_our_backs_on_ukraine_sandu_on/";
+  let detailRequests = 0;
+  await page.route(postUrl, async (route) => {
+    detailRequests += 1;
+    await route.fulfill({
+      contentType: "text/html",
+      body: linkPreviewPostFixture,
+    });
+  });
+  await page.route(feedUrl, (route) =>
+    route.fulfill({ contentType: "text/html", body: linkPreviewFeedFixture }),
+  );
+  await page.route(
+    /https:\/\/external-preview\.redd\.it\/sandu-grain-transit\.png.*/,
+    async (route) => {
+      const isThumbnail = new URL(route.request().url()).searchParams.has(
+        "width",
+      );
+      const width = isThumbnail ? 320 : 1200;
+      const height = isThumbnail ? 180 : 675;
+      await route.fulfill({
+        contentType: "image/svg+xml",
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"></svg>`,
+      });
+    },
+  );
+
+  await page.goto(feedUrl);
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.getByRole("link", { name: "comments" })).toHaveAttribute(
+    "href",
+    postUrl,
+  );
+  await expect.poll(() => detailRequests).toBe(1);
+  await expect(page.locator(".redditp__image")).toHaveAttribute(
+    "src",
+    "https://external-preview.redd.it/sandu-grain-transit.png?auto=webp",
+  );
+  const dimensions = await page.locator(".redditp__image").evaluate((image) => {
+    const bounds = image.getBoundingClientRect();
+    return {
+      naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight,
+      displayWidth: bounds.width,
+      displayHeight: bounds.height,
+    };
+  });
+  expect(detailRequests).toBe(1);
+  expect(dimensions).toEqual({
+    naturalWidth: 1200,
+    naturalHeight: 675,
+    displayWidth: 1200,
+    displayHeight: 675,
+  });
+});
+
+test("settings persist timing and visibility while compact controls stay reachable", async ({
+  page,
+}) => {
+  await page.route("https://www.reddit.com/settings-test", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<shreddit-post post-title="Settings post" content-href="https://i.redd.it/settings.jpg" permalink="/r/pics/comments/settings/post/"></shreddit-post><shreddit-post post-title="Second settings post" content-href="https://i.redd.it/settings-2.jpg" permalink="/r/pics/comments/settings2/post/"></shreddit-post>`,
+    }),
+  );
+  await page.goto("https://www.reddit.com/settings-test");
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await page.getByLabel("Seconds per slide").press("ArrowRight");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+  await page.getByLabel("Seconds per slide").fill("1");
+  await page.getByLabel("Seconds per slide").press("Enter");
+  await page.getByLabel("Show the title panel").uncheck();
+  await page.getByLabel("Show previous and next arrows").uncheck();
+  await page
+    .getByLabel("Show the close button (press Esc instead when hidden)")
+    .uncheck();
+  await expect(page.getByLabel("Show media and comments links")).toHaveCount(0);
+  await expect(
+    page.getByLabel("Show auto-play and sound controls"),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText(
+      "Video slides also move on when the video ends. Settings are saved in this browser.",
+    ),
+  ).toHaveCount(0);
+  const settingsColors = await page
+    .locator(".redditp__settings")
+    .evaluate((panel) => ({
+      panel: getComputedStyle(panel).backgroundColor,
+      row: getComputedStyle(panel.querySelector(".redditp__setting"))
+        .backgroundColor,
+      text: getComputedStyle(panel.querySelector(".redditp__setting")).color,
+    }));
+  expect(settingsColors).toEqual({
+    panel: "rgb(23, 23, 23)",
+    row: "rgb(43, 43, 43)",
+    text: "rgb(255, 255, 255)",
+  });
+  await page.getByLabel("Keep the bottom panel compact").check();
+
+  await expect(page.locator(".redditp__details")).toBeHidden();
+  await expect(page.locator(".redditp__prev")).toBeHidden();
+  await expect(page.locator(".redditp__close")).toBeHidden();
+  await expect(page.locator(".redditp__controls")).toHaveClass(
+    /redditp__controls--collapsed/,
+  );
+  await expect(
+    page.getByRole("button", { name: "Open presentation settings" }),
+  ).toBeHidden();
+
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("redditpPresentationSettings")),
+  );
+  expect(saved.slideDurationSeconds).toBe(1);
+  expect(saved.controlsCollapsed).toBe(true);
+  expect(saved.showClose).toBe(false);
+
+  await expect(page.locator(".redditp__controls")).toHaveClass(
+    /redditp__controls--collapsed/,
+  );
+  await page.getByRole("button", { name: "Expand bottom controls" }).click();
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await expect(page.getByLabel("Seconds per slide")).toHaveValue("1");
+  await expect(page.getByLabel("Show the title panel")).not.toBeChecked();
+
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await page.getByRole("button", { name: "auto" }).click();
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "Second settings post",
+    { timeout: 2500 },
+  );
+});
+
+test("one close click cancels a direct post that is still preparing video", async ({
+  page,
+}) => {
+  const postUrl =
+    "https://www.reddit.com/r/test/comments/slowclose/preparing_video/?redditp=1";
+  await page.route(postUrl, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<shreddit-post id="t3_slowclose" post-title="Preparing video" content-href="https://v.redd.it/slowclose" permalink="/r/test/comments/slowclose/preparing_video/"><shreddit-player preview="https://v.redd.it/slowclose/CMAF_96.mp4"><video></video></shreddit-player></shreddit-post>`,
+    }),
+  );
+  await page.goto(postUrl);
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+
+  await page.getByRole("button", { name: "Close presentation mode" }).click();
+
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  await page.waitForTimeout(4500);
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+});
+
+test("redditp brand opens the extension README on GitHub", async ({ page }) => {
+  await startPresentation(
+    page,
+    `<shreddit-post post-title="Brand link" content-href="https://i.redd.it/brand.jpg" permalink="/r/pics/comments/brand/post/"></shreddit-post>`,
+  );
+
+  await expect(page.getByRole("link", { name: "redditp" })).toHaveAttribute(
+    "href",
+    "https://github.com/ubershmekel/redditp/blob/main/chrome-extension/README.md",
+  );
 });
 
 test("injecting the extension action again toggles presentation mode", async ({

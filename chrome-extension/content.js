@@ -16,11 +16,22 @@
   ].join(",");
   const POST_SELECTOR = `${SPECIFIC_POST_SELECTOR},article`;
   const FOCUSABLE_SELECTOR =
-    "a[href], button:not([disabled]), video[controls], iframe";
+    "a[href], button:not([disabled]), input:not([disabled]), video[controls], iframe";
   const IMAGE_URL_RE = /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i;
   const VIDEO_URL_RE = /\.(?:m3u8|mp4|webm)(?:$|[?#])/i;
+  const SETTINGS_KEY = "redditpPresentationSettings";
+  const README_URL =
+    "https://github.com/ubershmekel/redditp/blob/main/chrome-extension/README.md";
+  const DEFAULT_SETTINGS = {
+    slideDurationSeconds: 6,
+    showDetails: true,
+    showArrows: true,
+    showClose: true,
+    controlsCollapsed: false,
+  };
   const state = {
     open: false,
+    opening: false,
     slides: [],
     index: 0,
     autoTimer: null,
@@ -34,6 +45,9 @@
     nativeRestores: new WeakMap(),
     oldOverflow: "",
     pointerStart: null,
+    settings: Object.assign({}, DEFAULT_SETTINGS),
+    settingsLoaded: false,
+    settingsOpen: false,
   };
 
   function absoluteUrl(value) {
@@ -210,13 +224,34 @@
         url: `https://i.imgur.com/${match[1]}.${extension || "jpg"}`,
       };
     }
-    if (hostname === "youtu.be" || hostname.endsWith("youtube.com")) {
+    if (
+      hostname === "youtu.be" ||
+      hostname === "youtube.com" ||
+      hostname.endsWith(".youtube.com") ||
+      hostname === "youtube-nocookie.com" ||
+      hostname.endsWith(".youtube-nocookie.com")
+    ) {
+      const pathId = parsed.pathname.match(
+        /^\/(?:embed|shorts|live)\/([\w-]+)/i,
+      );
       const id =
         hostname === "youtu.be"
-          ? parsed.pathname.slice(1)
-          : parsed.searchParams.get("v");
+          ? parsed.pathname.split("/").filter(Boolean)[0]
+          : parsed.searchParams.get("v") || pathId?.[1];
       if (id && /^[\w-]+$/.test(id)) {
-        return { kind: "embed", url: `https://www.youtube.com/embed/${id}` };
+        const embedParams = new URLSearchParams();
+        const start = youtubeStartSeconds(
+          parsed.searchParams.get("start") || parsed.searchParams.get("t"),
+        );
+        if (start) embedParams.set("start", String(start));
+        if (parsed.searchParams.get("list")) {
+          embedParams.set("list", parsed.searchParams.get("list"));
+        }
+        const query = embedParams.toString();
+        return {
+          kind: "embed",
+          url: `https://www.youtube.com/embed/${id}${query ? `?${query}` : ""}`,
+        };
       }
     }
     // Several video hosts linked from Reddit publish a watch page at
@@ -227,6 +262,18 @@
       return { kind: "embed", url: `${parsed.origin}/ifr/${framed[1]}` };
     }
     return null;
+  }
+
+  function youtubeStartSeconds(value) {
+    if (!value) return 0;
+    if (/^\d+$/.test(value)) return Number(value);
+    const match = String(value).match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i);
+    if (!match) return 0;
+    return (
+      (Number(match[1]) || 0) * 3600 +
+      (Number(match[2]) || 0) * 60 +
+      (Number(match[3]) || 0)
+    );
   }
 
   function packagedVideoUrl(player) {
@@ -522,16 +569,22 @@
         node.getAttribute("post-type") === "gallery" ||
         Boolean(node.querySelector("gallery-carousel"));
       const needsEnrichment =
-        node.matches(
-          "[data-testid='search-post-unit'], .search-result.search-result-link",
-        ) &&
         Boolean(comments) &&
         media.length <= 1 &&
-        Boolean(
-          node.querySelector(
+        !isSinglePostPage() &&
+        (Boolean(
+          node.matches(
+            "[data-testid='search-post-unit'], .search-result.search-result-link",
+          ) &&
+          (node.querySelector(
             "faceplate-img[data-testid='search_post_thumbnail']",
-          ) || media[0]?.kind === "link",
-        );
+          ) ||
+            media[0]?.kind === "link"),
+        ) ||
+          Boolean(
+            node.getAttribute("post-type") === "link" &&
+            media[0]?.kind === "image",
+          ));
       media.forEach((item, mediaIndex) => {
         const key = `${comments || base.title}|${item.url}`;
         if (!seenPostMedia.has(key)) {
@@ -619,6 +672,60 @@
     return result;
   }
 
+  function normalizedSettings(value) {
+    const result = Object.assign({}, DEFAULT_SETTINGS);
+    if (!value || typeof value !== "object") return result;
+    Object.keys(DEFAULT_SETTINGS).forEach((key) => {
+      if (key === "slideDurationSeconds") {
+        const seconds = Number(value[key]);
+        if (Number.isFinite(seconds)) {
+          result[key] = Math.min(3600, Math.max(1, Math.round(seconds)));
+        }
+      } else if (typeof value[key] === "boolean") {
+        result[key] = value[key];
+      }
+    });
+    return result;
+  }
+
+  function loadSettings() {
+    if (state.settingsLoaded) return Promise.resolve();
+    return new Promise((resolve) => {
+      function finish(value) {
+        state.settings = normalizedSettings(value);
+        state.settingsLoaded = true;
+        resolve();
+      }
+      try {
+        if (typeof chrome !== "undefined" && chrome.storage?.local) {
+          chrome.storage.local.get(SETTINGS_KEY, (stored) => {
+            if (chrome.runtime?.lastError) finish(null);
+            else finish(stored?.[SETTINGS_KEY]);
+          });
+          return;
+        }
+        finish(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null"));
+      } catch (_error) {
+        finish(null);
+      }
+    });
+  }
+
+  function saveSettings() {
+    const stored = Object.assign({}, state.settings);
+    try {
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        chrome.storage.local.set({ [SETTINGS_KEY]: stored }, () => {
+          void chrome.runtime?.lastError;
+        });
+      } else {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(stored));
+      }
+    } catch (_error) {
+      // Settings remain active for this presentation if storage is blocked.
+    }
+  }
+
   const root = element("section", "redditp", "");
   root.id = "redditp-presentation";
   root.setAttribute("role", "dialog");
@@ -649,31 +756,128 @@
 
   const controls = element("nav", "redditp__controls", "");
   controls.setAttribute("aria-label", "Slideshow controls");
-  const prevButton = element("button", "redditp__arrow redditp__prev", "");
+  const prevButton = element("button", "redditp__arrow redditp__prev", "‹");
   prevButton.setAttribute("aria-label", "Previous slide");
-  const autoButton = element("button", "redditp__button", "auto");
-  const soundButton = element("button", "redditp__button", "sound off");
-  const nextButton = element("button", "redditp__arrow redditp__next", "");
+  const settingsButton = element(
+    "button",
+    "redditp__button redditp__gear redditp__control-item",
+    "⚙",
+  );
+  settingsButton.setAttribute("aria-label", "Open presentation settings");
+  settingsButton.title = "Presentation settings";
+  const brand = element("a", "redditp__brand redditp__control-item", "redditp");
+  brand.href = README_URL;
+  brand.target = "_blank";
+  brand.rel = "noopener noreferrer";
+  brand.title = "Open the Chrome extension README on GitHub";
+  const autoButton = element(
+    "button",
+    "redditp__button redditp__playback-control redditp__control-item",
+    "auto",
+  );
+  const soundButton = element(
+    "button",
+    "redditp__button redditp__playback-control redditp__control-item",
+    "sound off",
+  );
+  const nextButton = element("button", "redditp__arrow redditp__next", "›");
   nextButton.setAttribute("aria-label", "Next slide");
-  const sourceLink = element("a", "redditp__button", "media");
-  const commentsLink = element("a", "redditp__button", "comments");
-  const brand = element("span", "redditp__brand", "redditp");
+  const sourceLink = element(
+    "a",
+    "redditp__button redditp__link-control redditp__control-item",
+    "media",
+  );
+  const commentsLink = element(
+    "a",
+    "redditp__button redditp__link-control redditp__control-item",
+    "comments",
+  );
+  const collapseButton = element(
+    "button",
+    "redditp__button redditp__collapse",
+    "−",
+  );
+  collapseButton.setAttribute("aria-label", "Collapse bottom controls");
   prevButton.type =
+    settingsButton.type =
     autoButton.type =
     soundButton.type =
     nextButton.type =
+    collapseButton.type =
       "button";
   sourceLink.target = commentsLink.target = "_blank";
   sourceLink.rel = commentsLink.rel = "noopener noreferrer";
   controls.append(
+    settingsButton,
     brand,
     commentsLink,
     sourceLink,
     autoButton,
     soundButton,
     count,
+    collapseButton,
   );
-  root.append(stage, prevButton, nextButton, details, controls, closeButton);
+
+  const settingsOverlay = element("div", "redditp__settings-overlay", "");
+  settingsOverlay.hidden = true;
+  const settingsPanel = element("section", "redditp__settings", "");
+  settingsPanel.setAttribute("role", "dialog");
+  settingsPanel.setAttribute("aria-modal", "true");
+  settingsPanel.setAttribute("aria-labelledby", "redditp-settings-title");
+  const settingsTitle = element("h2", "", "Presentation settings");
+  settingsTitle.id = "redditp-settings-title";
+  const settingsClose = element("button", "redditp__settings-close", "Done");
+  settingsClose.type = "button";
+  settingsClose.setAttribute("aria-label", "Close presentation settings");
+  const durationLabel = element(
+    "label",
+    "redditp__setting redditp__setting--duration",
+    "",
+  );
+  const durationText = element("span", "", "Time per slide");
+  const durationControl = element("span", "redditp__duration-control", "");
+  const durationInput = element("input", "", "");
+  durationInput.type = "number";
+  durationInput.min = "1";
+  durationInput.max = "3600";
+  durationInput.step = "1";
+  durationInput.setAttribute("aria-label", "Seconds per slide");
+  durationControl.append(durationInput, element("span", "", "seconds"));
+  durationLabel.append(durationText, durationControl);
+
+  const settingCheckboxes = {};
+  function checkboxSetting(key, labelText) {
+    const label = element("label", "redditp__setting", "");
+    const input = element("input", "", "");
+    input.type = "checkbox";
+    input.dataset.setting = key;
+    settingCheckboxes[key] = input;
+    label.append(input, element("span", "", labelText));
+    return label;
+  }
+
+  settingsPanel.append(
+    settingsTitle,
+    settingsClose,
+    durationLabel,
+    checkboxSetting("showDetails", "Show the title panel"),
+    checkboxSetting("showArrows", "Show previous and next arrows"),
+    checkboxSetting(
+      "showClose",
+      "Show the close button (press Esc instead when hidden)",
+    ),
+    checkboxSetting("controlsCollapsed", "Keep the bottom panel compact"),
+  );
+  settingsOverlay.append(settingsPanel);
+  root.append(
+    stage,
+    prevButton,
+    nextButton,
+    details,
+    controls,
+    closeButton,
+    settingsOverlay,
+  );
 
   function stopMedia() {
     mediaBox.querySelectorAll("video").forEach((video) => {
@@ -748,8 +952,6 @@
       mediaElement.parentNode === mediaBox
     ) {
       mediaBox.replaceChildren(linkCard(slide, true));
-      // A video that never loaded will never fire "ended", so auto-advance has
-      // to fall back to the timer instead of waiting on playback forever.
       slide.mediaFailed = true;
       scheduleAuto();
     }
@@ -759,7 +961,22 @@
     stopMedia();
     const hasSlides = state.slides.length > 0;
     empty.hidden = hasSlides;
-    details.hidden = controls.hidden = !hasSlides;
+    details.hidden = !hasSlides || !state.settings.showDetails;
+    controls.hidden = !hasSlides;
+    prevButton.hidden = nextButton.hidden =
+      !hasSlides || !state.settings.showArrows;
+    closeButton.hidden = !state.settings.showClose;
+    controls.classList.toggle(
+      "redditp__controls--collapsed",
+      state.settings.controlsCollapsed,
+    );
+    collapseButton.textContent = state.settings.controlsCollapsed ? "+" : "−";
+    collapseButton.setAttribute(
+      "aria-label",
+      state.settings.controlsCollapsed
+        ? "Expand bottom controls"
+        : "Collapse bottom controls",
+    );
     count.textContent = hasSlides
       ? `${state.index + 1} / ${state.slides.length}${
           state.loadingMore && state.index === state.slides.length - 1
@@ -861,9 +1078,10 @@
       const iframe = element("iframe", "redditp__embed", "");
       iframe.src = slide.url;
       iframe.title = slide.title;
-      iframe.allow = "autoplay; fullscreen; picture-in-picture";
+      iframe.allow =
+        "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
       iframe.allowFullscreen = true;
-      iframe.referrerPolicy = "no-referrer";
+      iframe.referrerPolicy = "strict-origin-when-cross-origin";
       mediaBox.append(iframe);
     } else {
       mediaBox.append(linkCard(slide, false));
@@ -972,23 +1190,41 @@
   function scheduleAuto() {
     clearTimeout(state.autoTimer);
     state.autoTimer = null;
-    const slide = state.slides[state.index];
-    // A playing video advances the slideshow from its own "ended" event. Only
-    // a video that is actually playing can do that, so a failed one still
-    // needs the timer.
-    const videoDrivesAdvance =
-      !slide?.mediaFailed &&
-      (slide?.kind === "video" ||
-        slide?.kind === "pending-native-video" ||
-        slide?.kind === "native-video");
-    if (
-      state.autoPlaying &&
-      state.open &&
-      state.slides.length > 1 &&
-      !videoDrivesAdvance
-    ) {
-      state.autoTimer = setTimeout(() => move(1), 6000);
+    if (state.autoPlaying && state.open && state.slides.length > 1) {
+      state.autoTimer = setTimeout(
+        () => move(1),
+        state.settings.slideDurationSeconds * 1000,
+      );
     }
+  }
+
+  function syncSettingsUi() {
+    durationInput.value = String(state.settings.slideDurationSeconds);
+    Object.keys(settingCheckboxes).forEach((key) => {
+      settingCheckboxes[key].checked = state.settings[key];
+    });
+  }
+
+  function openSettings() {
+    state.settingsOpen = true;
+    syncSettingsUi();
+    settingsOverlay.hidden = false;
+    settingsClose.focus({ preventScroll: true });
+  }
+
+  function closeSettings() {
+    if (!state.settingsOpen) return;
+    state.settingsOpen = false;
+    settingsOverlay.hidden = true;
+    (state.settings.controlsCollapsed ? collapseButton : settingsButton).focus({
+      preventScroll: true,
+    });
+  }
+
+  function updateSetting(key, value) {
+    state.settings[key] = value;
+    saveSettings();
+    render();
   }
 
   function toggleAuto() {
@@ -1023,13 +1259,16 @@
   }
 
   function close() {
-    if (!state.open) return;
+    if (!state.open && !state.opening) return;
     state.open = false;
+    state.opening = false;
     state.autoPlaying = false;
     state.loadingMore = false;
     state.advanceAfterLoad = false;
     state.loadRequest += 1;
     state.openRequest += 1;
+    state.settingsOpen = false;
+    settingsOverlay.hidden = true;
     clearTimeout(state.autoTimer);
     autoButton.textContent = "auto";
     stopMedia();
@@ -1039,7 +1278,15 @@
   }
 
   async function open() {
+    if (state.open || state.opening) return;
     const request = ++state.openRequest;
+    state.opening = true;
+    await loadSettings();
+    if (request !== state.openRequest) {
+      state.opening = false;
+      return;
+    }
+    state.opening = false;
     state.oldOverflow = document.documentElement.style.overflow;
     state.open = true;
     root.hidden = false;
@@ -1061,11 +1308,17 @@
     state.slides = extractSlides();
     state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
     render();
-    closeButton.focus({ preventScroll: true });
+    const initialFocus = closeButton.hidden
+      ? state.settings.controlsCollapsed
+        ? collapseButton
+        : settingsButton
+      : closeButton;
+    initialFocus.focus({ preventScroll: true });
   }
 
   function focusableElements() {
-    return Array.from(root.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+    const container = state.settingsOpen ? settingsPanel : root;
+    return Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
       (element) => !element.hidden && element.getClientRects().length > 0,
     );
   }
@@ -1076,7 +1329,8 @@
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
     const active = document.activeElement;
-    if (!root.contains(active)) {
+    const container = state.settingsOpen ? settingsPanel : root;
+    if (!container.contains(active)) {
       event.preventDefault();
       (event.shiftKey ? last : first).focus();
     } else if (event.shiftKey && active === first) {
@@ -1093,6 +1347,16 @@
     // Never swallow browser and OS shortcuts such as Ctrl+F or Cmd+M; every
     // binding below is a bare key.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (state.settingsOpen) {
+      if (event.key === "Tab") {
+        trapFocus(event);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSettings();
+      }
+      return;
+    }
     if (event.key === "Tab") {
       trapFocus(event);
       return;
@@ -1124,6 +1388,27 @@
   }
 
   closeButton.addEventListener("click", close);
+  settingsButton.addEventListener("click", openSettings);
+  settingsClose.addEventListener("click", closeSettings);
+  settingsOverlay.addEventListener("click", (event) => {
+    if (event.target === settingsOverlay) closeSettings();
+  });
+  durationInput.addEventListener("change", () => {
+    const seconds = Math.min(
+      3600,
+      Math.max(1, Math.round(Number(durationInput.value) || 1)),
+    );
+    durationInput.value = String(seconds);
+    updateSetting("slideDurationSeconds", seconds);
+  });
+  Object.keys(settingCheckboxes).forEach((key) => {
+    settingCheckboxes[key].addEventListener("change", () => {
+      updateSetting(key, settingCheckboxes[key].checked);
+    });
+  });
+  collapseButton.addEventListener("click", () => {
+    updateSetting("controlsCollapsed", !state.settings.controlsCollapsed);
+  });
   mediaBox.addEventListener("click", toggleVideoFromSurface, true);
   prevButton.addEventListener("click", () => move(-1));
   nextButton.addEventListener("click", () => move(1));
@@ -1154,7 +1439,7 @@
   document.documentElement.append(root);
   window.__redditpPresentation = {
     toggle() {
-      if (state.open) close();
+      if (state.open || state.opening) close();
       else open();
     },
   };

@@ -49,9 +49,12 @@ result, or post page. The extension reads the posts that are already on screen
 and presents them one at a time, with the title, community, and a link back to
 the comments.
 
-Navigate with the arrow keys, Page Up and Page Down, or by swiping. Press A to
-advance automatically every few seconds, M to unmute video, F for browser
-fullscreen, and Escape to return to Reddit.
+Navigate with the arrow keys, Page Up and Page Down, or by swiping. Choose Auto
+to advance automatically, press M to unmute video, F for browser fullscreen, and
+Escape to return to Reddit. A settings panel lets you choose the slide duration
+and hide the title, arrows, or close button, or compact the bottom controls;
+these preferences persist in Chrome. Escape closes presentation mode from the
+slideshow even when its close button is hidden.
 
 You can also start the slideshow straight from a link: add redditp=1 to any
 Reddit address and the page opens in presentation mode by itself.
@@ -69,6 +72,8 @@ full-screen slideshow.
 
 - **scripting**: injects the slideshow into the Reddit tab when the user clicks
   the toolbar button or presses the keyboard shortcut.
+- **storage**: saves the user's slide timing and presentation-control choices
+  locally in Chrome.
 - **Host permission for reddit.com**: the extension reads the posts rendered on
   the Reddit page in order to build the slideshow, and the same permission lets
   it fetch a post's own Reddit page when a search result shows only a small

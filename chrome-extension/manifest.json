@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Presentation Mode for Reddit",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Turn the Reddit page you are browsing into a media slideshow.",
-  "permissions": ["scripting"],
+  "permissions": ["scripting", "storage"],
   "host_permissions": ["https://reddit.com/*", "https://*.reddit.com/*"],
   "background": {
     "service_worker": "background.js"

@@ -85,7 +85,7 @@
     const name = label.startsWith(prefix) ? label.slice(prefix.length) : label;
     if (!name) return "";
     const path = kind === "user" ? "user" : "r";
-    return `https://www.reddit.com/${path}/${encodeURIComponent(name)}/`;
+    return `https://www.reddit.com/${path}/${encodeURIComponent(name)}/?redditp=1`;
   }
 
   function textOf(element) {
@@ -1035,12 +1035,14 @@
     if (slide.community) {
       const communityLink = element("a", "redditp__meta-link", slide.community);
       communityLink.href = redditPageUrl(slide.community, "community");
+      communityLink.addEventListener("click", navigateToPresentation);
       metaItems.push(communityLink);
     }
     if (galleryLabel) metaItems.push(document.createTextNode(galleryLabel));
     if (slide.author) {
       const authorLink = element("a", "redditp__meta-link", slide.author);
       authorLink.href = redditPageUrl(slide.author, "user");
+      authorLink.addEventListener("click", navigateToPresentation);
       metaItems.push(authorLink);
     }
     meta.replaceChildren();
@@ -1132,7 +1134,6 @@
       iframe.title = slide.title;
       iframe.allow =
         "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
-      iframe.allowFullscreen = true;
       iframe.referrerPolicy = "strict-origin-when-cross-origin";
       mediaBox.append(iframe);
     } else {
@@ -1308,6 +1309,22 @@
     event.stopImmediatePropagation();
     if (video.paused) video.play().catch(() => {});
     else video.pause();
+  }
+
+  function navigateToPresentation(event) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    const href = event.currentTarget.href;
+    close();
+    location.assign(href);
   }
 
   function close() {

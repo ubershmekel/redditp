@@ -122,18 +122,21 @@
 
 #redditp-presentation .redditp__details {
   top: 0;
+  width: min(800px, calc(100vw - 48px));
+  max-height: 45vh;
+  max-height: 45dvh;
+  overflow-y: auto;
   padding: 9px 28px 9px 11px;
 }
 
 #redditp-presentation .redditp__title {
   margin: 0 0 2px;
-  overflow: hidden;
   color: #fff;
   font-size: clamp(16px, 2vw, 20px);
   font-weight: 700;
   line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 #redditp-presentation .redditp__meta {

@@ -351,14 +351,62 @@ test("extension extracts current Reddit post elements on a mobile viewport", asy
   );
   await expect(page.locator(".redditp__meta-link").nth(0)).toHaveAttribute(
     "href",
-    "https://www.reddit.com/r/nature/",
+    "https://www.reddit.com/r/nature/?redditp=1",
   );
   await expect(page.locator(".redditp__meta-link").nth(1)).toHaveAttribute(
     "href",
-    "https://www.reddit.com/user/photographer/",
+    "https://www.reddit.com/user/photographer/?redditp=1",
   );
   await expect(page.locator(".redditp__controls")).toBeVisible();
   await expect(page.locator(".redditp__close")).toBeInViewport();
+  await expect(page.locator(".redditp__controls")).toBeInViewport();
+});
+
+test("metadata links leave the current overlay for another presentation", async ({
+  page,
+}) => {
+  const destination = "https://www.reddit.com/r/nature/?redditp=1";
+  await page.route(destination, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<main>Nature feed</main>",
+    }),
+  );
+  await startPresentation(
+    page,
+    `<shreddit-post post-title="Nature" author="photographer" subreddit-prefixed-name="r/nature" content-href="https://i.redd.it/nature.jpg" permalink="/r/nature/comments/nature/post/"></shreddit-post>`,
+  );
+
+  await page.getByRole("link", { name: "r/nature" }).click();
+
+  await expect(page).toHaveURL(destination);
+  await expect(page.locator("#redditp-presentation")).toHaveCount(0);
+});
+
+test("long post titles wrap inside the title panel", async ({ page }) => {
+  const longTitle =
+    "AI is built to be easy, agreeable, and always available. Nietzsche’s philosophy offers a warning: if we don’t deliberately create distance from it, we risk losing power over our own thinking | Skye Cleary";
+  await page.setViewportSize({ width: 390, height: 844 });
+  await startPresentation(
+    page,
+    `<shreddit-post post-title="${longTitle}" author="Skye_Cleary" subreddit-prefixed-name="r/philosophy" content-href="https://i.redd.it/philosophy.jpg" permalink="/r/philosophy/comments/1vndrq3/post/"></shreddit-post>`,
+  );
+
+  await expect(page.locator(".redditp__title")).toHaveText(longTitle);
+  const titleLayout = await page
+    .locator(".redditp__title")
+    .evaluate((title) => {
+      const bounds = title.getBoundingClientRect();
+      return {
+        height: bounds.height,
+        lineHeight: parseFloat(getComputedStyle(title).lineHeight),
+        whiteSpace: getComputedStyle(title).whiteSpace,
+        fitsWidth: title.scrollWidth <= title.clientWidth,
+      };
+    });
+  expect(titleLayout.height).toBeGreaterThan(titleLayout.lineHeight * 2);
+  expect(titleLayout.whiteSpace).toBe("normal");
+  expect(titleLayout.fitsWidth).toBe(true);
   await expect(page.locator(".redditp__controls")).toBeInViewport();
 });
 
@@ -437,6 +485,14 @@ test("YouTube embeds preserve the requested start time and send a referrer", asy
   await expect(page.locator(".redditp__embed")).toHaveAttribute(
     "referrerpolicy",
     "strict-origin-when-cross-origin",
+  );
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "allow",
+    /(?:^|; )fullscreen(?:;|$)/,
+  );
+  await expect(page.locator(".redditp__embed")).not.toHaveAttribute(
+    "allowfullscreen",
+    "",
   );
 });
 

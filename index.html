@@ -4,6 +4,15 @@
     <!--
         https://github.com/ubershmekel/redditp
     -->
+    <script>
+      // Sitey serves index.html as its zero-config fallback for /extension, so
+      // handle this friendly install URL before loading the slideshow app.
+      if (/^\/extension\/?$/.test(window.location.pathname)) {
+        window.location.replace(
+          "https://chromewebstore.google.com/detail/egmammmcmhobmigmfdhmonnffhblpgnk",
+        );
+      }
+    </script>
     <meta http-equiv="content-type" content="text/html;charset=utf-8" />
     <title>redditP</title>
     <meta

@@ -722,11 +722,26 @@ $(function () {
       .attr("href", window.location.origin + user)
       .attr("user", "User on reddit");
     if (photo.galleryItem) {
-      $("#navboxGallery").text(
-        "Gallery: " + photo.galleryItem + "/" + photo.galleryTotal,
-      );
+      $("#navboxGallery")
+        .text("Gallery: " + photo.galleryItem + "/" + photo.galleryTotal)
+        .show();
     } else {
-      $("#navboxGallery").text("");
+      $("#navboxGallery")
+        .hide()
+        .text("");
+    }
+    if (photo.flairText) {
+      $("#navboxFlair")
+        .text(photo.flairText)
+        .css({
+          color: photo.flairForeground,
+          backgroundColor: photo.flairBackground,
+        })
+        .show();
+    } else {
+      $("#navboxFlair")
+        .hide()
+        .text("");
     }
     document.title = photo.title + " - " + subreddit + " - redditP";
 

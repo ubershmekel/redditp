@@ -1002,6 +1002,10 @@
     controls.hidden = !hasSlides;
     prevButton.hidden = nextButton.hidden =
       !hasSlides || !state.settings.showArrows;
+    prevButton.disabled = !hasSlides || state.index === 0;
+    nextButton.disabled =
+      !hasSlides ||
+      (isSinglePostPage() && state.index === state.slides.length - 1);
     closeButton.hidden = !state.settings.showClose;
     controls.classList.toggle(
       "redditp__controls--collapsed",
@@ -1149,6 +1153,14 @@
 
   function move(delta) {
     if (!state.slides.length) return;
+    if (delta < 0 && state.index === 0) return;
+    if (
+      delta > 0 &&
+      isSinglePostPage() &&
+      state.index === state.slides.length - 1
+    ) {
+      return;
+    }
     if (state.loadingMore) {
       if (delta > 0 && state.index === state.slides.length - 1) {
         state.advanceAfterLoad = true;
@@ -1168,8 +1180,7 @@
       void loadMoreAtEnd(true);
       return;
     }
-    state.index =
-      (state.index + delta + state.slides.length) % state.slides.length;
+    state.index += delta;
     render();
   }
 
@@ -1193,6 +1204,7 @@
   }
 
   async function loadMoreAtEnd(advanceWhenReady) {
+    if (isSinglePostPage()) return;
     if (state.loadingMore) {
       if (advanceWhenReady) {
         state.advanceAfterLoad = true;

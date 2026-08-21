@@ -262,8 +262,13 @@
   backdrop-filter: blur(4px);
 }
 
-#redditp-presentation .redditp__arrow:hover {
+#redditp-presentation .redditp__arrow:not(:disabled):hover {
   opacity: 1;
+}
+
+#redditp-presentation .redditp__arrow:disabled {
+  opacity: 0.28;
+  cursor: default;
 }
 
 #redditp-presentation .redditp__prev {

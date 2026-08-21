@@ -77,11 +77,19 @@ test("extension presents old Reddit image posts and supports keyboard navigation
     "src",
     "https://i.redd.it/first.jpg",
   );
+  await expect(page.locator(".redditp__prev")).toBeDisabled();
+
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "First old Reddit post",
+  );
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
 
   await page.keyboard.press("ArrowRight");
   await expect(page.locator(".redditp__title")).toHaveText(
     "Second old Reddit post",
   );
+  await expect(page.locator(".redditp__prev")).toBeEnabled();
   await expect(page.locator(".redditp__link-card")).toBeVisible();
 
   await page.keyboard.press("Escape");
@@ -213,6 +221,10 @@ test("current Reddit reuses adaptive video inside an open player shadow root", a
     page.locator(".redditp__media #shadow-adaptive-video"),
   ).toBeVisible();
   await expect(page.locator(".redditp__count")).toContainText("1 / 1");
+  await expect(page.locator(".redditp__next")).toBeDisabled();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  expect(await page.evaluate(() => window.__redditpScrollCalls)).toBe(0);
   await expect(
     page.locator(".redditp__media video[src*='CMAF_96']"),
   ).toHaveCount(0);

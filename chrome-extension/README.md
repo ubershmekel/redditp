@@ -30,6 +30,11 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - F: enter or leave browser fullscreen, when available
 - M: toggle video sound
 - Swipe horizontally: previous or next slide
+
+Previous-slide controls stop on the first slide instead of wrapping to the end
+of the slideshow. On an individual Reddit post, next-slide controls likewise
+stop after the post's final media item.
+
 - Tab: cycle the controls; focus stays inside the presentation
 - **Auto**: advance using the saved time-per-slide setting
 

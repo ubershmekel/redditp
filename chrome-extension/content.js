@@ -185,6 +185,21 @@
     );
   }
 
+  function postBodyText(node) {
+    const body = node.querySelector(
+      "[slot='text-body'] .md, .usertext-body .md, [data-click-id='text'] .md, [data-post-click-location='text-body']",
+    );
+    if (!body) return "";
+    const text = body.innerText || body.textContent || "";
+    return text
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((line) => line.trim())
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
   function postAuthor(node) {
     const value =
       node.getAttribute("author") || node.getAttribute("data-author");
@@ -589,6 +604,7 @@
       const source = contentUrl(node, comments);
       const base = {
         title: postTitle(node),
+        body: postBodyText(node),
         author: postAuthor(node),
         community: postCommunity(node),
         commentsUrl: comments,
@@ -945,11 +961,18 @@
       element(
         "span",
         "redditp__link-icon",
-        failed ? "Image unavailable" : "Open linked post",
+        failed
+          ? "Image unavailable"
+          : slide.body
+            ? "Text post"
+            : "Open linked post",
       ),
       element("strong", "", slide.title),
-      element("span", "", slide.sourceUrl || slide.commentsUrl),
     );
+    if (slide.body) {
+      card.append(element("div", "redditp__post-body", slide.body));
+    }
+    card.append(element("span", "", slide.sourceUrl || slide.commentsUrl));
     return card;
   }
 

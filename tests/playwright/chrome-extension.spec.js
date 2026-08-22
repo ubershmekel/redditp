@@ -96,6 +96,37 @@ test("extension presents old Reddit image posts and supports keyboard navigation
   await expect(page.locator("#redditp-presentation")).toBeHidden();
 });
 
+test("shows the body of a Reddit text post", async ({ page }) => {
+  await startPresentation(
+    page,
+    `
+      <shreddit-post
+        id="t3_textpost"
+        post-title="What did I do wrong?"
+        author="newbie"
+        subreddit-prefixed-name="r/bjj"
+        permalink="/r/bjj/comments/textpost/body/"
+      >
+        <shreddit-post-text-body slot="text-body">
+          <div slot="text-body" class="text-neutral-content">
+            <div class="md">
+              <p>First paragraph of the post.</p>
+              <p>Second paragraph with more context.</p>
+            </div>
+            <button>Read more</button>
+          </div>
+        </shreddit-post-text-body>
+      </shreddit-post>
+    `,
+  );
+
+  const postBody = page.locator(".redditp__post-body");
+  await expect(postBody).toContainText("First paragraph of the post.");
+  await expect(postBody).toContainText("Second paragraph with more context.");
+  await expect(postBody).not.toContainText("Read more");
+  await expect(page.locator(".redditp__link-icon")).toHaveText("Text post");
+});
+
 test("old Reddit combined-search cards upgrade their outbound media", async ({
   page,
 }) => {

@@ -435,6 +435,16 @@
   font-size: 12px;
 }
 
+#redditp-presentation .redditp__post-body {
+  max-height: min(52vh, 520px);
+  max-height: min(52dvh, 520px);
+  padding-right: 6px;
+  overflow-y: auto;
+  color: #ddd;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
 #redditp-presentation .redditp__link-icon {
   color: #5dd;
   font-weight: 700;

@@ -64,6 +64,22 @@ these URLs yourself:
   parameter is present.
 - Run the Playwright smoke test with `npm run test:playwright`.
 
+## Releasing the extension
+
+`npm run ext:release [patch|minor|major|x.y.z]` (bump defaults to `patch`) bumps
+`chrome-extension/manifest.json`, builds both store zips, uploads to the Chrome
+Web Store and to Firefox Add-ons, then commits and tags the version. Both stores
+queue the submission for review; nothing goes live instantly.
+
+Copy `.env.example` to `.env` (gitignored) and fill in the two sets of
+credentials before the first release. Rehearse with `npm run ext:release:dry` —
+it packages for real, then prints a review of both payloads (file list, sizes,
+permissions), the listing each one targets, and the branch and tag you would be
+shipping from. No upload and no git write happen, and the manifest bump is
+rolled back.
+
+Flags: `--skip-chrome`, `--skip-firefox`, `--no-git`.
+
 ## Project history
 
 redditp launched on July 4, 2012 and accumulated 374 commits over more than

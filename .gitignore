@@ -50,3 +50,6 @@ node_modules
 /test-results
 /build
 .claude/settings.local.json
+
+# Store credentials for `npm run release`
+.env

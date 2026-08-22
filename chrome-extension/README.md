@@ -22,13 +22,12 @@ In Chrome:
 In Firefox, the manifest in this folder is the Chrome one, so build the Firefox
 manifest first:
 
-1. Run `npm run package:extension:firefox`, which writes
-   `build/firefox-extension`.
+1. Run `npm run ext:package:firefox`, which writes `build/firefox-extension`.
 2. Open `about:debugging#/runtime/this-firefox`.
 3. Click **Load Temporary Add-on** and pick
    `build/firefox-extension/manifest.json`.
 
-`npm run firefox:run` does the same in a throwaway profile, and
+`npm run ext:firefox:run` does the same in a throwaway profile, and
 `npx web-ext lint --source-dir build/firefox-extension` runs the checks AMO
 applies at upload.
 
@@ -41,8 +40,8 @@ keep the add-on installed on a release Firefox, sign it:
 1. Create an AMO API key at
    <https://addons.mozilla.org/developers/addon/api/key/>.
 2. Export `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET`.
-3. Run `npm run firefox:sign`, which uploads the build for **unlisted** signing
-   and drops a signed `.xpi` in `build/`.
+3. Run `npm run ext:firefox:sign`, which uploads the build for **unlisted**
+   signing and drops a signed `.xpi` in `build/`.
 4. Install that `.xpi` from `about:addons` → gear → **Install Add-on From
    File**.
 
@@ -154,11 +153,11 @@ available as the fallback.
 `nodejs/package-extension.js` lists the files that go into the upload; add any
 new runtime file there as well as to `manifest.json`. It takes a target:
 
-- `npm run package:extension` — Chrome zip, manifest used as-is
-- `npm run package:extension:firefox` — Firefox zip, with the MV3 event page
+- `npm run ext:package` — Chrome zip, manifest used as-is
+- `npm run ext:package:firefox` — Firefox zip, with the MV3 event page
   (`background.scripts`), the AMO add-on id, and the data-collection declaration
   patched in
-- `npm run package:extension:all` — both
+- `npm run ext:package:all` — both
 
-`npm run firefox:run` and `npm run firefox:sign` build the Firefox target first,
-so they always run against fresh output.
+`npm run ext:firefox:run` and `npm run ext:firefox:sign` build the Firefox
+target first, so they always run against fresh output.

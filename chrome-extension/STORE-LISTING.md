@@ -90,8 +90,7 @@ click-to-activate would find behavior the listing did not disclose.
 ## Submission checklist
 
 - Run the grep above; it must return nothing.
-- `npm run package:extension`, then upload
-  `build/redditp-extension-v<version>.zip`.
+- `npm run ext:package`, then upload `build/redditp-extension-v<version>.zip`.
 - Screenshots must show ordinary subreddits. Nothing in a screenshot should need
   a content rating the listing does not declare.
 - Set the maturity rating honestly: the extension displays whatever the user's

@@ -54,25 +54,38 @@ const targets = {
   },
 };
 
-const arg = (process.argv[2] || "chrome").toLowerCase();
-const names = arg === "all" ? Object.keys(targets) : [arg];
+// release-extension.js reads targets/files to describe a build without redoing
+// this file's layout knowledge.
+module.exports = { targets, files, srcDir, buildDir, readManifest };
 
-for (const name of names) {
-  if (!targets[name]) {
-    console.error(`Unknown target: ${name}. Use chrome, firefox, or all.`);
-    process.exit(1);
+if (require.main === module) {
+  main();
+}
+
+function main() {
+  const arg = (process.argv[2] || "chrome").toLowerCase();
+  const names = arg === "all" ? Object.keys(targets) : [arg];
+
+  for (const name of names) {
+    if (!targets[name]) {
+      console.error(`Unknown target: ${name}. Use chrome, firefox, or all.`);
+      process.exit(1);
+    }
+  }
+
+  const manifest = readManifest();
+  for (const name of names) {
+    packageTarget(name, manifest);
   }
 }
 
-const manifest = JSON.parse(
-  fs.readFileSync(path.join(srcDir, "manifest.json"), "utf8"),
-);
-
-for (const name of names) {
-  packageTarget(name);
+function readManifest() {
+  return JSON.parse(
+    fs.readFileSync(path.join(srcDir, "manifest.json"), "utf8"),
+  );
 }
 
-function packageTarget(name) {
+function packageTarget(name, manifest) {
   const target = targets[name];
   const stageDir = path.join(buildDir, target.stageName);
   const zipPath = path.join(buildDir, target.zipName(manifest.version));

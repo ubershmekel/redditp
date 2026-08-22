@@ -412,12 +412,19 @@
   function mediaFromNode(node, sourceUrl) {
     const media = [];
     const seen = new Set();
-    function add(kind, url, poster) {
+    // postMedia marks the post's own media, as opposed to a preview image
+    // scraped out of a listing card for a post that links somewhere else.
+    function add(kind, url, poster, postMedia) {
       const normalized = absoluteUrl(url);
       const key = canonicalMediaKey(normalized);
       if (!normalized || seen.has(key)) return;
       seen.add(key);
-      media.push({ kind, url: normalized, poster: absoluteUrl(poster) });
+      media.push({
+        kind,
+        url: normalized,
+        poster: absoluteUrl(poster),
+        postMedia: Boolean(postMedia),
+      });
     }
 
     // On old Reddit post pages the real adaptive player is already attached
@@ -451,7 +458,8 @@
           return;
         }
         const image = figure.querySelector("img:not([role='presentation'])");
-        if (image && usefulImage(image)) add("image", imageUrl(image));
+        if (image && usefulImage(image))
+          add("image", imageUrl(image), "", true);
       });
       if (media.length) return media;
     }
@@ -506,7 +514,7 @@
     if (IMAGE_URL_RE.test(sourceUrl)) {
       // Prefer the post's original image over a second, lower-resolution
       // preview of the same image found inside the listing card.
-      add("image", sourceUrl);
+      add("image", sourceUrl, "", true);
     } else {
       node
         .querySelectorAll(
@@ -519,7 +527,7 @@
 
     if (isVideoUrl(sourceUrl)) add("video", sourceUrl);
     const external = externalMedia(sourceUrl);
-    if (external) add(external.kind, external.url);
+    if (external) add(external.kind, external.url, "", true);
     node.querySelectorAll("iframe[src]").forEach((iframe) => {
       const iframeMedia = externalMedia(iframe.getAttribute("src"));
       if (iframeMedia) add(iframeMedia.kind, iframeMedia.url);
@@ -984,13 +992,18 @@
     }
   }
 
-  function expandLargeImage(image) {
+  function expandLargeImage(image, slide) {
     const longEdge = Math.max(image.naturalWidth, image.naturalHeight);
     const shortEdge = Math.min(image.naturalWidth, image.naturalHeight);
+    // The post's own image is the whole point of the slide, so it fills the
+    // stage at any size. The size gate only holds back preview images scraped
+    // from a card for a post that links elsewhere, which are often far smaller
+    // than the media they stand in for.
     image.classList.toggle(
       "redditp__image--expand",
-      longEdge >= MIN_EXPAND_IMAGE_LONG_EDGE &&
-        shortEdge >= MIN_EXPAND_IMAGE_SHORT_EDGE,
+      Boolean(slide?.postMedia) ||
+        (longEdge >= MIN_EXPAND_IMAGE_LONG_EDGE &&
+          shortEdge >= MIN_EXPAND_IMAGE_SHORT_EDGE),
     );
   }
 
@@ -1063,7 +1076,9 @@
     if (slide.kind === "image") {
       const img = element("img", "redditp__image", "");
       img.alt = slide.title;
-      img.addEventListener("load", () => expandLargeImage(img), { once: true });
+      img.addEventListener("load", () => expandLargeImage(img, slide), {
+        once: true,
+      });
       img.addEventListener("error", () => showMediaFailure(img, slide), {
         once: true,
       });

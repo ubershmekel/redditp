@@ -1,18 +1,56 @@
-# Presentation Mode for Reddit — Chrome extension
+# Presentation Mode for Reddit — Chrome and Firefox extension
 
-This Manifest V3 extension turns the Reddit listing currently open in Chrome
-into an in-page media slideshow. It reads the posts rendered in the browser,
-using the user's normal Reddit session; it does not call Reddit's public JSON
-API.
+This Manifest V3 extension turns the Reddit listing currently open in the
+browser into an in-page media slideshow. It reads the posts rendered in the
+browser, using the user's normal Reddit session; it does not call Reddit's
+public JSON API.
+
+One source tree builds both stores. `nodejs/package-extension.js` patches the
+manifest per browser, so this folder stays the only place to edit.
 
 [Install the extension from the Chrome Web Store](https://redditp.com/extension).
 
 ## Install for development
 
+In Chrome:
+
 1. Open `chrome://extensions` in Chrome.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select this `chrome-extension` folder.
 4. Pin **Presentation Mode for Reddit** if you want its button in the toolbar.
+
+In Firefox, the manifest in this folder is the Chrome one, so build the Firefox
+manifest first:
+
+1. Run `npm run package:extension:firefox`, which writes
+   `build/firefox-extension`.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Click **Load Temporary Add-on** and pick
+   `build/firefox-extension/manifest.json`.
+
+`npm run firefox:run` does the same in a throwaway profile, and
+`npx web-ext lint --source-dir build/firefox-extension` runs the checks AMO
+applies at upload.
+
+Both of those are **temporary** installs that disappear when Firefox restarts.
+That is not a limitation of this build: release and beta Firefox refuse to
+permanently install any add-on AMO has not signed, and the
+`xpinstall.signatures.required` pref that lifts the check is ignored there. To
+keep the add-on installed on a release Firefox, sign it:
+
+1. Create an AMO API key at
+   <https://addons.mozilla.org/developers/addon/api/key/>.
+2. Export `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET`.
+3. Run `npm run firefox:sign`, which uploads the build for **unlisted** signing
+   and drops a signed `.xpi` in `build/`.
+4. Install that `.xpi` from `about:addons` → gear → **Install Add-on From
+   File**.
+
+Unlisted signing does not publish anything to the AMO directory; it only signs
+the file for self-distribution. Signing the same version twice is rejected, so
+bump `version` in `manifest.json` before re-signing. The alternative to signing
+is Firefox Developer Edition, Nightly, or ESR, where setting
+`xpinstall.signatures.required` to `false` in `about:config` does work.
 
 ## Use it
 
@@ -57,6 +95,24 @@ Single-post `/comments/` pages do not trigger this feed-loading scroll. The
 slide counter shows `loading more` while this background preload is active.
 
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
+Firefox does it in `about:addons` under the gear menu's **Manage Extension
+Shortcuts**.
+
+## Browser differences
+
+- Firefox treats Manifest V3 `host_permissions` as optional, so reddit.com
+  access is not granted at install. The extension asks for `activeTab`, which
+  covers the toolbar button and `Alt+P` without any grant. The `redditp=1` URL
+  launch is the one flow that needs the host permission; until the user allows
+  it under the add-on's **Permissions**, that launch fails and the toolbar
+  button flashes a hint instead.
+- Firefox's native video controls consume clicks on the video surface before
+  page scripts see them, so Firefox toggles playback itself rather than through
+  redditp's handler. The visible behavior is the same, and Reddit's own click
+  handler stays out of the way there too.
+- `background.js` and `auto-activate.js` resolve `globalThis.browser || chrome`
+  because Firefox's `chrome` alias is callback-based while `browser` returns
+  promises. Keep new background code on that `api` handle.
 
 ## Supported page shapes
 
@@ -96,4 +152,13 @@ available as the fallback.
 - `icon-128.png`: store and extensions-page icon (128px)
 
 `nodejs/package-extension.js` lists the files that go into the upload; add any
-new runtime file there as well as to `manifest.json`.
+new runtime file there as well as to `manifest.json`. It takes a target:
+
+- `npm run package:extension` — Chrome zip, manifest used as-is
+- `npm run package:extension:firefox` — Firefox zip, with the MV3 event page
+  (`background.scripts`), the AMO add-on id, and the data-collection declaration
+  patched in
+- `npm run package:extension:all` — both
+
+`npm run firefox:run` and `npm run firefox:sign` build the Firefox target first,
+so they always run against fresh output.

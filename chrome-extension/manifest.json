@@ -3,7 +3,7 @@
   "name": "Presentation Mode for Reddit",
   "version": "0.5.1",
   "description": "Turn the Reddit page you are browsing into a media slideshow.",
-  "permissions": ["scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["https://reddit.com/*", "https://*.reddit.com/*"],
   "background": {
     "service_worker": "background.js"
@@ -16,16 +16,13 @@
     }
   ],
   "icons": {
-    "16": "favicon.png",
-    "32": "favicon.png",
-    "48": "icon-128.png",
+    "64": "favicon.png",
     "128": "icon-128.png"
   },
   "action": {
     "default_title": "Open presentation mode",
     "default_icon": {
-      "16": "favicon.png",
-      "32": "favicon.png",
+      "64": "favicon.png",
       "128": "icon-128.png"
     }
   },

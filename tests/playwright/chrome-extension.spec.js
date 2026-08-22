@@ -165,6 +165,7 @@ test("old Reddit reuses its live adaptive video instead of the seek preview", as
 
 test("current Reddit reuses adaptive video inside an open player shadow root", async ({
   page,
+  browserName,
 }) => {
   const detailUrl =
     "https://www.reddit.com/r/test/comments/shadowvideo/post/?redditp=1";
@@ -228,19 +229,24 @@ test("current Reddit reuses adaptive video inside an open player shadow root", a
   await expect(
     page.locator(".redditp__media video[src*='CMAF_96']"),
   ).toHaveCount(0);
-  await page
-    .locator("#shadow-adaptive-video")
-    .click({ position: { x: 300, y: 300 } });
-  await expect
-    .poll(() => page.evaluate(() => window.__redditVideoPaused))
-    .toBe(true);
-  expect(await page.evaluate(() => window.__redditTargetClicks)).toBe(1);
-  await page
-    .locator("#shadow-adaptive-video")
-    .click({ position: { x: 300, y: 300 } });
-  await expect
-    .poll(() => page.evaluate(() => window.__redditVideoPaused))
-    .toBe(false);
+  // Firefox's native video controls consume clicks on the video surface before
+  // any page listener sees them, so Firefox toggles playback itself and neither
+  // redditp nor Reddit's own handler runs. Only Chromium exercises this path.
+  if (browserName !== "firefox") {
+    await page
+      .locator("#shadow-adaptive-video")
+      .click({ position: { x: 300, y: 300 } });
+    await expect
+      .poll(() => page.evaluate(() => window.__redditVideoPaused))
+      .toBe(true);
+    expect(await page.evaluate(() => window.__redditTargetClicks)).toBe(1);
+    await page
+      .locator("#shadow-adaptive-video")
+      .click({ position: { x: 300, y: 300 } });
+    await expect
+      .poll(() => page.evaluate(() => window.__redditVideoPaused))
+      .toBe(false);
+  }
   await page.waitForTimeout(300);
   expect(await page.evaluate(() => window.__redditpScrollCalls)).toBe(0);
 
@@ -768,6 +774,39 @@ test("small link-preview images are not stretched beyond their natural size", as
     height: 488,
     naturalWidth: 868,
     naturalHeight: 488,
+  });
+});
+
+test("a small direct image post still fills the stage", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const gifUrl = "https://i.redd.it/small.gif";
+  await page.route(gifUrl, async (route) => {
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"></svg>',
+    });
+  });
+  await startPresentation(
+    page,
+    `<div class="thing link" data-url="${gifUrl}" data-author="alice" data-subreddit="gifs" data-permalink="/r/gifs/comments/one/small/">
+      <a class="title" href="${gifUrl}">A small gif</a>
+      <a class="comments" href="/r/gifs/comments/one/small/">comments</a>
+    </div>`,
+  );
+
+  const dimensions = await page.locator(".redditp__image").evaluate((image) => {
+    const bounds = image.getBoundingClientRect();
+    return {
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+      naturalWidth: image.naturalWidth,
+    };
+  });
+  // The post's own media fills the stage even below the preview size gate.
+  expect(dimensions).toEqual({
+    width: 1920,
+    height: 1080,
+    naturalWidth: 640,
   });
 });
 

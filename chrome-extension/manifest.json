@@ -1,17 +1,29 @@
 {
   "manifest_version": 3,
   "name": "Presentation Mode for Reddit",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Turn the Reddit page you are browsing into a media slideshow.",
-  "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["https://reddit.com/*", "https://*.reddit.com/*"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://reddit.com/*",
+    "https://*.reddit.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://reddit.com/*", "https://*.reddit.com/*"],
-      "js": ["auto-activate.js"],
+      "matches": [
+        "https://reddit.com/*",
+        "https://*.reddit.com/*"
+      ],
+      "js": [
+        "auto-activate.js"
+      ],
       "run_at": "document_idle"
     }
   ],

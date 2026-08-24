@@ -78,7 +78,16 @@ permissions), the listing each one targets, and the branch and tag you would be
 shipping from. No upload and no git write happen, and the manifest bump is
 rolled back.
 
-Flags: `--skip-chrome`, `--skip-firefox`, `--no-git`.
+A store refusing a step is a normal part of this flow, so the release is
+resumable. Every step is attempted, what landed is recorded in
+`build/release-state.json`, and the run exits non-zero listing what is left —
+the release commit and tag are held back until nothing is. Re-running the same
+command resumes that same version and skips the finished steps, so a publish
+rejected for missing Privacy practices fields is fixed in the dashboard and then
+retried without re-uploading or burning a version number.
+
+Flags: `--skip-chrome`, `--skip-firefox`, `--no-git`, and `--restart` to abandon
+an unfinished version and bump a new one instead.
 
 ## Project history
 

@@ -70,6 +70,10 @@ full-screen slideshow.
 
 ## Permission justifications
 
+- **activeTab**: granted only by the user's own click on the toolbar button or
+  press of the keyboard shortcut. It lets the extension see that tab's address,
+  so it can confirm the page is a reddit.com page before starting the slideshow
+  and show a hint on the toolbar icon when it is not.
 - **scripting**: injects the slideshow into the Reddit tab when the user clicks
   the toolbar button or presses the keyboard shortcut.
 - **storage**: saves the user's slide timing and presentation-control choices

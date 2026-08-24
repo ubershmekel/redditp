@@ -7,10 +7,16 @@
 //
 // Usage:
 //   node nodejs/release-extension.js [patch|minor|major|<x.y.z>] [--dry-run]
-//     [--skip-chrome] [--skip-firefox] [--no-git]
+//     [--skip-chrome] [--skip-firefox] [--no-git] [--restart]
 //
 // The bump defaults to patch. --dry-run packages for real, prints a full review
 // of what would be shipped, and restores the manifest.
+//
+// A store rejecting a step is a normal outcome, not a crash: every step is
+// attempted, what succeeded is recorded in build/release-state.json, and the
+// run exits non-zero listing what is left. Re-running the same command resumes
+// that version and skips the finished steps. --restart discards the state and
+// bumps a fresh version instead.
 //
 // Credentials come from .env in the repo root (gitignored) or the environment:
 //   CHROME_EXTENSION_ID CHROME_CLIENT_ID                 (Chrome Web Store API)
@@ -37,17 +43,35 @@ const dryRun = flags.has("--dry-run");
 const doChrome = !flags.has("--skip-chrome");
 const doFirefox = !flags.has("--skip-firefox");
 const doGit = !flags.has("--no-git");
+const restart = flags.has("--restart");
 
 for (const flag of flags) {
   if (
-    !["--dry-run", "--skip-chrome", "--skip-firefox", "--no-git"].includes(flag)
+    ![
+      "--dry-run",
+      "--skip-chrome",
+      "--skip-firefox",
+      "--no-git",
+      "--restart",
+    ].includes(flag)
   ) {
     fail(`Unknown flag: ${flag}`);
   }
 }
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-const version = nextVersion(manifest.version, bumpArg);
+
+// An interrupted release leaves the manifest already bumped and a state file
+// naming the steps that landed. Recognizing that is what makes a re-run a
+// resume rather than a second, half-shipped version.
+const statePath = path.join(buildDir, "release-state.json");
+const state = loadState();
+const resuming = Boolean(state) && state.version === manifest.version;
+const version = resuming
+  ? state.version
+  : nextVersion(manifest.version, bumpArg);
+const done = new Set(resuming ? state.done : []);
+const failures = [];
 
 // Fail before touching anything if a credential is missing — a half-shipped
 // release (Chrome updated, Firefox not) is the annoying outcome to avoid.
@@ -74,11 +98,27 @@ if (missing.length) {
 }
 
 if (doGit && !dryRun) {
-  const dirty = run("git", ["status", "--porcelain"], { capture: true }).trim();
-  if (dirty) fail("Working tree is dirty. Commit or stash first.");
+  const dirty = run("git", ["status", "--porcelain"], { capture: true })
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  // The manifest bump from the interrupted run is the one dirty file a resume
+  // expects to find; anything else still means "commit or stash first".
+  const onlyBump =
+    resuming &&
+    dirty.every((line) => line.endsWith("chrome-extension/manifest.json"));
+  if (dirty.length && !onlyBump) {
+    fail("Working tree is dirty. Commit or stash first.");
+  }
 }
 
-console.log(`Releasing ${manifest.version} -> ${version}`);
+if (resuming) {
+  console.log(
+    `Resuming v${version} (done: ${[...done].join(", ") || "nothing"})`,
+  );
+} else {
+  console.log(`Releasing ${manifest.version} -> ${version}`);
+}
 
 const originalManifest = fs.readFileSync(manifestPath, "utf8");
 manifest.version = version;
@@ -98,63 +138,106 @@ const firefoxDir = path.join(buildDir, "firefox-extension");
 
 if (doChrome) {
   console.log("\n== Chrome Web Store ==");
-  runMaybe(
-    "npx",
-    [
-      "chrome-webstore-upload-cli",
-      "upload",
-      "--source",
-      chromeZip,
-      "--auto-publish",
-    ],
-    {
-      // Same as web-ext below: the CLI only reads these bare names, so translate
-      // rather than letting unprefixed secrets sit in .env or in argv.
-      env: {
-        EXTENSION_ID: process.env.CHROME_EXTENSION_ID,
-        CLIENT_ID: process.env.CHROME_CLIENT_ID,
-        CLIENT_SECRET: process.env.CHROME_CLIENT_SECRET,
-        REFRESH_TOKEN: process.env.CHROME_REFRESH_TOKEN,
-      },
-    },
+  const chromeEnv = {
+    // Same as web-ext below: the CLI only reads these bare names, so translate
+    // rather than letting unprefixed secrets sit in .env or in argv.
+    EXTENSION_ID: process.env.CHROME_EXTENSION_ID,
+    CLIENT_ID: process.env.CHROME_CLIENT_ID,
+    CLIENT_SECRET: process.env.CHROME_CLIENT_SECRET,
+    REFRESH_TOKEN: process.env.CHROME_REFRESH_TOKEN,
+  };
+  // Upload and publish are two calls rather than one --auto-publish, because
+  // the store gates publishing on dashboard fields the API cannot fill. Split,
+  // a rejected publish leaves the uploaded draft alone and is what resumes.
+  const uploaded = step(
+    "chrome-upload",
+    `upload ${path.basename(chromeZip)}`,
+    () =>
+      run(
+        "npx",
+        ["chrome-webstore-upload-cli", "upload", "--source", chromeZip],
+        { env: chromeEnv },
+      ),
   );
+  if (uploaded) {
+    step("chrome-publish", "publish (enters review)", () =>
+      run("npx", ["chrome-webstore-upload-cli", "publish"], {
+        env: chromeEnv,
+      }),
+    );
+  }
 }
 
 if (doFirefox) {
   console.log("\n== Firefox Add-ons ==");
-  runMaybe(
-    "npx",
-    [
-      "web-ext",
-      "sign",
-      "--source-dir",
-      firefoxDir,
-      "--channel",
-      "listed",
-      "--artifacts-dir",
-      buildDir,
-      // AMO reviews listed submissions by hand; don't sit here waiting for it.
-      "--no-wait-for-approval",
-    ],
-    {
-      // web-ext only reads its credentials from WEB_EXT_*.
-      env: {
-        WEB_EXT_API_KEY: process.env.FIREFOX_JWT_ISSUER,
-        WEB_EXT_API_SECRET: process.env.FIREFOX_JWT_SECRET,
+  step("firefox-sign", "sign and submit to the listed channel", () =>
+    run(
+      "npx",
+      [
+        "web-ext",
+        "sign",
+        "--source-dir",
+        firefoxDir,
+        "--channel",
+        "listed",
+        "--artifacts-dir",
+        buildDir,
+        // AMO reviews listed submissions by hand; don't sit here waiting for it.
+        "--no-wait-for-approval",
+      ],
+      {
+        // web-ext only reads its credentials from WEB_EXT_*.
+        env: {
+          WEB_EXT_API_KEY: process.env.FIREFOX_JWT_ISSUER,
+          WEB_EXT_API_SECRET: process.env.FIREFOX_JWT_SECRET,
+        },
       },
-    },
+    ),
   );
 }
 
-if (doGit) {
+const tag = `extension-v${version}`;
+
+// Only tag what actually shipped: a commit and tag for a version a store
+// refused would claim a release that does not exist. The resume run makes them.
+if (doGit && !failures.length) {
   console.log("\n== git ==");
-  runMaybe("git", ["add", manifestPath]);
-  runMaybe("git", ["commit", "-m", `Extension v${version}`]);
-  runMaybe("git", ["tag", `extension-v${version}`]);
-  console.log(`Push with: git push && git push origin extension-v${version}`);
+  step("git-commit", `commit Extension v${version}`, () => {
+    run("git", ["add", manifestPath]);
+    run("git", ["commit", "-m", `Extension v${version}`]);
+  });
+  step("git-tag", `tag ${tag}`, () => {
+    if (git(["tag", "--list", tag]) === tag) return;
+    run("git", ["tag", tag]);
+  });
 }
 
-console.log(`\nDone. v${version} submitted to both stores (pending review).`);
+if (failures.length) {
+  console.error(`\n== v${version} incomplete ==`);
+  for (const id of done) console.error(`  done      ${id}`);
+  for (const { label, hint } of failures) {
+    console.error(`  FAILED    ${label}`);
+    if (hint) console.error(`            ${hint}`);
+  }
+  if (doGit) {
+    console.error(
+      "  held back the release commit and tag until the rest lands",
+    );
+  }
+  console.error(
+    `\nFix the above and re-run the same command: it resumes v${version} and` +
+      " skips what already landed.",
+  );
+  process.exit(1);
+}
+
+clearState();
+console.log(
+  `\nDone. v${version} submitted to ${
+    doChrome && doFirefox ? "both stores" : "the store"
+  } (pending review).`,
+);
+if (doGit) console.log(`Push with: git push && git push origin ${tag}`);
 
 // Everything worth eyeballing before a real release: exact payloads, which
 // listings they land on, and the git state you would be shipping from.
@@ -260,12 +343,61 @@ function run(cmd, cmdArgs, { capture = false, env } = {}) {
   return capture ? out.toString() : "";
 }
 
-function runMaybe(cmd, cmdArgs, opts) {
-  if (dryRun) {
-    console.log(`[dry-run] ${cmd} ${cmdArgs.join(" ")}`);
-    return;
+// One unit of shipping: skipped when an earlier run landed it, recorded the
+// moment it lands, and on failure collected instead of thrown — one store
+// rejecting a version should not decide whether the other one hears about it.
+function step(id, label, body) {
+  if (done.has(id)) {
+    console.log(`  skipped   ${label} (done earlier)`);
+    return true;
   }
-  run(cmd, cmdArgs, opts);
+  if (dryRun) {
+    console.log(`  [dry-run] ${label}`);
+    return true;
+  }
+  try {
+    body();
+    done.add(id);
+    saveState();
+    return true;
+  } catch (error) {
+    failures.push({ id, label, hint: hintFor(id) });
+    saveState();
+    console.error(`\n  ${label} failed: ${error.message}`);
+    return false;
+  }
+}
+
+// The one rejection that reads as a bug but is really a dashboard checklist.
+function hintFor(id) {
+  if (id !== "chrome-publish") return "";
+  return (
+    "if the store asked for privacy information, fill the Privacy practices" +
+    " tab at https://chrome.google.com/webstore/devconsole — the uploaded" +
+    " draft is already there, waiting to be published"
+  );
+}
+
+function loadState() {
+  if (dryRun || restart || !fs.existsSync(statePath)) return null;
+  try {
+    const saved = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    return Array.isArray(saved.done) ? saved : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveState() {
+  fs.mkdirSync(buildDir, { recursive: true });
+  fs.writeFileSync(
+    statePath,
+    JSON.stringify({ version, done: [...done] }, null, 2) + "\n",
+  );
+}
+
+function clearState() {
+  if (!dryRun && fs.existsSync(statePath)) fs.rmSync(statePath);
 }
 
 function fail(message) {

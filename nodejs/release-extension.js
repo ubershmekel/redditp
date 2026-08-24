@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // One command to ship a new extension version to both stores.
 //
-// Bumps chrome-extension/manifest.json, packages both zips, uploads the Chrome
-// zip to the Web Store (auto-published, which means "enters review"), and
-// submits the Firefox zip to AMO's listed channel. Then commits and tags.
+// Bumps chrome-extension/manifest.json, packages both zips, uploads and
+// publishes the Chrome zip on the Web Store (publishing means "enters review"),
+// and submits the Firefox zip to AMO's listed channel. Then commits and tags.
 //
 // Usage:
 //   node nodejs/release-extension.js [patch|minor|major|<x.y.z>] [--dry-run]
@@ -182,8 +182,10 @@ if (doFirefox) {
         "listed",
         "--artifacts-dir",
         buildDir,
-        // AMO reviews listed submissions by hand; don't sit here waiting for it.
-        "--no-wait-for-approval",
+        // AMO reviews listed submissions by hand; don't sit here waiting for
+        // it. web-ext 10 dropped --no-wait-for-approval for this timeout.
+        "--approval-timeout",
+        "0",
       ],
       {
         // web-ext only reads its credentials from WEB_EXT_*.

@@ -8,8 +8,11 @@
       // Sitey serves index.html as its zero-config fallback for /extension, so
       // handle this friendly install URL before loading the slideshow app.
       if (/^\/extension\/?$/.test(window.location.pathname)) {
+        var isFirefox = /firefox|fxios/i.test(navigator.userAgent);
         window.location.replace(
-          "https://chromewebstore.google.com/detail/egmammmcmhobmigmfdhmonnffhblpgnk",
+          isFirefox
+            ? "https://addons.mozilla.org/en-US/firefox/addon/presentation-mode-for-reddit/"
+            : "https://chromewebstore.google.com/detail/egmammmcmhobmigmfdhmonnffhblpgnk",
         );
       }
     </script>

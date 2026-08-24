@@ -202,16 +202,23 @@ const tag = `extension-v${version}`;
 
 // Only tag what actually shipped: a commit and tag for a version a store
 // refused would claim a release that does not exist. The resume run makes them.
-if (doGit && !failures.length) {
+const gitRan = doGit && !failures.length;
+if (gitRan) {
   console.log("\n== git ==");
-  step("git-commit", `commit Extension v${version}`, () => {
+  const committed = step("git-commit", `commit Extension v${version}`, () => {
     run("git", ["add", manifestPath]);
+    // Nothing staged means the bump is already committed — by an earlier run,
+    // or by hand while sorting out a failure. git commit exits 1 on that, but
+    // for a resume it is the end state we wanted, not something to retry.
+    if (!git(["status", "--porcelain", "--", manifestPath])) return;
     run("git", ["commit", "-m", `Extension v${version}`]);
   });
-  step("git-tag", `tag ${tag}`, () => {
-    if (git(["tag", "--list", tag]) === tag) return;
-    run("git", ["tag", tag]);
-  });
+  if (committed) {
+    step("git-tag", `tag ${tag}`, () => {
+      if (git(["tag", "--list", tag]) === tag) return;
+      run("git", ["tag", tag]);
+    });
+  }
 }
 
 if (failures.length) {
@@ -221,7 +228,7 @@ if (failures.length) {
     console.error(`  FAILED    ${label}`);
     if (hint) console.error(`            ${hint}`);
   }
-  if (doGit) {
+  if (doGit && !gitRan) {
     console.error(
       "  held back the release commit and tag until the rest lands",
     );

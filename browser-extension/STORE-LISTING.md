@@ -21,7 +21,7 @@ it.
 Neither the shipped code nor the listing copy below currently contains any such
 name. Run this after packaging and before every submission — it scans the staged
 upload, which is the only set of files a reviewer sees. (Scanning
-`chrome-extension/` instead would match this page, which quotes the very words
+`browser-extension/` instead would match this page, which quotes the very words
 it is searching for and is not shipped.)
 
     grep -ril "redgif\|gfycat\|nsfw\|porn\|adult" build/chrome-extension/

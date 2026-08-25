@@ -39,7 +39,7 @@
   const MIN_EXPAND_IMAGE_SHORT_EDGE = 600;
   const SETTINGS_KEY = "redditpPresentationSettings";
   const README_URL =
-    "https://github.com/ubershmekel/redditp/blob/main/chrome-extension/README.md";
+    "https://github.com/ubershmekel/redditp/blob/main/browser-extension/README.md";
   const DEFAULT_SETTINGS = {
     slideDurationSeconds: 6,
     showDetails: true,
@@ -424,6 +424,31 @@
     }
   }
 
+  function isGalleryPost(node) {
+    return (
+      node.hasAttribute("gallery") ||
+      node.getAttribute("post-type") === "gallery" ||
+      node.getAttribute("data-is-gallery") === "true" ||
+      Boolean(node.querySelector("gallery-carousel, .media-gallery"))
+    );
+  }
+
+  function oldRedditGalleryLinks(node) {
+    const selector = ".media-gallery .gallery-item-thumbnail-link";
+    const liveLinks = Array.from(node.querySelectorAll(selector));
+    if (liveLinks.length) return liveLinks;
+
+    const links = [];
+    node.querySelectorAll(".expando[data-cachedhtml]").forEach((expando) => {
+      // Collapsed old-Reddit galleries live in escaped HTML, not child nodes.
+      // A template keeps scripts and resources inert; never mount that markup.
+      const template = document.createElement("template");
+      template.innerHTML = expando.getAttribute("data-cachedhtml") || "";
+      links.push(...template.content.querySelectorAll(selector));
+    });
+    return links;
+  }
+
   function mediaFromNode(node, sourceUrl) {
     const media = [];
     const seen = new Set();
@@ -455,6 +480,14 @@
       });
       return media;
     }
+
+    oldRedditGalleryLinks(node).forEach((link) => {
+      // The anchor is the full-size image; grid tiles and nested previews are
+      // smaller renditions of the same item, not additional gallery slides.
+      const url = absoluteUrl(link.getAttribute("href"));
+      if (IMAGE_URL_RE.test(url)) add("image", url, "", true);
+    });
+    if (media.length) return media;
 
     const galleryFigures = Array.from(
       node.querySelectorAll("gallery-carousel figure"),
@@ -615,10 +648,7 @@
       const media = mediaFromNode(node, source);
       if (!media.length)
         media.push({ kind: "link", url: source || comments, poster: "" });
-      const isGallery =
-        node.hasAttribute("gallery") ||
-        node.getAttribute("post-type") === "gallery" ||
-        Boolean(node.querySelector("gallery-carousel"));
+      const isGallery = isGalleryPost(node);
       const needsEnrichment =
         Boolean(comments) &&
         media.length <= 1 &&
@@ -680,10 +710,7 @@
       const detailSource = contentUrl(detailNode, slide.commentsUrl);
       const detailMedia = mediaFromNode(detailNode, detailSource);
       if (!detailMedia.length) throw new Error("Post had no supported media");
-      const isGallery =
-        detailNode.hasAttribute("gallery") ||
-        detailNode.getAttribute("post-type") === "gallery" ||
-        Boolean(detailNode.querySelector("gallery-carousel"));
+      const isGallery = isGalleryPost(detailNode);
       const replacements = detailMedia.map((item, index) =>
         Object.assign({}, slide, item, {
           sourceUrl: detailSource || slide.sourceUrl,
@@ -820,7 +847,7 @@
   brand.href = README_URL;
   brand.target = "_blank";
   brand.rel = "noopener noreferrer";
-  brand.title = "Open the Chrome extension README on GitHub";
+  brand.title = "Open the browser extension README on GitHub";
   const autoButton = element(
     "button",
     "redditp__button redditp__playback-control redditp__control-item",

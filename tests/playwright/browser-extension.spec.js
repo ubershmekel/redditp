@@ -4,34 +4,34 @@ const { test, expect } = require("@playwright/test");
 
 const extensionScript = path.resolve(
   __dirname,
-  "../../chrome-extension/content.js",
+  "../../browser-extension/content.js",
 );
 const extensionStyles = path.resolve(
   __dirname,
-  "../../chrome-extension/presentation.css",
+  "../../browser-extension/presentation.css",
 );
 const autoActivateScript = path.resolve(
   __dirname,
-  "../../chrome-extension/auto-activate.js",
+  "../../browser-extension/auto-activate.js",
 );
 const linkPreviewFeedFixture = fs.readFileSync(
   path.resolve(
     __dirname,
-    "../../test-data/chrome-extension-link-preview-feed.html",
+    "../../test-data/browser-extension-link-preview-feed.html",
   ),
   "utf8",
 );
 const linkPreviewPostFixture = fs.readFileSync(
   path.resolve(
     __dirname,
-    "../../test-data/chrome-extension-link-preview-post.html",
+    "../../test-data/browser-extension-link-preview-post.html",
   ),
   "utf8",
 );
 const staleVideoOverlayFixture = fs.readFileSync(
   path.resolve(
     __dirname,
-    "../../test-data/chrome-extension-stale-video-overlay.html",
+    "../../test-data/browser-extension-stale-video-overlay.html",
   ),
   "utf8",
 );
@@ -688,6 +688,144 @@ test("the final slide automatically loads newly rendered Reddit posts", async ({
   await expect(page.locator(".redditp__count")).toHaveText("2 / 3");
 });
 
+// Minimal old-Reddit gallery structure from the reported food+scenery DOM.
+const oldGalleryIds = [
+  "w7ko4xfmlklh1",
+  "xz2bqxfmlklh1",
+  "aoffmyfmlklh1",
+  "q5qbzwfmlklh1",
+  "uur6cxfmlklh1",
+];
+const oldGalleryUrl = "https://www.reddit.com/gallery/1vy9ca0";
+const oldGalleryComments =
+  "https://www.reddit.com/r/food/comments/1vy9ca0/pie/";
+const oldGalleryImage = (id) =>
+  `https://preview.redd.it/${id}.jpg?width=1170&format=pjpg&auto=webp&s=fixture`;
+
+function oldGalleryPost(expanded = false) {
+  const escape = (html) =>
+    html.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  const gallery = `<div class="media-gallery">
+    <div class="gallery-tiles">${oldGalleryIds.map((id) => `<img class="preview" src="https://preview.redd.it/${id}.jpg?width=108" width="108" height="105">`).join("")}</div>
+    ${oldGalleryIds.map((id, index) => `<div class="gallery-preview" style="display:none"><a class="gallery-item-thumbnail-link" data-position="${index + 1}" href="${escape(oldGalleryImage(id))}"><img class="preview" src="https://preview.redd.it/${id}.jpg?width=640" width="786" height="768"></a></div>`).join("")}
+    <script>window.cachedGalleryScriptRan = true;</script>
+    </div>`;
+  return `<div class="thing link" data-fullname="t3_1vy9ca0" data-is-gallery="true" data-url="${oldGalleryUrl}" data-permalink="${oldGalleryComments}" data-author="baker" data-subreddit="food">
+    <a class="title" href="${oldGalleryUrl}">Apple pie gallery</a>
+    <div class="expando" data-cachedhtml="${escape(gallery)}">${expanded ? gallery.replace(/<script>.*?<\/script>/, "") : '<span class="error">loading...</span>'}</div>
+  </div>`;
+}
+
+for (const expanded of [false, true]) {
+  test(`old Reddit ${expanded ? "expanded" : "cached"} galleries use full-size images without duplicates`, async ({
+    page,
+  }) => {
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("https://preview.redd.it/**", (route) =>
+      route.fulfill({
+        contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="1170" height="1140"/>',
+      }),
+    );
+    const url = "https://www.reddit.com/r/food+scenery/?redditp=1";
+    await page.route(url, (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: oldGalleryPost(expanded),
+      }),
+    );
+    await page.goto(url);
+    await page.addStyleTag({ path: extensionStyles });
+    await page.addScriptTag({ path: extensionScript });
+
+    await expect(page.locator(".redditp__count")).toHaveText("1 / 5");
+    for (let index = 0; index < oldGalleryIds.length; index += 1) {
+      await expect(page.locator(".redditp__image")).toHaveAttribute(
+        "src",
+        oldGalleryImage(oldGalleryIds[index]),
+      );
+      await expect(page.locator(".redditp__meta")).toContainText(
+        `gallery ${index + 1}/5`,
+      );
+      if (index < oldGalleryIds.length - 1) {
+        if (index % 2) await page.keyboard.press("ArrowRight");
+        else await page.locator(".redditp__next").click();
+      }
+    }
+    await expect(
+      page.getByRole("link", { name: "comments", exact: true }),
+    ).toHaveAttribute("href", oldGalleryComments);
+    await expect(
+      page.getByRole("link", { name: "media", exact: true }),
+    ).toHaveAttribute("href", oldGalleryImage(oldGalleryIds[4]));
+    for (const [width, height] of [
+      [360, 780],
+      [390, 844],
+      [393, 852],
+      [412, 915],
+      [1920, 1080],
+      [2560, 1440],
+    ]) {
+      await page.setViewportSize({ width, height });
+      const previous = page.locator(".redditp__prev");
+      await expect(previous).toBeInViewport();
+      await expect(page.locator(".redditp__controls")).toBeInViewport();
+      await previous.click();
+      await expect(page.locator(".redditp__meta")).toContainText("gallery 4/5");
+      // Exercise the touch-pointer swipe handler without relying on Chromium's
+      // touch-only emulation, so this also runs in Firefox.
+      const stage = page.locator(".redditp__stage");
+      await stage.dispatchEvent("pointerdown", {
+        pointerType: "touch",
+        pointerId: 1,
+        clientX: 250,
+        clientY: 300,
+      });
+      await stage.dispatchEvent("pointerup", {
+        pointerType: "touch",
+        pointerId: 1,
+        clientX: 100,
+        clientY: 300,
+      });
+      await expect(page.locator(".redditp__meta")).toContainText("gallery 5/5");
+    }
+    expect(
+      await page.evaluate(() => window.cachedGalleryScriptRan),
+    ).toBeUndefined();
+    expect(errors).toEqual([]);
+  });
+}
+
+test("old Reddit search enrichment recognizes cached galleries", async ({
+  page,
+}) => {
+  await page.route(oldGalleryComments, (route) =>
+    route.fulfill({ contentType: "text/html", body: oldGalleryPost() }),
+  );
+  await page.route("https://preview.redd.it/**", (route) => route.abort());
+  await startPresentation(
+    page,
+    `<div class="search-result search-result-link" data-fullname="t3_1vy9ca0"><a class="search-title" href="${oldGalleryComments}">Apple pie gallery</a><a class="search-comments" href="${oldGalleryComments}">comments</a><a class="search-link" href="${oldGalleryUrl}">gallery</a></div>`,
+  );
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 5");
+  await expect(page.locator(".redditp__meta")).toContainText("gallery 1/5");
+});
+
+test("old Reddit galleries without usable cached media keep their link fallback", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `<div class="thing link" data-is-gallery="true" data-url="${oldGalleryUrl}"><a class="title">Unavailable gallery</a><div class="expando" data-cachedhtml="&lt;div class=&quot;media-gallery&quot;&gt;&lt;a class=&quot;gallery-item-thumbnail-link&quot; href=&quot;javascript:alert(1)&quot;&gt;"></div></div>`,
+  );
+  await expect(page.locator(".redditp__link-card")).toHaveAttribute(
+    "href",
+    oldGalleryUrl,
+  );
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+});
+
 test("extension expands lazy Reddit galleries in order without decorative duplicates", async ({
   page,
 }) => {
@@ -1085,7 +1223,7 @@ test("redditp brand opens the extension README on GitHub", async ({ page }) => {
 
   await expect(page.getByRole("link", { name: "redditp" })).toHaveAttribute(
     "href",
-    "https://github.com/ubershmekel/redditp/blob/main/chrome-extension/README.md",
+    "https://github.com/ubershmekel/redditp/blob/main/browser-extension/README.md",
   );
 });
 

@@ -11,7 +11,7 @@ const firefoxUserAgent =
 const fallbackPage = path.resolve(__dirname, "../../index.html");
 const readmes = [
   path.resolve(__dirname, "../../README.md"),
-  path.resolve(__dirname, "../../chrome-extension/README.md"),
+  path.resolve(__dirname, "../../browser-extension/README.md"),
 ];
 
 async function gotoExtensionPage(page) {

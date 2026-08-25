@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // One command to ship a new extension version to both stores.
 //
-// Bumps chrome-extension/manifest.json, packages both zips, uploads and
+// Bumps browser-extension/manifest.json, packages both zips, uploads and
 // publishes the Chrome zip on the Web Store (publishing means "enters review"),
 // and submits the Firefox zip to AMO's listed channel. Then commits and tags.
 //
@@ -29,7 +29,7 @@ const { execFileSync } = require("child_process");
 const pkg = require("./package-extension.js");
 
 const root = path.join(__dirname, "..");
-const manifestPath = path.join(root, "chrome-extension", "manifest.json");
+const manifestPath = path.join(root, "browser-extension", "manifest.json");
 const buildDir = path.join(root, "build");
 const onWindows = process.platform === "win32";
 
@@ -106,7 +106,7 @@ if (doGit && !dryRun) {
   // expects to find; anything else still means "commit or stash first".
   const onlyBump =
     resuming &&
-    dirty.every((line) => line.endsWith("chrome-extension/manifest.json"));
+    dirty.every((line) => line.endsWith("browser-extension/manifest.json"));
   if (dirty.length && !onlyBump) {
     fail("Working tree is dirty. Commit or stash first.");
   }

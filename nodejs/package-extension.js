@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Packages chrome-extension/ into store-ready zips under build/.
+// Packages browser-extension/ into store-ready zips under build/.
 // Stages the shipped files first so nothing extra (README, editor cruft) ends
 // up in the upload.
 //
@@ -10,7 +10,7 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const root = path.join(__dirname, "..");
-const srcDir = path.join(root, "chrome-extension");
+const srcDir = path.join(root, "browser-extension");
 const buildDir = path.join(root, "build");
 
 // Everything the extension actually needs at runtime. Keep in sync with manifest.json.

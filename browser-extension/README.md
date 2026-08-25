@@ -1,4 +1,4 @@
-# Presentation Mode for Reddit — Chrome and Firefox extension
+# Presentation Mode for Reddit — browser extension
 
 This Manifest V3 extension turns the Reddit listing currently open in the
 browser into an in-page media slideshow. It reads the posts rendered in the
@@ -8,7 +8,9 @@ public JSON API.
 One source tree builds both stores. `nodejs/package-extension.js` patches the
 manifest per browser, so this folder stays the only place to edit.
 
-[Install the extension from the Chrome Web Store](https://redditp.com/extension).
+[Install the extension for Chrome or Firefox](https://redditp.com/extension).
+The link opens the Firefox Add-ons listing in Firefox or the Chrome Web Store
+otherwise.
 
 ## Install for development
 
@@ -16,7 +18,7 @@ In Chrome:
 
 1. Open `chrome://extensions` in Chrome.
 2. Enable **Developer mode**.
-3. Click **Load unpacked** and select this `chrome-extension` folder.
+3. Click **Load unpacked** and select this `browser-extension` folder.
 4. Pin **Presentation Mode for Reddit** if you want its button in the toolbar.
 
 In Firefox, the manifest in this folder is the Chrome one, so build the Firefox
@@ -80,8 +82,8 @@ duration, hide the title panel, navigation arrows, or close button, and keep the
 bottom panel compact. The gear is part of the expandable panel, so compact mode
 leaves only a small expand button. If the close button is hidden, press Escape
 from the slideshow to close presentation mode. These preferences are saved by
-Chrome and used the next time presentation mode opens. The **redditp** link
-opens this README on GitHub.
+your browser and used the next time presentation mode opens. The **redditp**
+link opens this README on GitHub.
 
 These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation

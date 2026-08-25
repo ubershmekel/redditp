@@ -1,73 +1,52 @@
 # redditp
 
-A full screen reddit presentation or slide show.
+Turn Reddit into a full-screen media slideshow.
 
-http://redditp.com
+**The browser extension is now the main way to use redditp.** Presentation Mode
+for Reddit runs directly on Reddit's pages in Chrome and Firefox, using the
+posts already rendered in your browser and your normal Reddit session instead of
+Reddit's public JSON API.
 
-[Install Presentation Mode for Reddit from the Chrome Web Store](https://redditp.com/extension).
+**[Install Presentation Mode for Reddit](https://redditp.com/extension)** —
+opens the Firefox Add-ons listing in Firefox or the Chrome Web Store otherwise.
 
-## Hotkeys
+## Use the browser extension
 
-- a - toggles auto-next (play/pause)
-- t - collapse/uncollapse title
-- c - collapse/uncollapse controls
-- i - open image in a new tab
-- r - open comments in a new tab
-- u - open user slideshow in new tab
-- f - toggle full screen mode
-- m - toggle sound
-- g - skip gallery
-- Arrow keys, pgup/pgdown, spacebar change slides
-- Swipe gestures on phones
+1. Install the extension and open a Reddit feed, search result, or post.
+2. Click its toolbar button or press **Alt+P** to start presentation mode.
+3. Use the arrow keys, Page Up/Page Down, Space, or horizontal swipes to move
+   through slides. Press **Escape** to close.
 
-## Features
+You can also launch it automatically by adding `redditp=1` to a Reddit URL, for
+example [r/pics in presentation mode](https://www.reddit.com/r/pics/?redditp=1).
+In Firefox, allow reddit.com access in the add-on's permissions to enable this
+URL shortcut.
 
-- All /r/ subreddits, including different ?sort stuff.
-- /user/ , /domain/ , /me/ url's work.
-- Url's ending with ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
-- You can save the html file locally and use it, just make sure you add a
-  separator e.g. the question mark in file:///c/myredditp.html?/r/gifs so the
-  browser knows to pick up the right file and go to the right subreddit.
-- Support for /r/random and /r/randnsfw virtual subreddits. These'll be tricky
-  unless I cheat as they contain redirects.
+Images, galleries, and videos appear as slides. Use **Auto** for automatic
+advancement, **M** for video sound, **F** for fullscreen, and the gear button
+for timing and display settings.
 
-Possible future features, depending on feedback:
+See the [browser extension README](browser-extension/README.md) for all
+controls, supported page formats, and browser differences.
 
-- Zoom/Pan for comics
-- Imgur albums support
-- Offline access support, though I don't know if this is even possible actually
-  (caching external image resources).
-- Login and upvoting support
+## Develop the browser extension
 
-## Host your own redditp
+The shared source lives in [`browser-extension/`](browser-extension/). In
+Chrome, load that folder as an unpacked extension. For Firefox, run
+`npm run ext:package:firefox` and load `build/firefox-extension/manifest.json`
+as a temporary add-on. See the
+[development installation instructions](browser-extension/README.md#install-for-development).
 
-Redditp relies on the `/r/subreddit` in the URL to fetch the JSON from the
-corresponding reddit endpoint. There are a few ways you can set up support for
-these URLs yourself:
-
-- You can use an Apache server with the `.htaccess` file.
-- Netlify removed redditp without warning. So now we're moving the hosting to
-  Vercel, Cloudflare, or GitHub pages. Not sure. See vc.redditp.com for Vercel
-- Use NodeJS (see `package.json`).
-- Use a simple HTTP server and put the subreddit URL in the get parameters like
-  `http://localhost?/r/subreddit`.
-- Use GitHub pages by copying `index.html` into `404.html` which will make all
-  unknown URLs reach the same `index.html`. This currently only works with a
-  custom domain because of where the `.js` and `.css` files are located.
-
-## Local Mock Testing
-
-- Start the local server with `npm start`.
-- Load a routed URL with a mock fixture, for example
-  `http://127.0.0.1:8080/r/pics?mock=playwright-smoke`.
-- Mock fixtures live under `test-data/` and are only used when the `mock` query
-  parameter is present.
-- Run the Playwright smoke test with `npm run test:playwright`.
+- `npm install` — install development tools.
+- `npm run ext:package:all` — build both store packages.
+- `npm run test:all` — run unit and Playwright tests, including extension tests
+  in Chromium and Firefox. Install the test browsers first with
+  `npx playwright install chromium firefox`.
 
 ## Releasing the extension
 
 `npm run ext:release [patch|minor|major|x.y.z]` (bump defaults to `patch`) bumps
-`chrome-extension/manifest.json`, builds both store zips, uploads to the Chrome
+`browser-extension/manifest.json`, builds both store zips, uploads to the Chrome
 Web Store and to Firefox Add-ons, then commits and tags the version. Both stores
 queue the submission for review; nothing goes live instantly.
 
@@ -88,6 +67,71 @@ retried without re-uploading or burning a version number.
 
 Flags: `--skip-chrome`, `--skip-firefox`, `--no-git`, and `--restart` to abandon
 an unfinished version and bump a new one instead.
+
+## Legacy website
+
+The original [redditp.com website](https://redditp.com) remains in this
+repository, with archived data as a fallback when live Reddit requests fail. The
+controls and hosting instructions below apply to that website, not the browser
+extension.
+
+### Hotkeys
+
+- a - toggles auto-next (play/pause)
+- t - collapse/uncollapse title
+- c - collapse/uncollapse controls
+- i - open image in a new tab
+- r - open comments in a new tab
+- u - open user slideshow in new tab
+- f - toggle full screen mode
+- m - toggle sound
+- g - skip gallery
+- Arrow keys, pgup/pgdown, spacebar change slides
+- Swipe gestures on phones
+
+### Features
+
+- All /r/ subreddits, including different ?sort stuff.
+- /user/ , /domain/ , /me/ url's work.
+- Url's ending with ['.jpg', '.jpeg', '.gif', '.bmp', '.png']
+- You can save the html file locally and use it, just make sure you add a
+  separator e.g. the question mark in file:///c/myredditp.html?/r/gifs so the
+  browser knows to pick up the right file and go to the right subreddit.
+- Support for /r/random and /r/randnsfw virtual subreddits. These'll be tricky
+  unless I cheat as they contain redirects.
+
+Possible future features, depending on feedback:
+
+- Zoom/Pan for comics
+- Imgur albums support
+- Offline access support, though I don't know if this is even possible actually
+  (caching external image resources).
+- Login and upvoting support
+
+### Host your own redditp
+
+Redditp relies on the `/r/subreddit` in the URL to fetch the JSON from the
+corresponding reddit endpoint. There are a few ways you can set up support for
+these URLs yourself:
+
+- You can use an Apache server with the `.htaccess` file.
+- Netlify removed redditp without warning. So now we're moving the hosting to
+  Vercel, Cloudflare, or GitHub pages. Not sure. See vc.redditp.com for Vercel
+- Use NodeJS (see `package.json`).
+- Use a simple HTTP server and put the subreddit URL in the get parameters like
+  `http://localhost?/r/subreddit`.
+- Use GitHub pages by copying `index.html` into `404.html` which will make all
+  unknown URLs reach the same `index.html`. This currently only works with a
+  custom domain because of where the `.js` and `.css` files are located.
+
+### Local Mock Testing
+
+- Start the local server with `npm start`.
+- Load a routed URL with a mock fixture, for example
+  `http://127.0.0.1:8080/r/pics?mock=playwright-smoke`.
+- Mock fixtures live under `test-data/` and are only used when the `mock` query
+  parameter is present.
+- Run the Playwright smoke test with `npm run test:playwright`.
 
 ## Project history
 

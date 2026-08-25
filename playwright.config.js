@@ -21,7 +21,7 @@ module.exports = defineConfig({
       // The extension spec injects content.js directly, so the same suite also
       // covers the Firefox add-on build. Site specs stay Chromium-only.
       name: "firefox",
-      testMatch: /chrome-extension\.spec\.js/,
+      testMatch: /browser-extension\.spec\.js/,
       use: {
         ...devices["Desktop Firefox"],
       },

@@ -797,6 +797,100 @@ for (const expanded of [false, true]) {
   });
 }
 
+test("G skips only the current gallery and advances ordinary posts", async ({
+  page,
+}) => {
+  await page.route("https://preview.redd.it/**", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"/>',
+    }),
+  );
+  await startPresentation(
+    page,
+    `${oldGalleryPost()}
+    <shreddit-post id="t3_nextgallery" post-title="Next gallery" gallery content-href="https://www.reddit.com/gallery/nextgallery" permalink="/r/pics/comments/nextgallery/post/">
+      <gallery-carousel>
+        <figure><img src="https://preview.redd.it/next-1.jpg"></figure>
+        <figure><img src="https://preview.redd.it/next-2.jpg"></figure>
+      </gallery-carousel>
+    </shreddit-post>
+    <div class="thing link" data-url="https://example.com/after"><a class="title">After galleries</a></div>
+    <div class="thing link" data-url="https://example.com/final"><a class="title">Final post</a></div>`,
+  );
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 9");
+
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 9");
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__title")).toHaveText("Next gallery");
+  await expect(page.locator(".redditp__meta")).toContainText("gallery 1/2");
+  await expect(page.locator(".redditp__count")).toHaveText("6 / 9");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".redditp__meta")).toContainText("gallery 5/5");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Shift+G");
+  await expect(page.locator(".redditp__count")).toHaveText("6 / 9");
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__title")).toHaveText("After galleries");
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__title")).toHaveText("Final post");
+});
+
+test("G at the final gallery waits for more posts and otherwise wraps", async ({
+  page,
+}) => {
+  await page.route("https://preview.redd.it/**", (route) => route.abort());
+  await startPresentation(page, oldGalleryPost());
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "5 / 5 · loading more",
+  );
+  await page.evaluate(() => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div class="thing link" data-url="https://example.com/new"><a class="title">Newly loaded post</a></div>',
+    );
+  });
+  await expect(page.locator(".redditp__title")).toHaveText("Newly loaded post");
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 6");
+  await expect(page.locator(".redditp__meta")).toContainText("gallery 1/5");
+  // Skipping a gallery with no next post must also wrap safely.
+  await page.keyboard.press("Escape");
+  await page.evaluate(() =>
+    document.querySelector('[data-url="https://example.com/new"]').remove(),
+  );
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 5");
+});
+
+test("G on a single-post gallery stops at its last image", async ({ page }) => {
+  await page.route(oldGalleryComments, (route) =>
+    route.fulfill({ contentType: "text/html", body: oldGalleryPost() }),
+  );
+  await page.route("https://preview.redd.it/**", (route) => route.abort());
+  await page.goto(oldGalleryComments);
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__count")).toHaveText("5 / 5");
+  await expect(page.locator(".redditp__meta")).toContainText("gallery 5/5");
+  await expect(page.locator(".redditp__next")).toBeDisabled();
+  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__count")).toHaveText("5 / 5");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".redditp__meta")).toContainText("gallery 4/5");
+});
+
 test("old Reddit search enrichment recognizes cached galleries", async ({
   page,
 }) => {
@@ -1292,7 +1386,7 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
   await expect(page.locator("#redditp-presentation")).toBeVisible();
 
   const prevented = await page.evaluate(() =>
-    ["f", "m"].map((key) => {
+    ["f", "m", "g"].map((key) => {
       const event = new KeyboardEvent("keydown", {
         key,
         ctrlKey: true,
@@ -1303,7 +1397,7 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
       return event.defaultPrevented;
     }),
   );
-  expect(prevented).toEqual([false, false]);
+  expect(prevented).toEqual([false, false, false]);
 
   // The unmodified key still works.
   await page.keyboard.press("m");

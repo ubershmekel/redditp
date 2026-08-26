@@ -22,9 +22,9 @@ example [r/pics in presentation mode](https://www.reddit.com/r/pics/?redditp=1).
 In Firefox, allow reddit.com access in the add-on's permissions to enable this
 URL shortcut.
 
-Images, galleries, and videos appear as slides. Use **Auto** for automatic
-advancement, **M** for video sound, **F** for fullscreen, and the gear button
-for timing and display settings.
+Images, galleries, and videos appear as slides. Use **G** to skip the rest of a
+gallery, **Auto** for automatic advancement, **M** for video sound, **F** for
+fullscreen, and the gear button for timing and display settings.
 
 See the [browser extension README](browser-extension/README.md) for all
 controls, supported page formats, and browser differences.

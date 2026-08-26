@@ -1249,6 +1249,32 @@
     render();
   }
 
+  function skipGallery() {
+    const slide = state.slides[state.index];
+    if (!slide) return;
+    let nextIndex = state.index + 1;
+    if (slide.galleryItem) {
+      const identity = postIdentity(slide);
+      while (
+        nextIndex < state.slides.length &&
+        postIdentity(state.slides[nextIndex]) === identity
+      ) {
+        nextIndex += 1;
+      }
+    }
+    if (nextIndex < state.slides.length) {
+      move(nextIndex - state.index);
+      return;
+    }
+    // Settle on the last image before using the normal end-of-feed path.
+    // This keeps loading, wrapping, and single-post boundaries in move().
+    if (state.index < state.slides.length - 1) {
+      state.index = state.slides.length - 1;
+      render();
+    }
+    move(1);
+  }
+
   function postIdentity(slide) {
     if (slide.postKey) return `post:${slide.postKey}`;
     if (slide.commentsUrl) return `comments:${slide.commentsUrl}`;
@@ -1525,6 +1551,10 @@
       event.preventDefault();
       event.stopPropagation();
       move(-1);
+    } else if (event.key.toLowerCase() === "g") {
+      event.preventDefault();
+      event.stopPropagation();
+      skipGallery();
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();

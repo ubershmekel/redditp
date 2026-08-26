@@ -65,6 +65,7 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 
 - Right arrow, Page Down, or Space: next slide
 - Left arrow or Page Up: previous slide
+- G: skip the rest of the current gallery; otherwise advance one slide
 - Escape: close
 - F: enter or leave browser fullscreen, when available
 - M: toggle video sound
@@ -73,6 +74,10 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 Previous-slide controls stop on the first slide instead of wrapping to the end
 of the slideshow. On an individual Reddit post, next-slide controls likewise
 stop after the post's final media item.
+
+Skipping the final gallery in a feed loads more posts, or wraps to the first
+slide if there are no more posts. On an individual post page, G stops at the
+last image.
 
 - Tab: cycle the controls; focus stays inside the presentation
 - **Auto**: advance using the saved time-per-slide setting

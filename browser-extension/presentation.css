@@ -404,6 +404,56 @@
   font: inherit;
 }
 
+#redditp-presentation .redditp__shortcuts {
+  min-width: 0;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #444;
+}
+
+#redditp-presentation .redditp__shortcuts h3 {
+  margin: 0 0 12px;
+  color: #fff;
+  font-size: 16px;
+}
+
+#redditp-presentation .redditp__shortcuts dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+#redditp-presentation .redditp__shortcuts dt {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+
+#redditp-presentation .redditp__shortcuts dd {
+  margin: 0;
+  color: #ddd;
+}
+
+#redditp-presentation .redditp__shortcuts kbd {
+  padding: 2px 6px;
+  border: 1px solid #666;
+  border-radius: 4px;
+  color: #fff;
+  background: #2b2b2b;
+  font: inherit;
+  white-space: nowrap;
+}
+
+#redditp-presentation .redditp__shortcuts p {
+  margin: 14px 0 0;
+  color: #bbb;
+  font-size: 12px;
+}
+
 #redditp-presentation .redditp__link-card {
   position: absolute;
   top: 50%;

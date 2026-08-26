@@ -1173,6 +1173,82 @@ test("a subreddit link thumbnail upgrades to the direct post's large preview", a
   });
 });
 
+test("settings shortcut reference fits mobile and desktop screens", async ({
+  page,
+}, testInfo) => {
+  await page.route("https://www.reddit.com/r/pics?redditp=1", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: '<div class="thing link" data-url="https://example.com/post"><a class="title">Shortcut help</a></div>',
+    }),
+  );
+  await page.goto("https://www.reddit.com/r/pics?redditp=1");
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  const help = page.getByRole("region", { name: "Keyboard shortcuts" });
+  await expect(help).toBeVisible();
+  await expect(
+    help.locator("dt").filter({ hasText: /^F$/ }).locator("+ dd"),
+  ).toHaveText("Toggle fullscreen (if available)");
+  await expect(
+    help.locator("dt").filter({ hasText: /^G$/ }).locator("+ dd"),
+  ).toHaveText("Skip gallery / next post");
+
+  for (const [width, height] of [
+    [360, 780],
+    [390, 844],
+    [393, 852],
+    [412, 915],
+    [1920, 1080],
+    [2560, 1440],
+    [360, 420],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await help.locator("p").scrollIntoViewIfNeeded();
+    const bounds = await page
+      .locator(".redditp__settings")
+      .evaluate((panel) => {
+        const rect = panel.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          overflow: panel.scrollWidth - panel.clientWidth,
+        };
+      });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(width);
+    expect(bounds.bottom).toBeLessThanOrEqual(height);
+    expect(bounds.overflow).toBe(0);
+    await expect(help.locator("p")).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(`shortcuts-${width}x${height}.png`),
+    });
+    // Esc remains available even when the longer panel is scrolled, and the
+    // next open must still allow mouse/touch users to reach the Done button.
+    await page.keyboard.press("Escape");
+    await expect(help).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Open presentation settings" }),
+    ).toBeFocused();
+    await page
+      .getByRole("button", { name: "Open presentation settings" })
+      .click();
+    await page
+      .getByRole("button", { name: "Close presentation settings" })
+      .click();
+    await expect(help).toBeHidden();
+    await page
+      .getByRole("button", { name: "Open presentation settings" })
+      .click();
+  }
+});
+
 test("settings persist timing and visibility while compact controls stay reachable", async ({
   page,
 }) => {

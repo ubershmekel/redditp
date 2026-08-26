@@ -934,6 +934,35 @@
     return label;
   }
 
+  const shortcutHelp = element("section", "redditp__shortcuts", "");
+  shortcutHelp.setAttribute("aria-labelledby", "redditp-shortcuts-title");
+  const shortcutTitle = element("h3", "", "Keyboard shortcuts");
+  shortcutTitle.id = "redditp-shortcuts-title";
+  const shortcutList = element("dl", "", "");
+  [
+    [["→", "PgDn", "Space"], "Next slide"],
+    [["←", "PgUp"], "Previous slide"],
+    [["G"], "Skip gallery / next post"],
+    [["F"], "Toggle fullscreen (if available)"],
+    [["M"], "Toggle video sound"],
+    [["Esc"], "Close settings / slideshow"],
+    [["Tab", "Shift+Tab"], "Next / previous control"],
+    [["Alt+P"], "Toggle presentation (default)"],
+  ].forEach(([keys, description]) => {
+    const keyGroup = element("dt", "", "");
+    keys.forEach((key) => keyGroup.append(element("kbd", "", key)));
+    shortcutList.append(keyGroup, element("dd", "", description));
+  });
+  shortcutHelp.append(
+    shortcutTitle,
+    shortcutList,
+    element(
+      "p",
+      "",
+      "Close settings to use slide shortcuts. Your browser’s shortcuts still work.",
+    ),
+  );
+
   settingsPanel.append(
     settingsTitle,
     settingsClose,
@@ -945,6 +974,7 @@
       "Show the close button (press Esc instead when hidden)",
     ),
     checkboxSetting("controlsCollapsed", "Keep the bottom panel compact"),
+    shortcutHelp,
   );
   settingsOverlay.append(settingsPanel);
   root.append(

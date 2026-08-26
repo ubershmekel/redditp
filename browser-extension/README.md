@@ -82,13 +82,14 @@ last image.
 - Tab: cycle the controls; focus stays inside the presentation
 - **Auto**: advance using the saved time-per-slide setting
 
-Use the gear button in the bottom-left controls to choose the auto-advance
-duration, hide the title panel, navigation arrows, or close button, and keep the
-bottom panel compact. The gear is part of the expandable panel, so compact mode
-leaves only a small expand button. If the close button is hidden, press Escape
-from the slideshow to close presentation mode. These preferences are saved by
-your browser and used the next time presentation mode opens. The **redditp**
-link opens this README on GitHub.
+Open the gear button's settings panel for a keyboard shortcut reference. Use the
+gear button in the bottom-left controls to choose the auto-advance duration,
+hide the title panel, navigation arrows, or close button, and keep the bottom
+panel compact. The gear is part of the expandable panel, so compact mode leaves
+only a small expand button. If the close button is hidden, press Escape from the
+slideshow to close presentation mode. These preferences are saved by your
+browser and used the next time presentation mode opens. The **redditp** link
+opens this README on GitHub.
 
 These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation

@@ -221,6 +221,7 @@ test("current Reddit reuses adaptive video inside an open player shadow root", a
     };
     window.__redditTargetClicks = 0;
     window.__redditVideoPaused = true;
+    window.__redditPlaybackCalls = { play: 0, pause: 0 };
     const shadow = player.attachShadow({ mode: "open" });
     const video = document.createElement("video");
     video.id = "shadow-adaptive-video";
@@ -230,10 +231,12 @@ test("current Reddit reuses adaptive video inside an open player shadow root", a
       get: () => window.__redditVideoPaused,
     });
     video.play = () => {
+      window.__redditPlaybackCalls.play += 1;
       window.__redditVideoPaused = false;
       return Promise.resolve();
     };
     video.pause = () => {
+      window.__redditPlaybackCalls.pause += 1;
       window.__redditVideoPaused = true;
     };
     video.addEventListener("click", () => {
@@ -257,6 +260,12 @@ test("current Reddit reuses adaptive video inside an open player shadow root", a
   await page.keyboard.press("ArrowRight");
   await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
   expect(await page.evaluate(() => window.__redditpScrollCalls)).toBe(0);
+  const playbackCalls = await page.evaluate(() => window.__redditPlaybackCalls);
+  await page.getByRole("button", { name: "Collapse bottom controls" }).click();
+  await page.getByRole("button", { name: "Expand bottom controls" }).click();
+  expect(await page.evaluate(() => window.__redditPlaybackCalls)).toEqual(
+    playbackCalls,
+  );
   await expect(
     page.locator(".redditp__media video[src*='CMAF_96']"),
   ).toHaveCount(0);
@@ -1071,6 +1080,65 @@ test("a small direct image post still fills the stage", async ({ page }) => {
     height: 1080,
     naturalWidth: 640,
   });
+  const originalImage = await page.locator(".redditp__image").elementHandle();
+  for (const [width, height] of [
+    [360, 780],
+    [390, 844],
+    [393, 852],
+    [412, 915],
+    [1920, 1080],
+    [2560, 1440],
+  ]) {
+    await page.setViewportSize({ width, height });
+    const initialBounds = await originalImage.boundingBox();
+    for (const action of [
+      "Collapse bottom controls",
+      "Expand bottom controls",
+    ]) {
+      await page.getByRole("button", { name: action }).click();
+      expect(
+        await originalImage.evaluate(
+          (image) => image === document.querySelector(".redditp__image"),
+        ),
+      ).toBe(true);
+      expect(await originalImage.boundingBox()).toEqual(initialBounds);
+      await expect(page.locator(".redditp__image")).toHaveClass(
+        /redditp__image--expand/,
+      );
+    }
+  }
+});
+
+test("display settings preserve the auto timer and duration changes reschedule it", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date("2026-08-25T12:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-08-25T12:00:01Z"));
+  await startPresentation(
+    page,
+    ["First", "Second", "Third"]
+      .map(
+        (title) =>
+          `<div class="thing link" data-url="https://example.com/${title}"><a class="title">${title}</a></div>`,
+      )
+      .join(""),
+  );
+  await page.getByRole("button", { name: "auto", exact: true }).click();
+  await page.clock.runFor(5000);
+  await page.getByRole("button", { name: "Collapse bottom controls" }).click();
+  await page.getByRole("button", { name: "Expand bottom controls" }).click();
+  await page.clock.runFor(1100);
+  await expect(page.locator(".redditp__title")).toHaveText("Second");
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await page.getByLabel("Seconds per slide").fill("2");
+  await page.getByLabel("Seconds per slide").press("Enter");
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await page.clock.runFor(2100);
+  await expect(page.locator(".redditp__title")).toHaveText("Third");
 });
 
 test("a large current Reddit link preview expands to the full stage", async ({
@@ -1252,6 +1320,12 @@ test("settings shortcut reference fits mobile and desktop screens", async ({
 test("settings persist timing and visibility while compact controls stay reachable", async ({
   page,
 }) => {
+  await page.route("https://i.redd.it/settings*.jpg", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"/>',
+    }),
+  );
   await page.route("https://www.reddit.com/settings-test", (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -1261,6 +1335,7 @@ test("settings persist timing and visibility while compact controls stay reachab
   await page.goto("https://www.reddit.com/settings-test");
   await page.addStyleTag({ path: extensionStyles });
   await page.addScriptTag({ path: extensionScript });
+  const originalImage = await page.locator(".redditp__image").elementHandle();
 
   await page
     .getByRole("button", { name: "Open presentation settings" })
@@ -1297,6 +1372,11 @@ test("settings persist timing and visibility while compact controls stay reachab
     text: "rgb(255, 255, 255)",
   });
   await page.getByLabel("Keep the bottom panel compact").check();
+  expect(
+    await originalImage.evaluate(
+      (image) => image === document.querySelector(".redditp__image"),
+    ),
+  ).toBe(true);
 
   await expect(page.locator(".redditp__details")).toBeHidden();
   await expect(page.locator(".redditp__prev")).toBeHidden();

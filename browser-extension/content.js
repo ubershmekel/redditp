@@ -1087,8 +1087,7 @@
     );
   }
 
-  function render() {
-    stopMedia();
+  function syncPresentationUi() {
     const hasSlides = state.slides.length > 0;
     empty.hidden = hasSlides;
     details.hidden = !hasSlides || !state.settings.showDetails;
@@ -1118,7 +1117,12 @@
             : ""
         }`
       : "0 posts";
-    if (!hasSlides) return;
+  }
+
+  function render() {
+    stopMedia();
+    syncPresentationUi();
+    if (!state.slides.length) return;
 
     const slide = state.slides[state.index];
     // Revisiting a slide retries its media, so a past failure must not keep
@@ -1410,7 +1414,10 @@
   function updateSetting(key, value) {
     state.settings[key] = value;
     saveSettings();
-    render();
+    // Display changes must not reload the image, restart playback, or reset
+    // the current slide's timer. Only a new duration needs a fresh timer.
+    syncPresentationUi();
+    if (key === "slideDurationSeconds") scheduleAuto();
   }
 
   function toggleAuto() {

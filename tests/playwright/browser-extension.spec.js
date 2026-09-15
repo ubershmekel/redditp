@@ -1657,6 +1657,20 @@ test("the M sound setting is remembered for the next presentation", async ({
   ).toBeVisible();
 });
 
+test("T hides and shows the title panel", async ({ page }) => {
+  await startPresentation(
+    page,
+    `<div class="thing link" data-url="https://example.com/story" data-permalink="/r/news/comments/one/a/"><a class="title">Only post</a></div>`,
+  );
+  await expect(page.locator(".redditp__details")).toBeVisible();
+
+  await page.keyboard.press("t");
+  await expect(page.locator(".redditp__details")).toBeHidden();
+
+  await page.keyboard.press("T");
+  await expect(page.locator(".redditp__details")).toBeVisible();
+});
+
 test("auto-advance keeps moving when a video slide fails to load", async ({
   page,
 }) => {

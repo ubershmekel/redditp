@@ -945,6 +945,7 @@
     [["G"], "Skip gallery / next post"],
     [["F"], "Toggle fullscreen (if available)"],
     [["M"], "Toggle video sound"],
+    [["T"], "Show / hide the title panel"],
     [["Esc"], "Close settings / slideshow"],
     [["Tab", "Shift+Tab"], "Next / previous control"],
     [["Alt+P"], "Toggle presentation (default)"],
@@ -1636,6 +1637,9 @@
     } else if (event.key.toLowerCase() === "m") {
       event.preventDefault();
       toggleSound();
+    } else if (event.key.toLowerCase() === "t") {
+      event.preventDefault();
+      updateSetting("showDetails", !state.settings.showDetails);
     }
   }
 

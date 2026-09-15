@@ -92,9 +92,9 @@ function showHelp(event) {
     "<table style='border-spacing: 4px 2px'>" +
       "<tr><td><b>a</b></td><td>toggle auto-next (play/pause)</td></tr>" +
       "<tr><td><b>t</b></td><td>collapse/uncollapse title</td></tr>" +
-      "<tr><td><b>c</b></td><td>collapse/uncollapse controls</td></tr>" +
+      "<tr><td><b>p</b></td><td>collapse/uncollapse controls</td></tr>" +
       "<tr><td><b>i</b></td><td>open image in a new tab</td></tr>" +
-      "<tr><td><b>r</b></td><td>open comments in a new tab</td></tr>" +
+      "<tr><td><b>c</b></td><td>open comments in a new tab</td></tr>" +
       "<tr><td><b>u</b></td><td>open user slideshow in new tab</td></tr>" +
       "<tr><td><b>f</b></td><td>toggle full screen</td></tr>" +
       "<tr><td><b>m</b></td><td>toggle sound</td></tr>" +
@@ -476,6 +476,7 @@ $(function () {
   var A_KEY = 65;
   var C_KEY = 67;
   var M_KEY = 77;
+  var P_KEY = 80;
   var F_KEY = 70;
   var I_KEY = 73;
   var R_KEY = 82;
@@ -504,7 +505,7 @@ $(function () {
     var code = e.keyCode ? e.keyCode : e.which;
 
     switch (code) {
-      case C_KEY:
+      case P_KEY:
         $("#controlsDiv .collapser").click();
         break;
       case T_KEY:
@@ -521,6 +522,8 @@ $(function () {
       case U_KEY:
         open_in_background("#navboxUser");
         break;
+      case C_KEY:
+      // r was the original comments key; keep it for existing users.
       case R_KEY:
         open_in_background("#navboxCommentsLink");
         break;

@@ -193,6 +193,52 @@ test.describe("Auto-next toggle", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Panel and link hotkeys
+// ---------------------------------------------------------------------------
+
+test.describe("Panel and link hotkeys", () => {
+  test("P key collapses and expands the controls panel", async ({ page }) => {
+    await page.goto("/r/pics?mock=playwright-smoke");
+    await expect(page.locator("#numberButton1")).toBeVisible();
+    const collapser = page.locator("#controlsDiv .collapser");
+    await expect(collapser).toHaveAttribute("data-openstate", "open");
+
+    await page.keyboard.press("p");
+    await expect(collapser).toHaveAttribute("data-openstate", "closed");
+    await page.keyboard.press("p");
+    await expect(collapser).toHaveAttribute("data-openstate", "open");
+  });
+
+  test("C key opens the comments link", async ({ page }) => {
+    await page.goto("/r/pics?mock=playwright-smoke");
+    await expect(page.locator("#navboxCommentsLink")).toHaveAttribute(
+      "href",
+      /\/comments\/mock001\//,
+    );
+    // Record the click on the comments link instead of letting the new tab
+    // reach reddit.com.
+    await page.evaluate(() => {
+      window.commentsClicks = 0;
+      document
+        .getElementById("navboxCommentsLink")
+        .addEventListener("click", (event) => {
+          event.preventDefault();
+          window.commentsClicks += 1;
+        });
+    });
+
+    await page.keyboard.press("c");
+    await expect.poll(() => page.evaluate(() => window.commentsClicks)).toBe(1);
+    await page.keyboard.press("r");
+    await expect.poll(() => page.evaluate(() => window.commentsClicks)).toBe(2);
+    await expect(page.locator("#controlsDiv .collapser")).toHaveAttribute(
+      "data-openstate",
+      "open",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Gallery / album navigation
 // ---------------------------------------------------------------------------
 

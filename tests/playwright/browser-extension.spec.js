@@ -1671,6 +1671,35 @@ test("T hides and shows the title panel", async ({ page }) => {
   await expect(page.locator(".redditp__details")).toBeVisible();
 });
 
+test("P toggles the bottom controls and C opens comments", async ({ page }) => {
+  await page
+    .context()
+    .route("https://www.reddit.com/r/news/comments/one/a/", (route) =>
+      route.fulfill({ contentType: "text/html", body: "comments page" }),
+    );
+  await startPresentation(
+    page,
+    `<div class="thing link" data-url="https://example.com/story" data-permalink="https://www.reddit.com/r/news/comments/one/a/"><a class="title">Only post</a></div>`,
+  );
+  const controls = page.locator(".redditp__controls");
+  await expect(controls).not.toHaveClass(/redditp__controls--collapsed/);
+
+  await page.keyboard.press("p");
+  await expect(controls).toHaveClass(/redditp__controls--collapsed/);
+  await page.keyboard.press("p");
+  await expect(controls).not.toHaveClass(/redditp__controls--collapsed/);
+
+  const [commentsPage] = await Promise.all([
+    page.context().waitForEvent("page"),
+    page.keyboard.press("c"),
+  ]);
+  await commentsPage.waitForLoadState();
+  expect(commentsPage.url()).toBe(
+    "https://www.reddit.com/r/news/comments/one/a/",
+  );
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+});
+
 test("auto-advance keeps moving when a video slide fails to load", async ({
   page,
 }) => {

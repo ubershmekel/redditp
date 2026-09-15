@@ -24,7 +24,8 @@ URL shortcut.
 
 Images, galleries, and videos appear as slides. Use **G** to skip the rest of a
 gallery, **Auto** for automatic advancement, **M** for video sound, **F** for
-fullscreen, and the gear button for timing and display settings.
+fullscreen, **T** to hide the title, **P** to hide the control panel, **C** to
+open comments, and the gear button for timing and display settings.
 
 See the [browser extension README](browser-extension/README.md) for all
 controls, supported page formats, and browser differences.
@@ -79,9 +80,9 @@ extension.
 
 - a - toggles auto-next (play/pause)
 - t - collapse/uncollapse title
-- c - collapse/uncollapse controls
+- p - collapse/uncollapse controls
 - i - open image in a new tab
-- r - open comments in a new tab
+- c - open comments in a new tab (r also works)
 - u - open user slideshow in new tab
 - f - toggle full screen mode
 - m - toggle sound

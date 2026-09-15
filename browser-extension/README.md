@@ -70,6 +70,8 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - F: enter or leave browser fullscreen, when available
 - M: toggle video sound; the choice is remembered for the next presentation
 - T: show or hide the title panel (the same saved setting as in the gear panel)
+- P: show or hide the bottom-left control panel (the same as its − / + button)
+- C: open the current post's comments in a new tab
 - Swipe horizontally: previous or next slide
 
 Previous-slide controls stop on the first slide instead of wrapping to the end

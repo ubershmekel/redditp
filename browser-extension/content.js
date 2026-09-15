@@ -946,6 +946,8 @@
     [["F"], "Toggle fullscreen (if available)"],
     [["M"], "Toggle video sound"],
     [["T"], "Show / hide the title panel"],
+    [["P"], "Show / hide the bottom-left controls"],
+    [["C"], "Open comments in a new tab"],
     [["Esc"], "Close settings / slideshow"],
     [["Tab", "Shift+Tab"], "Next / previous control"],
     [["Alt+P"], "Toggle presentation (default)"],
@@ -1640,6 +1642,14 @@
     } else if (event.key.toLowerCase() === "t") {
       event.preventDefault();
       updateSetting("showDetails", !state.settings.showDetails);
+    } else if (event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      updateSetting("controlsCollapsed", !state.settings.controlsCollapsed);
+    } else if (event.key.toLowerCase() === "c") {
+      const slide = state.slides[state.index];
+      if (!slide?.commentsUrl) return;
+      event.preventDefault();
+      window.open(slide.commentsUrl, "_blank", "noopener,noreferrer");
     }
   }
 

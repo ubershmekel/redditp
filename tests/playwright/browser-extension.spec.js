@@ -156,6 +156,65 @@ test("old Reddit combined-search cards upgrade their outbound media", async ({
   );
 });
 
+test("arrow keys still change slides after clicking native video controls", async ({
+  page,
+  browserName,
+}) => {
+  // Only Chromium stops delivering key events once its control buttons have
+  // focus, and the control positions below match Chromium's layout.
+  test.skip(browserName !== "chromium", "Chromium native video controls");
+  const videoUrl = "https://v.redd.it/sound/DASH_480.mp4";
+  await page.route(videoUrl, async (route) => {
+    await route.fulfill({
+      contentType: "video/webm",
+      body: fs.readFileSync(
+        path.resolve(__dirname, "../../test-data/browser-extension-sound.webm"),
+      ),
+    });
+  });
+  await startPresentation(
+    page,
+    `
+      <div class="thing link" data-url="https://v.redd.it/sound" data-author="alice" data-subreddit="videos" data-permalink="/r/videos/comments/one/sound/">
+        <a class="title">Video with sound</a>
+        <video src="${videoUrl}"></video>
+      </div>
+      <div class="thing link" data-url="https://example.com/story" data-author="bob" data-subreddit="news" data-permalink="/r/news/comments/two/story/">
+        <a class="title">Story after the video</a>
+      </div>
+    `,
+  );
+
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveJSProperty("readyState", 4);
+  await expect(video).toHaveJSProperty("muted", true);
+  await video.hover();
+  const bounds = await video.boundingBox();
+
+  // The overflow menu closes when the video loses focus, so opening it must
+  // not release focus.
+  await page.mouse.click(
+    bounds.x + bounds.width - 24,
+    bounds.y + bounds.height - 48,
+  );
+  await page.waitForTimeout(300);
+  await expect(video).toBeFocused();
+  await page.keyboard.press("Escape");
+  await video.hover();
+
+  await page.mouse.click(
+    bounds.x + bounds.width - 120,
+    bounds.y + bounds.height - 48,
+  );
+  await expect(video).toHaveJSProperty("muted", false);
+  await expect(video).not.toBeFocused();
+
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "Story after the video",
+  );
+});
+
 test("old Reddit reuses its live adaptive video instead of the seek preview", async ({
   page,
 }) => {

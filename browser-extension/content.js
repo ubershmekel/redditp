@@ -1451,6 +1451,24 @@
     else video.pause();
   }
 
+  function releaseVideoFocus(event) {
+    const video = event.target;
+    if (
+      video.tagName !== "VIDEO" ||
+      document.activeElement !== video ||
+      video.matches(":focus-visible")
+    )
+      return;
+    // Clicking a native control such as mute, play or the seek bar focuses a
+    // button inside the video's user-agent shadow root, and Chrome then stops
+    // delivering key events to the page, so the arrow keys could no longer
+    // change slides. Chrome does not dispatch the control's pointer events to
+    // the page, so wait for the media event the control causes. Blurring on
+    // focus instead would close the overflow menu as soon as it opened.
+    // Keyboard users who tab into the player keep its native controls.
+    video.blur();
+  }
+
   function navigateToPresentation(event) {
     if (
       event.defaultPrevented ||
@@ -1629,6 +1647,12 @@
     updateSetting("controlsCollapsed", !state.settings.controlsCollapsed);
   });
   mediaBox.addEventListener("click", toggleVideoFromSurface, true);
+  // After clicking "mute" and "unmute" the right-left arows failed to change
+  // the current slide in Chrome (seemed to work in Firefox).
+  // Media events do not bubble, so listen during capture.
+  ["volumechange", "play", "pause", "seeked", "ratechange"].forEach((type) => {
+    mediaBox.addEventListener(type, releaseVideoFocus, true);
+  });
   document.addEventListener("redditp:presentation-retire", retire);
   prevButton.addEventListener("click", () => move(-1));
   nextButton.addEventListener("click", () => move(1));

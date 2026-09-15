@@ -46,6 +46,7 @@
     showArrows: true,
     showClose: true,
     controlsCollapsed: false,
+    sound: false,
   };
   const state = {
     open: false,
@@ -54,7 +55,6 @@
     index: 0,
     autoTimer: null,
     autoPlaying: false,
-    sound: false,
     loadingMore: false,
     advanceAfterLoad: false,
     loadRequest: 0,
@@ -1110,6 +1110,8 @@
         ? "Expand bottom controls"
         : "Collapse bottom controls",
     );
+    soundButton.textContent = state.settings.sound ? "sound on" : "sound off";
+    soundButton.setAttribute("aria-pressed", String(state.settings.sound));
     count.textContent = hasSlides
       ? `${state.index + 1} / ${state.slides.length}${
           state.loadingMore && state.index === state.slides.length - 1
@@ -1175,7 +1177,7 @@
       video.controls = true;
       video.playsInline = true;
       video.autoplay = true;
-      video.muted = !state.sound;
+      video.muted = !state.settings.sound;
       video.loop = !state.autoPlaying;
       video.preload = "metadata";
       video.addEventListener("ended", () => {
@@ -1185,7 +1187,7 @@
         once: true,
       });
       mediaBox.append(video);
-      video.play().catch(() => {});
+      playVideo(video);
     } else if (slide.kind === "pending-native-video") {
       if (slide.poster) {
         const poster = element("img", "redditp__image", "");
@@ -1226,11 +1228,11 @@
       video.controls = true;
       video.playsInline = true;
       video.autoplay = true;
-      video.muted = !state.sound;
+      video.muted = !state.settings.sound;
       video.loop = !state.autoPlaying;
       video.addEventListener("ended", endedHandler);
       mediaBox.append(video);
-      video.play().catch(() => {});
+      playVideo(video);
     } else if (slide.kind === "embed") {
       const iframe = element("iframe", "redditp__embed", "");
       iframe.src = slide.url;
@@ -1429,12 +1431,25 @@
     scheduleAuto();
   }
 
+  function playVideo(video) {
+    video.play().catch((error) => {
+      // The remembered sound setting can start a presentation without a user
+      // gesture on the page, where browsers refuse unmuted autoplay. Play this
+      // video muted instead; the setting stays on for later slides.
+      if (error?.name !== "NotAllowedError" || video.muted) return;
+      if (video.parentNode !== mediaBox) return;
+      video.muted = true;
+      video.play().catch(() => {});
+    });
+  }
+
   function toggleSound() {
-    state.sound = !state.sound;
-    soundButton.textContent = state.sound ? "sound on" : "sound off";
-    soundButton.setAttribute("aria-pressed", String(state.sound));
     const video = mediaBox.querySelector("video");
-    if (video) video.muted = !state.sound;
+    // Follow what the user hears: a video muted by the autoplay fallback is
+    // silent even though the setting is on, so the toggle unmutes it.
+    const sound = video ? video.muted : !state.settings.sound;
+    updateSetting("sound", sound);
+    if (video) video.muted = !sound;
   }
 
   function toggleVideoFromSurface(event) {

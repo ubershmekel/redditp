@@ -1621,6 +1621,42 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("the M sound setting is remembered for the next presentation", async ({
+  page,
+}) => {
+  // Settings storage needs a real origin, not setContent's about:blank.
+  await page.route("https://www.reddit.com/sound-setting-test", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<div class="thing link" data-url="https://example.com/story" data-permalink="/r/news/comments/one/a/"><a class="title">Only post</a></div>`,
+    }),
+  );
+  async function openPresentation() {
+    await page.goto("https://www.reddit.com/sound-setting-test");
+    await page.addStyleTag({ path: extensionStyles });
+    await page.addScriptTag({ path: extensionScript });
+  }
+  await openPresentation();
+  await expect(
+    page.locator(".redditp__button", { hasText: "sound off" }),
+  ).toBeVisible();
+
+  await page.keyboard.press("m");
+  await expect(
+    page.locator(".redditp__button", { hasText: "sound on" }),
+  ).toBeVisible();
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("redditpPresentationSettings")),
+  );
+  expect(saved.sound).toBe(true);
+
+  // A fresh content script, as on the next page load, reads it back.
+  await openPresentation();
+  await expect(
+    page.locator(".redditp__button", { hasText: "sound on" }),
+  ).toBeVisible();
+});
+
 test("auto-advance keeps moving when a video slide fails to load", async ({
   page,
 }) => {

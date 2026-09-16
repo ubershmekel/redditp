@@ -574,8 +574,89 @@ test("a linked watch page becomes that host's player frame", async ({
 
   await expect(page.locator(".redditp__embed")).toHaveAttribute(
     "src",
-    "https://videohost.example/ifr/some-clip-id",
+    "https://videohost.example/ifr/some-clip-id?autoplay=1&muted=1&mute=1",
   );
+});
+
+test("a player frame that answers no command says so on the sound button", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `
+      <shreddit-post
+        id="t3_framed_sound"
+        post-title="Linked clip"
+        author="poster"
+        subreddit-prefixed-name="r/clips"
+        content-href="https://videohost.example/watch/some-clip-id"
+        permalink="/r/clips/comments/framed/linked_clip/"
+      ></shreddit-post>
+    `,
+  );
+
+  // Silent autoplay is the opening state, so it rides along in the frame URL.
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    "https://videohost.example/ifr/some-clip-id?autoplay=1&muted=1&mute=1",
+  );
+  await expect(page.locator(".redditp__sound")).toHaveAttribute(
+    "title",
+    "This embedded player answers only to its own sound control",
+  );
+});
+
+test("the sound button commands a player that publishes a message protocol", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `
+      <shreddit-post
+        id="t3_youtube_sound"
+        post-title="YouTube interview"
+        author="poster"
+        subreddit-prefixed-name="r/ukraine"
+        content-href="https://www.youtube.com/watch?v=l74r1s8y7uY"
+        permalink="/r/ukraine/comments/youtube/interview/"
+      ></shreddit-post>
+    `,
+  );
+
+  const soundButton = page.locator(".redditp__sound");
+  await expect(soundButton).toHaveAttribute("title", "");
+
+  // The real player never loads here, so stand in for the window the command
+  // is posted to and record what it receives.
+  await page.evaluate(() => {
+    window.__posted = [];
+    Object.defineProperty(
+      document.querySelector(".redditp__embed"),
+      "contentWindow",
+      {
+        get: () => ({
+          postMessage: (message, origin) =>
+            window.__posted.push([message, origin]),
+        }),
+      },
+    );
+  });
+
+  await soundButton.click();
+  await expect(soundButton).toHaveText("sound on");
+  expect(await page.evaluate(() => window.__posted)).toEqual([
+    [
+      JSON.stringify({ event: "command", func: "unMute", args: [] }),
+      "https://www.youtube.com",
+    ],
+  ]);
+
+  await soundButton.click();
+  await expect(soundButton).toHaveText("sound off");
+  expect(await page.evaluate(() => window.__posted[1])).toEqual([
+    JSON.stringify({ event: "command", func: "mute", args: [] }),
+    "https://www.youtube.com",
+  ]);
 });
 
 test("YouTube embeds preserve the requested start time and send a referrer", async ({
@@ -597,7 +678,7 @@ test("YouTube embeds preserve the requested start time and send a referrer", asy
 
   await expect(page.locator(".redditp__embed")).toHaveAttribute(
     "src",
-    "https://www.youtube.com/embed/l74r1s8y7uY?start=1167",
+    "https://www.youtube.com/embed/l74r1s8y7uY?start=1167&enablejsapi=1&autoplay=1&muted=1&mute=1",
   );
   await expect(page.locator(".redditp__embed")).toHaveAttribute(
     "referrerpolicy",

@@ -38,6 +38,9 @@
   const MIN_EXPAND_IMAGE_LONG_EDGE = 1000;
   const MIN_EXPAND_IMAGE_SHORT_EDGE = 600;
   const SETTINGS_KEY = "redditpPresentationSettings";
+  // The one embed origin that publishes a message protocol for controlling
+  // its player. Every other player keeps its own sound control.
+  const JS_API_EMBED_ORIGIN = "https://www.youtube.com";
   const README_URL =
     "https://github.com/ubershmekel/redditp/blob/main/browser-extension/README.md";
   const DEFAULT_SETTINGS = {
@@ -66,6 +69,7 @@
     settings: Object.assign({}, DEFAULT_SETTINGS),
     settingsLoaded: false,
     settingsOpen: false,
+    embedKeepsOwnSound: false,
   };
 
   function absoluteUrl(value) {
@@ -289,6 +293,9 @@
         if (parsed.searchParams.get("list")) {
           embedParams.set("list", parsed.searchParams.get("list"));
         }
+        // Asking for the player's message protocol is what lets the sound
+        // toggle reach this frame later without any extra browser access.
+        embedParams.set("enablejsapi", "1");
         const query = embedParams.toString();
         return {
           kind: "embed",
@@ -304,6 +311,25 @@
       return { kind: "embed", url: `${parsed.origin}/ifr/${framed[1]}` };
     }
     return null;
+  }
+
+  // A slide is meant to start playing on its own, and to start silent unless
+  // the viewer asked for sound. Both have to be requested in the URL, because
+  // the frame cannot be scripted before it exists. Hosts spell the mute
+  // request differently and ignore parameters they do not recognise, so send
+  // both common spellings. Players that ignore the lot keep their own control.
+  function embedUrl(url, muted) {
+    try {
+      const parsed = new URL(url);
+      parsed.searchParams.set("autoplay", "1");
+      if (muted) {
+        parsed.searchParams.set("muted", "1");
+        parsed.searchParams.set("mute", "1");
+      }
+      return parsed.toString();
+    } catch (_error) {
+      return url;
+    }
   }
 
   function youtubeStartSeconds(value) {
@@ -855,7 +881,7 @@
   );
   const soundButton = element(
     "button",
-    "redditp__button redditp__playback-control redditp__control-item",
+    "redditp__button redditp__playback-control redditp__control-item redditp__sound",
     "sound off",
   );
   const nextButton = element("button", "redditp__arrow redditp__next", "›");
@@ -1009,6 +1035,7 @@
       }
       state.nativeRestores.delete(video);
     });
+    state.embedKeepsOwnSound = false;
     mediaBox.replaceChildren();
   }
 
@@ -1115,6 +1142,9 @@
     );
     soundButton.textContent = state.settings.sound ? "sound on" : "sound off";
     soundButton.setAttribute("aria-pressed", String(state.settings.sound));
+    soundButton.title = state.embedKeepsOwnSound
+      ? "This embedded player answers only to its own sound control"
+      : "";
     count.textContent = hasSlides
       ? `${state.index + 1} / ${state.slides.length}${
           state.loadingMore && state.index === state.slides.length - 1
@@ -1238,12 +1268,19 @@
       playVideo(video);
     } else if (slide.kind === "embed") {
       const iframe = element("iframe", "redditp__embed", "");
-      iframe.src = slide.url;
+      iframe.src = embedUrl(slide.url, !state.settings.sound);
       iframe.title = slide.title;
       iframe.allow =
         "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
       iframe.referrerPolicy = "strict-origin-when-cross-origin";
       mediaBox.append(iframe);
+      // Say so plainly when the toggle cannot reach this player, rather than
+      // leaving a control that looks live and does nothing.
+      state.embedKeepsOwnSound = !commandableEmbed();
+      syncPresentationUi();
+      // A player accepts commands only once it is running, and it reloads
+      // muted on every slide, so restate the setting when the frame is up.
+      iframe.addEventListener("load", sendEmbedSound);
     } else {
       mediaBox.append(linkCard(slide, false));
     }
@@ -1446,6 +1483,41 @@
     });
   }
 
+  function currentEmbed() {
+    return mediaBox.querySelector("iframe.redditp__embed");
+  }
+
+  // A player frame is cross-origin, so its video cannot be touched from this
+  // document and no amount of DOM work will reach it. Two things still are
+  // possible: ask for the opening state in the frame URL, and speak a player's
+  // own message protocol where it publishes one.
+  function commandableEmbed() {
+    const embed = currentEmbed();
+    if (!embed) return null;
+    try {
+      return new URL(embed.src).origin === JS_API_EMBED_ORIGIN ? embed : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function sendEmbedSound() {
+    const embed = commandableEmbed();
+    if (!embed?.contentWindow) return;
+    try {
+      embed.contentWindow.postMessage(
+        JSON.stringify({
+          event: "command",
+          func: state.settings.sound ? "unMute" : "mute",
+          args: [],
+        }),
+        JS_API_EMBED_ORIGIN,
+      );
+    } catch (_error) {
+      // The frame went away between the click and the message.
+    }
+  }
+
   function toggleSound() {
     const video = mediaBox.querySelector("video");
     // Follow what the user hears: a video muted by the autoplay fallback is
@@ -1453,6 +1525,7 @@
     const sound = video ? video.muted : !state.settings.sound;
     updateSetting("sound", sound);
     if (video) video.muted = !sound;
+    sendEmbedSound();
   }
 
   function toggleVideoFromSurface(event) {

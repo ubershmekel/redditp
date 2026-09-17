@@ -111,6 +111,68 @@ suite("redGifUrlToId", () => {
 // redditItemToPic — URL type handling via transformRedditData
 // ---------------------------------------------------------------------------
 
+suite("YouTube links", () => {
+  const id = "M7lc1UVf-VE";
+  const links = [
+    `https://www.youtube.com/watch?v=${id}`,
+    `https://youtube.com/watch?feature=shared&v=${id}&t=90`,
+    `http://m.youtube.com/watch?v=${id}`,
+    `https://music.youtube.com/watch?v=${id}&list=ignored`,
+    `https://youtu.be/${id}?si=shared`,
+    `https://www.youtube.com/shorts/${id}`,
+    `https://www.youtube.com/live/${id}`,
+    `https://www.youtube.com/embed/${id}`,
+    `https://www.youtube-nocookie.com/embed/${id}`,
+    `https://youtube.com/v/${id}`,
+  ];
+  links.forEach((url) => {
+    test(`accepts ${url}`, () => {
+      assert.strictEqual(embedit.youtubeVideo(url).id, id);
+      const pic = embedit.redditItemToPic(makeItem({ url }));
+      assert.strictEqual(pic.type, embedit.imageTypes.youtube);
+      assert.strictEqual(pic.url, url, "preserves original source link");
+    });
+  });
+  const invalid = [
+    `https://youtube.com.evil.example/watch?v=${id}`,
+    `https://notyoutube.com/watch?v=${id}`,
+    `https://evil.youtube.com/watch?v=${id}`,
+    `https://youtube.com@evil.example/watch?v=${id}`,
+    `https://example.com/youtube.com/watch?v=${id}`,
+    `ftp://youtube.com/watch?v=${id}`,
+    "https://youtube.com/playlist?list=PL123",
+    "https://youtube.com/@channel",
+    "https://youtube.com/watch?v=short",
+    `https://youtu.be/${id}extra`,
+    `https://youtube.com/embed/${id}/extra`,
+    "https://youtube.com/watch?v=%22%3E%3Cscript%3E",
+    "not a url",
+  ];
+  invalid.forEach((url) => {
+    test(`rejects ${url}`, () => {
+      assert.strictEqual(embedit.youtubeVideo(url), null);
+      assert.strictEqual(embedit.redditItemToPic(makeItem({ url })), null);
+    });
+  });
+  for (const [suffix, seconds] of [
+    ["?t=90", 90],
+    ["?t=1h2m3s", 3723],
+    ["?t=2m", 120],
+    ["?start=45&t=90", 45],
+    ["#t=1m30s", 90],
+    ["?t=-1", 0],
+    ["?t=bogus", 0],
+    ["", 0],
+  ]) {
+    test(`timestamp ${suffix || "absent"}`, () => {
+      assert.strictEqual(
+        embedit.youtubeVideo(`https://youtu.be/${id}${suffix}`).start,
+        seconds,
+      );
+    });
+  }
+});
+
 suite("redditItemToPic — plain image extensions", () => {
   for (const ext of ["jpg", "jpeg", "png", "gif", "bmp"]) {
     test(`accepts .${ext} URL`, () => {

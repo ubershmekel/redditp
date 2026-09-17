@@ -253,9 +253,12 @@ $(function () {
     return Cookies.get(c_name);
   };
 
+  var activeYouTube = null;
+
   var updateSound = function () {
     rp.settings.sound = $("#sound").is(":checked");
     setCookie(cookieNames.soundCookie, rp.settings.sound);
+    if (activeYouTube) activeYouTube.setSound(rp.settings.sound);
     var videoTags = document.getElementsByTagName("video");
     if (videoTags.length === 1) {
       videoTags[0].muted = !rp.settings.sound;
@@ -270,6 +273,9 @@ $(function () {
 
   var resetNextSlideTimer = function () {
     clearTimeout(rp.session.nextSlideTimeoutId);
+    // Videos advance when they end, including while waiting for a user to
+    // press YouTube's play button when the browser blocks autoplay.
+    if (activeYouTube && !activeYouTube.failed) return;
     rp.session.nextSlideTimeoutId = setTimeout(
       autoNextSlide,
       rp.settings.timeToNextSlide,
@@ -719,7 +725,10 @@ $(function () {
     $("#navboxSubreddit")
       .attr("href", embedit.redditBaseUrl + subreddit)
       .html(subreddit);
-    $("#navboxLink").attr("href", photo.url).attr("title", photo.title);
+    $("#navboxLink")
+      .attr("href", photo.url)
+      .attr("title", photo.title)
+      .text(photo.type === embedit.imageTypes.youtube ? "YouTube" : "image");
     $("#navboxCommentsLink")
       .attr("href", photo.commentsLink)
       .attr("title", "Comments on reddit");
@@ -804,6 +813,9 @@ $(function () {
   // Slides the background photos
   //
   var slideBackgroundPhoto = function (imageIndex) {
+    if (activeYouTube) activeYouTube.destroy();
+    activeYouTube = null;
+    playButton.hide();
     var divNode;
     if (rp.cache[imageIndex] === undefined) {
       divNode = createDiv(imageIndex);
@@ -813,6 +825,14 @@ $(function () {
 
     divNode.prependTo(pictureSliderId);
     embedit.initDash(rp.photos[imageIndex]);
+    activeYouTube = embedit.initYouTube(divNode, {
+      sound: rp.settings.sound,
+      onEnded: function () {
+        if (rp.settings.shouldAutoNextSlide) nextSlide();
+      },
+      onError: resetNextSlideTimer,
+    });
+    resetNextSlideTimer();
 
     $(pictureSliderId + " div").fadeIn(rp.settings.animationSpeed);
     var oldDiv = $(pictureSliderId + " div:not(:first)");

@@ -6,6 +6,7 @@ embedit.imageTypes = {
   gfycat: "gfycat",
   gifv: "gifv",
   redgif: "redgif",
+  youtube: "youtube",
 };
 
 embedit.redditBaseUrl = "http://old.reddit.com";
@@ -197,6 +198,37 @@ embedit.redGifConvert = function (url, embedFunc) {
 
 embedit.convertors = [
   {
+    name: "youtube",
+    detect:
+      /^https?:\/\/(?:[\w-]+\.)*(?:youtube\.com|youtube-nocookie\.com|youtu\.be)\//i,
+    convert: function (url, embedFunc) {
+      var video = embedit.youtubeVideo(url);
+      if (!video) return false;
+      var src =
+        "https://www.youtube.com/embed/" +
+        video.id +
+        "?enablejsapi=1&playsinline=1&start=" +
+        video.start;
+      if (window.location && /^https?:$/.test(window.location.protocol)) {
+        src += "&origin=" + encodeURIComponent(window.location.origin);
+      }
+      // Keep preloaded slides inert. initYouTube sets src only on the active slide.
+      embedFunc(
+        $("<iframe />").attr({
+          "data-youtube-src": src,
+          title: "YouTube video player",
+          frameborder: "0",
+          allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+          allowfullscreen: "",
+          // Override the page's no-referrer policy only for this player. YouTube
+          // requires the embedding site's identity (otherwise it returns error 153).
+          referrerpolicy: "strict-origin-when-cross-origin",
+        }),
+      );
+      return true;
+    },
+  },
+  {
     name: "imgurAlbums",
     detect: /imgur\.com\/a\/.*/,
     convert: function (url, embedFunc) {
@@ -350,6 +382,57 @@ embedit.redGifUrlToId = function (url) {
   return false;
 };
 
+// Parse links, never Reddit's supplied embed HTML. Only a validated video ID
+// and timestamp are copied into our own iframe URL.
+embedit.youtubeVideo = function (url) {
+  try {
+    var parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol)) return null;
+    var host = parsed.hostname.toLowerCase();
+    var id;
+    if (host === "youtu.be" || host === "www.youtu.be") {
+      id = parsed.pathname.replace(/^\//, "").replace(/\/$/, "");
+    } else if (
+      /^(?:(?:www|m|music)\.)?youtube\.com$/.test(host) ||
+      /^(?:www\.)?youtube-nocookie\.com$/.test(host)
+    ) {
+      if (/^\/watch\/?$/.test(parsed.pathname)) {
+        id = parsed.searchParams.get("v");
+      } else {
+        var path = parsed.pathname.match(
+          /^\/(?:embed|shorts|live|v)\/([\w-]+)\/?$/,
+        );
+        id = path && path[1];
+      }
+    }
+    if (!id || !/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+    var time =
+      parsed.searchParams.get("start") ||
+      parsed.searchParams.get("t") ||
+      parsed.hash.replace(/^#t=/, "");
+    var start = 0;
+    if (/^\d+$/.test(time)) {
+      start = Number(time);
+    } else {
+      var parts = time.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+      if (parts)
+        start =
+          Number(parts[1] || 0) * 3600 +
+          Number(parts[2] || 0) * 60 +
+          Number(parts[3] || 0);
+    }
+    return { id: id, start: isFinite(start) ? start : 0 };
+  } catch (e) {
+    return null;
+  }
+};
+
+embedit.prepareYouTube = function (pic) {
+  if (!embedit.youtubeVideo(pic.url)) return false;
+  pic.type = embedit.imageTypes.youtube;
+  return true;
+};
+
 embedit.processRedditJson = function (data) {
   var result = {
     children: [],
@@ -431,6 +514,9 @@ function decodeEntities(encodedString) {
 // objects tried in order (most specific first).
 // URLs that match no domain fall through to an image-extension check in transformRedditData.
 embedit.preparers = {
+  "youtube.com": embedit.prepareYouTube,
+  "youtube-nocookie.com": embedit.prepareYouTube,
+  "youtu.be": embedit.prepareYouTube,
   "gfycat.com": function (pic) {
     pic.type = embedit.imageTypes.gfycat;
     pic.url = pic.url.replace("http://", "https://");
@@ -655,6 +741,81 @@ embedit.initDash = function (photo) {
   if (typeof dashjs === "undefined") return;
   var player = dashjs.MediaPlayer().create();
   player.initialize(document.querySelector("video"), photo.dashUrl, true);
+};
+
+// Give YouTube its own document policy: WebKit does not reliably override
+// the page's no-referrer policy with an iframe attribute alone. A same-origin
+// srcdoc wrapper sends only our origin, without changing image/video requests.
+// Native player controls still work if the optional API script is blocked.
+embedit.initYouTube = function (divNode, options) {
+  var frame = divNode.find("iframe[data-youtube-src]");
+  if (!frame.length) return null;
+  var player;
+  var ready = false;
+  var disposed = false;
+  var sound = options.sound;
+  var controller = {
+    failed: false,
+    setSound: function (enabled) {
+      sound = enabled;
+      if (ready) {
+        if (sound) player.unMute();
+        else player.mute();
+      }
+    },
+    destroy: function () {
+      disposed = true;
+      frame.off("load.youtube");
+      // Unload even if the API never became ready, so audio cannot continue.
+      if (player) player.destroy();
+      frame.removeAttr("srcdoc").attr("src", "about:blank");
+    },
+  };
+  frame.on("load.youtube", function () {
+    if (disposed) return;
+    var playerWindow = frame[0].contentWindow;
+    var doc = frame[0].contentDocument;
+    // An initial about:blank load may arrive before the srcdoc navigation.
+    if (!doc || !doc.getElementById("youtube-player")) return;
+    var innerFrame = doc.getElementById("youtube-player");
+    innerFrame.src = frame.attr("data-youtube-src");
+    playerWindow.onYouTubeIframeAPIReady = function () {
+      if (disposed) return;
+      player = new playerWindow.YT.Player(innerFrame, {
+        events: {
+          onReady: function () {
+            if (disposed) return;
+            ready = true;
+            controller.setSound(sound);
+            player.playVideo();
+          },
+          onStateChange: function (event) {
+            if (disposed) return;
+            if (event.data === 0) options.onEnded();
+          },
+          onError: function () {
+            if (disposed) return;
+            controller.failed = true;
+            options.onError();
+          },
+        },
+      });
+    };
+    var script = doc.createElement("script");
+    script.src = "https://www.youtube.com/iframe_api";
+    script.async = true;
+    doc.head.appendChild(script);
+  });
+  frame.attr(
+    "srcdoc",
+    '<!doctype html><html><head><meta name="referrer" content="strict-origin-when-cross-origin">' +
+      "<style>html,body,iframe{width:100%;height:100%;margin:0;border:0;overflow:hidden}" +
+      "iframe{display:block}</style></head><body>" +
+      '<iframe id="youtube-player" title="YouTube video player" ' +
+      'allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>' +
+      "</body></html>",
+  );
+  return controller;
 };
 
 //////////////////////////////////////////////////////////

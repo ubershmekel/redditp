@@ -62,12 +62,13 @@ rp.photos = [];
 // maybe checkout http://engineeredweb.com/blog/09/12/preloading-images-jquery-and-javascript/ for implementing the old precache
 rp.cache = {};
 
-function reportError(errMessage) {
+function reportError(errMessage, persistent) {
   if (window.errorHandler && window.errorHandler.report) {
     window.errorHandler.report(new Error(errMessage));
   } else {
     console.log("No error handler yet: " + errMessage);
   }
+  if (persistent) return;
   toastr.error(
     errMessage +
       '\nYou can <a href="https://github.com/ubershmekel/redditp/issues">report it on github</a>,' +
@@ -651,6 +652,7 @@ $(function () {
   //
   // Variable to store if the animation is playing or not
   var startAnimation = async function (imageIndex) {
+    if (rp.photos.length === 0) return;
     resetNextSlideTimer();
 
     if (rp.session.isAnimating) {
@@ -836,6 +838,7 @@ $(function () {
   };
   var skipGallery = async function () {
     var photo = rp.photos[rp.session.activeIndex];
+    if (!photo) return;
     if (!photo.data.is_gallery) {
       nextSlide();
       return;
@@ -882,17 +885,17 @@ $(function () {
     }
   };
 
-  var failCleanup = function () {
+  var reportLoadError = function (message) {
+    rp.session.loadingNextImages = false;
+    reportError(message, rp.photos.length === 0);
     if (rp.photos.length > 0) {
       // already loaded images, don't ruin the existing experience
       return;
     }
 
-    // remove "loading" title
-    $("#navboxTitle").text("");
-
-    // display alternate recommendations
-    $("#recommend").css({ display: "block" });
+    clearTimeout(rp.session.nextSlideTimeoutId);
+    $("#navboxTitle").text("🪦Redditp🪦");
+    $("#emptySlideshow").prop("hidden", false);
   };
 
   var parseQuery = function (queryString) {
@@ -993,8 +996,7 @@ $(function () {
         message =
           "Failed ajax, Firefox try to disable tracking protection from the shield in the URL bar";
       }
-      reportError(message);
-      failCleanup();
+      reportLoadError(message);
     };
 
     var handleData = function (data) {
@@ -1003,7 +1005,7 @@ $(function () {
       var after = childrenAndAfter.after;
 
       if (children.length === 0) {
-        reportError("No data from this url :(");
+        reportLoadError("No data from this url :(");
         return;
       }
 
@@ -1028,7 +1030,8 @@ $(function () {
       if (!rp.session.foundOneImage) {
         // Note: the jsonp url may seem malformed but jquery fixes it.
         //log(jsonUrl);
-        reportError("Sorry, no displayable images found in that url :(");
+        reportLoadError("Sorry, no displayable images found in that url :(");
+        return;
       }
 
       // show the first image
@@ -1193,14 +1196,14 @@ $(function () {
       pics.forEach(addPic);
       verifyNsfwMakesSense();
       if (!rp.session.foundOneImage) {
-        reportError("Sorry, no displayable images found in that url :(");
+        reportLoadError("Sorry, no displayable images found in that url :(");
+        return;
       }
       if (rp.session.activeIndex === -1) showDefault();
       rp.session.loadingNextImages = false;
     },
     function () {
-      reportError("Failed ajax, maybe a bad url? Sorry about that :(");
-      failCleanup();
+      reportLoadError("Failed ajax, maybe a bad url? Sorry about that :(");
     },
   );
 

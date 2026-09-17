@@ -300,6 +300,107 @@ async function recordManifestEntry(result) {
   await chrome.storage.local.set({ manifest });
 }
 
+// The manifest lives in chrome.storage.local, which is wiped when the
+// extension is reinstalled — but Chrome's own download history isn't. Every
+// successful fetch was saved through chrome.downloads, so the files still
+// sitting in the snapshot folder can be found there without anyone pointing
+// at them. exists is false once a file was deleted or moved, so a removed
+// file gets fetched again.
+async function snapshotFilesOnDisk() {
+  const items = await chrome.downloads.search({
+    filenameRegex: "redditp-snapshot[\\\\/]",
+    state: "complete",
+    exists: true,
+    limit: 0,
+  });
+  return new Set(
+    items
+      .map((item) => item.filename.split(/[\\/]/).pop())
+      .filter((name) => name !== "manifest.json"),
+  );
+}
+
+// Reddit answers a banned, private or nonexistent subreddit with a JSON
+// error body (see fetchOne), which is as good as permanent — unlike a
+// timeout or a stray interstitial, retrying next run won't change it. And
+// it's a property of the subreddit, not of the one listing that hit it, so
+// every sort variant of that subreddit is skipped too: a banned /r/x/ means
+// its /top?t=all is banned as well.
+//
+// Like the manifest, the in-storage record of that is lost on reinstall, so
+// each dead subreddit also leaves a small marker file in a sibling folder
+// (kept out of redditp-snapshot/, which is what gets uploaded). Chrome's
+// download history finds the markers again the same way snapshotFilesOnDisk
+// finds the snapshots. Clear manifest history deletes them to retry.
+function listingKey(urlPath) {
+  return (
+    urlPath
+      .split("?")[0]
+      .replace(/\/(top\/)?\.json$/, "")
+      .replace(/\/+$/, "")
+      .toLowerCase() || "/"
+  );
+}
+
+function isDeadEntry(entry) {
+  return (
+    !!entry && !entry.ok && (entry.error || "").startsWith("Reddit error response")
+  );
+}
+
+const DEAD_FOLDER = "redditp-snapshot-dead";
+
+// "/r/Creampie/top/.json?t=all" -> "r-creampie.json", one per subreddit.
+function deadMarkerName(urlPath) {
+  return pathToFilename(`${listingKey(urlPath)}/.json`).split("/").pop();
+}
+
+async function deadMarkerDownloads() {
+  return chrome.downloads.search({
+    filenameRegex: `${DEAD_FOLDER}[\\\\/]`,
+    state: "complete",
+    exists: true,
+    limit: 0,
+  });
+}
+
+async function saveDeadMarker(result) {
+  const body = JSON.stringify(
+    {
+      listing: listingKey(result.urlPath),
+      urlPath: result.urlPath,
+      error: result.error,
+      fetchedAt: result.fetchedAt,
+    },
+    null,
+    2,
+  );
+  await chrome.downloads.download({
+    url: `data:application/json;charset=utf-8,${encodeURIComponent(body)}`,
+    filename: `${DEAD_FOLDER}/${deadMarkerName(result.urlPath)}`,
+    conflictAction: "overwrite",
+    saveAs: false,
+  });
+}
+
+// Returns urlPath -> whether its subreddit is known dead, from this
+// install's manifest or from marker files left by any earlier install.
+async function deadChecker() {
+  const { manifest = {} } = await chrome.storage.local.get("manifest");
+  const keys = new Set(
+    Object.values(manifest)
+      .filter(isDeadEntry)
+      .map((entry) => listingKey(entry.urlPath)),
+  );
+  const markers = new Set(
+    (await deadMarkerDownloads()).map((item) =>
+      item.filename.split(/[\\/]/).pop(),
+    ),
+  );
+  return (urlPath) =>
+    keys.has(listingKey(urlPath)) || markers.has(deadMarkerName(urlPath));
+}
+
 async function writeManifest() {
   const { manifest = {} } = await chrome.storage.local.get("manifest");
   const entries = Object.values(manifest).sort((a, b) =>
@@ -344,6 +445,19 @@ async function processNext() {
     return;
   }
 
+  // A subreddit found dead earlier in this same run (its hot listing failed)
+  // takes its queued /top variants down with it, without a request each.
+  const isDead = await deadChecker();
+  while (job.index < job.urlPaths.length && isDead(job.urlPaths[job.index])) {
+    await appendLog(`SKIP ${job.urlPaths[job.index]} -> subreddit is dead`);
+    job.index += 1;
+    job.failCount += 1;
+  }
+  if (job.index >= job.urlPaths.length) {
+    await finish(job);
+    return;
+  }
+
   job.status = "running";
   await setJob(job);
 
@@ -352,6 +466,7 @@ async function processNext() {
   if (result.ok) job.okCount += 1;
   else job.failCount += 1;
   await recordManifestEntry(result);
+  if (isDeadEntry(result)) await saveDeadMarker(result);
 
   if (result.blocked) {
     await appendLog(
@@ -403,10 +518,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       // bandwidth. The cumulative manifest already knows what succeeded.
       let urlPaths = message.urlPaths;
       let skipped = 0;
+      let skippedDead = 0;
       if (message.skipDownloaded) {
+        const isDead = await deadChecker();
+        const beforeDead = urlPaths.length;
+        urlPaths = urlPaths.filter((urlPath) => !isDead(urlPath));
+        skippedDead = beforeDead - urlPaths.length;
+
         const { manifest = {} } = await chrome.storage.local.get("manifest");
+        const onDisk = await snapshotFilesOnDisk();
         const before = urlPaths.length;
-        urlPaths = urlPaths.filter((urlPath) => !manifest[urlPath]?.ok);
+        urlPaths = urlPaths.filter(
+          (urlPath) =>
+            !manifest[urlPath]?.ok &&
+            !onDisk.has(pathToFilename(urlPath).split("/").pop()),
+        );
         skipped = before - urlPaths.length;
       }
 
@@ -423,6 +549,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         `Starting snapshot of ${urlPaths.length} URLs from ` +
           `${message.host || DEFAULT_HOST}` +
           (skipped ? ` (skipped ${skipped} already downloaded)` : "") +
+          (skippedDead
+            ? ` (skipped ${skippedDead} of banned/private subreddits)`
+            : "") +
           (message.manualMode ? " (manual mode)" : ""),
       );
       processNext();
@@ -447,7 +576,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   } else if (message.type === "clear-history") {
     (async () => {
       await chrome.storage.local.set({ manifest: {} });
-      await appendLog("Cleared manifest history");
+      const markers = await deadMarkerDownloads();
+      for (const item of markers) {
+        await chrome.downloads.removeFile(item.id).catch(() => {});
+        await chrome.downloads.erase({ id: item.id });
+      }
+      await appendLog(
+        "Cleared manifest history" +
+          (markers.length
+            ? ` and ${markers.length} banned/private subreddit markers`
+            : ""),
+      );
     })();
     sendResponse({ cleared: true });
   }

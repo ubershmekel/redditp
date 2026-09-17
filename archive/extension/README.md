@@ -102,6 +102,15 @@ still good; the failure is recorded as `last_error` on the existing entry.
 clean slate; note that this only clears the extension's record, not the
 already-downloaded files.
 
+That storage doesn't survive reinstalling the extension, so **Skip paths already
+downloaded** doesn't rely on it alone: it also asks Chrome's download history
+which snapshot files still exist on disk. Subreddits reddit reports as banned or
+private are skipped the same way — each one leaves a marker file in
+`Downloads/redditp-snapshot-dead/` (a sibling folder, so it's never uploaded),
+and every sort variant of that subreddit is skipped from then on. Delete a
+marker to retry that subreddit; **Clear manifest history** deletes them all.
+Clearing Chrome's download history loses both.
+
 ## When reddit declines a request
 
 If a response comes back as a block or rate-limit page instead of the listing,
@@ -122,9 +131,28 @@ off.
 
 ## After it's done
 
-Move `Downloads/redditp-snapshot/` wherever the next processing/deploy pass
-picks it up from — `manifest.json` has the url-per-file mapping needed to turn
-the flat list back into whatever path structure serving requires.
+Upload the folder to the bucket the site reads from
+(`embedit.archiveBaseUrl` in `js/EmbedIt.js`):
+
+```sh
+gcloud storage cp --gzip-local=json "C:/Users/ubers/Downloads/redditp-snapshot/*" gs://uberbuck/redditp-archive/
+```
+
+- `--gzip-local=json` stores the files gzip-compressed, which is how everything
+  already in the bucket is stored (`gcloud` also sets `Cache-Control:
+  no-transform` for these). Browsers decompress them transparently.
+- The bucket is flat and the site recomputes each filename from the request
+  path, so files go straight into `redditp-archive/`, not a subfolder.
+- Every run re-uploads everything, which is what you want: re-fetched hot
+  listings and `manifest.json` should replace their older copies. Nothing in
+  the bucket is ever deleted by this. It's about a minute for ~900 files.
+- Use `cp`, not `rsync` — `gcloud storage rsync` has no `--gzip-local` option,
+  only `--gzip-in-flight`, which stores the files uncompressed.
+- The bucket already allows cross-origin reads (`Access-Control-Allow-Origin:
+  *`), so there's nothing else to configure. New files are live immediately.
+
+Check it worked with e.g.
+`curl -s --compressed https://storage.googleapis.com/uberbuck/redditp-archive/r-videos.json | head -c 200`.
 
 Uninstall the extension when you're done; it's a one-off tool, not something
 meant to run continuously.

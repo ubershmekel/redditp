@@ -317,7 +317,7 @@
   // the viewer asked for sound. Both have to be requested in the URL, because
   // the frame cannot be scripted before it exists. Hosts spell the mute
   // request differently and ignore parameters they do not recognise, so send
-  // both common spellings. Players that ignore the lot keep their own control.
+  // the common variants. Players that ignore the lot keep their own control.
   function embedUrl(url, muted) {
     try {
       const parsed = new URL(url);
@@ -325,6 +325,12 @@
       if (muted) {
         parsed.searchParams.set("muted", "1");
         parsed.searchParams.set("mute", "1");
+        parsed.searchParams.set("sound", "false");
+      } else {
+        // Some players default to muted and expose the inverse setting rather
+        // than a mute parameter. Unknown parameters are ignored by hosts that
+        // use their own controls.
+        parsed.searchParams.set("sound", "true");
       }
       return parsed.toString();
     } catch (_error) {
@@ -1268,19 +1274,17 @@
       playVideo(video);
     } else if (slide.kind === "embed") {
       const iframe = element("iframe", "redditp__embed", "");
-      iframe.src = embedUrl(slide.url, !state.settings.sound);
       iframe.title = slide.title;
       iframe.allow =
         "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
       iframe.referrerPolicy = "strict-origin-when-cross-origin";
+      iframe.addEventListener("load", () => initializeEmbed(iframe));
+      iframe.src = embedUrl(slide.url, !state.settings.sound);
       mediaBox.append(iframe);
       // Say so plainly when the toggle cannot reach this player, rather than
       // leaving a control that looks live and does nothing.
       state.embedKeepsOwnSound = !commandableEmbed();
       syncPresentationUi();
-      // A player accepts commands only once it is running, and it reloads
-      // muted on every slide, so restate the setting when the frame is up.
-      iframe.addEventListener("load", sendEmbedSound);
     } else {
       mediaBox.append(linkCard(slide, false));
     }
@@ -1518,6 +1522,37 @@
     }
   }
 
+  function initializeEmbed(embed) {
+    if (embed !== commandableEmbed() || !embed.contentWindow) return;
+    try {
+      // YouTube's iframe protocol emits onReady after a parent announces that
+      // it is listening. The load event alone can fire before the player is
+      // ready to accept commands.
+      embed.contentWindow.postMessage(
+        JSON.stringify({ event: "listening", id: "redditp" }),
+        JS_API_EMBED_ORIGIN,
+      );
+    } catch (_error) {
+      return;
+    }
+    sendEmbedSound();
+  }
+
+  function onEmbedMessage(event) {
+    if (event.origin !== JS_API_EMBED_ORIGIN) return;
+    const embed = commandableEmbed();
+    if (!embed?.contentWindow || event.source !== embed.contentWindow) return;
+    let message = event.data;
+    if (typeof message === "string") {
+      try {
+        message = JSON.parse(message);
+      } catch (_error) {
+        return;
+      }
+    }
+    if (message?.event === "onReady") sendEmbedSound();
+  }
+
   function toggleSound() {
     const video = mediaBox.querySelector("video");
     // Follow what the user hears: a video muted by the autoplay fallback is
@@ -1599,6 +1634,7 @@
     close();
     root.remove();
     document.removeEventListener("redditp:presentation-retire", retire);
+    window.removeEventListener("message", onEmbedMessage);
   }
 
   async function open() {
@@ -1756,6 +1792,7 @@
     mediaBox.addEventListener(type, releaseVideoFocus, true);
   });
   document.addEventListener("redditp:presentation-retire", retire);
+  window.addEventListener("message", onEmbedMessage);
   prevButton.addEventListener("click", () => move(-1));
   nextButton.addEventListener("click", () => move(1));
   autoButton.addEventListener("click", toggleAuto);

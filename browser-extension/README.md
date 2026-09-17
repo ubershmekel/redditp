@@ -139,14 +139,15 @@ galleries, and video hosted by Reddit are shown, along with the media of the few
 link hosts Reddit posts commonly use. Video starts muted and can be unmuted from
 the compact control bar or with M, which is remembered for later presentations.
 
-Media played inside a host's own player frame is opened autoplaying, and muted
-unless the viewer asked for sound. Both are requested in the frame URL, since a
-frame on another origin cannot be scripted from the page. Where a player
-publishes a message protocol the sound toggle keeps working after that too;
-where it does not, the sound button's tooltip says the player keeps its own
-control. We could ask for permissions (or optional permissions) to access any
-url to control the mute of videos inside iframes, but that would be a privacy
-concern and cause the extension publication review time to be much longer.
+Media played inside a host's own player frame is opened autoplaying. The frame
+URL requests the viewer's saved sound preference using the common mute and
+sound parameters, since a frame on another origin cannot be scripted from the
+page. Hosts may ignore parameters they do not support. Where a player publishes
+a message protocol the sound toggle keeps working after that too; where it does
+not, the sound button's tooltip says the player keeps its own control. We could
+ask for permissions (or optional permissions) to access any URL to control the
+mute of videos inside iframes, but that would be a privacy concern and cause the
+extension publication review time to be much longer.
 
 Unsupported link types remain useful as title cards with links to the media and
 comments.

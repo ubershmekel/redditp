@@ -574,7 +574,7 @@ test("a linked watch page becomes that host's player frame", async ({
 
   await expect(page.locator(".redditp__embed")).toHaveAttribute(
     "src",
-    "https://videohost.example/ifr/some-clip-id?autoplay=1&muted=1&mute=1",
+    "https://videohost.example/ifr/some-clip-id?autoplay=1&muted=1&mute=1&sound=false",
   );
 });
 
@@ -598,7 +598,7 @@ test("a player frame that answers no command says so on the sound button", async
   // Silent autoplay is the opening state, so it rides along in the frame URL.
   await expect(page.locator(".redditp__embed")).toHaveAttribute(
     "src",
-    "https://videohost.example/ifr/some-clip-id?autoplay=1&muted=1&mute=1",
+    "https://videohost.example/ifr/some-clip-id?autoplay=1&muted=1&mute=1&sound=false",
   );
   await expect(page.locator(".redditp__sound")).toHaveAttribute(
     "title",
@@ -644,16 +644,14 @@ test("the sound button commands a player that publishes a message protocol", asy
 
   await soundButton.click();
   await expect(soundButton).toHaveText("sound on");
-  expect(await page.evaluate(() => window.__posted)).toEqual([
-    [
-      JSON.stringify({ event: "command", func: "unMute", args: [] }),
-      "https://www.youtube.com",
-    ],
+  expect(await page.evaluate(() => window.__posted.at(-1))).toEqual([
+    JSON.stringify({ event: "command", func: "unMute", args: [] }),
+    "https://www.youtube.com",
   ]);
 
   await soundButton.click();
   await expect(soundButton).toHaveText("sound off");
-  expect(await page.evaluate(() => window.__posted[1])).toEqual([
+  expect(await page.evaluate(() => window.__posted.at(-1))).toEqual([
     JSON.stringify({ event: "command", func: "mute", args: [] }),
     "https://www.youtube.com",
   ]);
@@ -678,7 +676,7 @@ test("YouTube embeds preserve the requested start time and send a referrer", asy
 
   await expect(page.locator(".redditp__embed")).toHaveAttribute(
     "src",
-    "https://www.youtube.com/embed/l74r1s8y7uY?start=1167&enablejsapi=1&autoplay=1&muted=1&mute=1",
+    "https://www.youtube.com/embed/l74r1s8y7uY?start=1167&enablejsapi=1&autoplay=1&muted=1&mute=1&sound=false",
   );
   await expect(page.locator(".redditp__embed")).toHaveAttribute(
     "referrerpolicy",

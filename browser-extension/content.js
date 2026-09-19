@@ -48,7 +48,7 @@
     showDetails: true,
     showArrows: true,
     showClose: true,
-    controlsCollapsed: false,
+    showControls: true,
     sound: false,
   };
   const state = {
@@ -795,6 +795,13 @@
         result[key] = value[key];
       }
     });
+    // Before 2026-09 this was stored inverted as `controlsCollapsed`.
+    if (
+      typeof value.showControls !== "boolean" &&
+      typeof value.controlsCollapsed === "boolean"
+    ) {
+      result.showControls = !value.controlsCollapsed;
+    }
     return result;
   }
 
@@ -894,7 +901,7 @@
     "redditp__button redditp__playback-control redditp__control-item",
     "auto",
   );
-  autoButton.title = "Advance slides automatically";
+  autoButton.title = "Advance slides automatically (A)";
   const soundButton = element(
     "button",
     "redditp__button redditp__playback-control redditp__control-item redditp__sound",
@@ -908,7 +915,7 @@
     "redditp__button redditp__link-control redditp__control-item",
     "media",
   );
-  sourceLink.title = "Open the original media in a new tab";
+  sourceLink.title = "Open the original media in a new tab (I)";
   const commentsLink = element(
     "a",
     "redditp__button redditp__link-control redditp__control-item",
@@ -995,6 +1002,8 @@
     [["T"], "Show / hide the title panel"],
     [["P"], "Show / hide the bottom-left controls"],
     [["C"], "Open comments in a new tab"],
+    [["I"], "Open the original media in a new tab"],
+    [["A"], "Toggle auto-advance"],
     [["Esc"], "Close settings / slideshow"],
     [["Tab", "Shift+Tab"], "Next / previous control"],
     [["Alt+P"], "Toggle presentation (default)"],
@@ -1023,7 +1032,7 @@
       "showClose",
       "Show the close button (press Esc instead when hidden)",
     ),
-    checkboxSetting("controlsCollapsed", "Keep the bottom panel compact"),
+    checkboxSetting("showControls", "Show the bottom panel"),
     shortcutHelp,
   );
   settingsOverlay.append(settingsPanel);
@@ -1152,23 +1161,23 @@
     closeButton.hidden = !state.settings.showClose;
     controls.classList.toggle(
       "redditp__controls--collapsed",
-      state.settings.controlsCollapsed,
+      !state.settings.showControls,
     );
-    collapseButton.textContent = state.settings.controlsCollapsed ? "+" : "−";
+    collapseButton.textContent = state.settings.showControls ? "−" : "+";
     collapseButton.setAttribute(
       "aria-label",
-      state.settings.controlsCollapsed
-        ? "Expand bottom controls"
-        : "Collapse bottom controls",
+      state.settings.showControls
+        ? "Collapse bottom controls"
+        : "Expand bottom controls",
     );
     soundButton.textContent = state.settings.sound ? "sound on" : "sound off";
     soundButton.setAttribute("aria-pressed", String(state.settings.sound));
     soundButton.title = state.embedKeepsOwnSound
       ? "This embedded player answers only to its own sound control"
       : "Toggle video sound (M)";
-    collapseButton.title = state.settings.controlsCollapsed
-      ? "Expand controls (P)"
-      : "Collapse controls (P)";
+    collapseButton.title = state.settings.showControls
+      ? "Collapse controls (P)"
+      : "Expand controls (P)";
     updateCount(state.loadingMore && isOnLastPost());
     const slide = hasSlides ? state.slides[state.index] : null;
     galleryButton.hidden = !slide?.galleryItem;
@@ -1224,7 +1233,7 @@
       if (index) meta.append(document.createTextNode(" · "));
       meta.append(item);
     });
-    const sourceHref = slide.url || slide.sourceUrl || slide.commentsUrl;
+    const sourceHref = mediaHref(slide);
     sourceLink.hidden = !sourceHref;
     if (sourceHref) sourceLink.href = sourceHref;
     commentsLink.hidden = !slide.commentsUrl;
@@ -1480,6 +1489,13 @@
     }
   }
 
+  // Embeds point at a player page (youtube.com/embed/…), so prefer the post's
+  // own link (youtube.com/watch?…) for them. Other kinds link the media file.
+  function mediaHref(slide) {
+    if (slide.kind === "embed" && slide.sourceUrl) return slide.sourceUrl;
+    return slide.url || slide.sourceUrl || slide.commentsUrl;
+  }
+
   function syncSettingsUi() {
     durationInput.value = String(state.settings.slideDurationSeconds);
     Object.keys(settingCheckboxes).forEach((key) => {
@@ -1498,7 +1514,7 @@
     if (!state.settingsOpen) return;
     state.settingsOpen = false;
     settingsOverlay.hidden = true;
-    (state.settings.controlsCollapsed ? collapseButton : settingsButton).focus({
+    (state.settings.showControls ? settingsButton : collapseButton).focus({
       preventScroll: true,
     });
   }
@@ -1715,9 +1731,9 @@
     state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
     render();
     const initialFocus = closeButton.hidden
-      ? state.settings.controlsCollapsed
-        ? collapseButton
-        : settingsButton
+      ? state.settings.showControls
+        ? settingsButton
+        : collapseButton
       : closeButton;
     initialFocus.focus({ preventScroll: true });
   }
@@ -1799,12 +1815,21 @@
       updateSetting("showDetails", !state.settings.showDetails);
     } else if (event.key.toLowerCase() === "p") {
       event.preventDefault();
-      updateSetting("controlsCollapsed", !state.settings.controlsCollapsed);
+      updateSetting("showControls", !state.settings.showControls);
     } else if (event.key.toLowerCase() === "c") {
       const slide = state.slides[state.index];
       if (!slide?.commentsUrl) return;
       event.preventDefault();
       window.open(slide.commentsUrl, "_blank", "noopener,noreferrer");
+    } else if (event.key.toLowerCase() === "i") {
+      const slide = state.slides[state.index];
+      const href = slide && mediaHref(slide);
+      if (!href) return;
+      event.preventDefault();
+      window.open(href, "_blank", "noopener,noreferrer");
+    } else if (event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      toggleAuto();
     }
   }
 
@@ -1828,7 +1853,7 @@
     });
   });
   collapseButton.addEventListener("click", () => {
-    updateSetting("controlsCollapsed", !state.settings.controlsCollapsed);
+    updateSetting("showControls", !state.settings.showControls);
   });
   mediaBox.addEventListener("click", toggleVideoFromSurface, true);
   // After clicking "mute" and "unmute" the right-left arows failed to change

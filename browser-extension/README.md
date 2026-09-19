@@ -72,6 +72,8 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - T: show or hide the title panel (the same saved setting as in the gear panel)
 - P: show or hide the bottom-left control panel (the same as its − / + button)
 - C: open the current post's comments in a new tab
+- I: open the current slide's original media in a new tab
+- A: toggle auto-advance (the same as the **Auto** button)
 - Swipe horizontally: previous or next slide
 
 Previous-slide controls stop on the first slide instead of wrapping to the end
@@ -87,8 +89,8 @@ last image.
 
 Open the gear button's settings panel for a keyboard shortcut reference. Use the
 gear button in the bottom-left controls to choose the auto-advance duration,
-hide the title panel, navigation arrows, or close button, and keep the bottom
-panel compact. The gear is part of the expandable panel, so compact mode leaves
+hide the title panel, navigation arrows, or close button, and show or hide the
+bottom panel. The gear is part of the expandable panel, so compact mode leaves
 only a small expand button. If the close button is hidden, press Escape from the
 slideshow to close presentation mode. These preferences are saved by your
 browser and used the next time presentation mode opens. The **redditp** link

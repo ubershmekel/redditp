@@ -690,6 +690,16 @@ test("YouTube embeds preserve the requested start time and send a referrer", asy
     "allowfullscreen",
     "",
   );
+  // The media link opens the post's own YouTube page, not the embed player.
+  await expect(
+    page.getByRole("link", { name: "media", exact: true }),
+  ).toHaveAttribute(
+    "href",
+    "https://www.youtube.com/watch?v=l74r1s8y7uY&t=1167s",
+  );
+  const popup = page.waitForEvent("popup");
+  await page.keyboard.press("i");
+  expect((await popup).url()).toContain("youtube.com/watch?v=l74r1s8y7uY");
 });
 
 test("extension recognizes Reddit search media cards and packaged video", async ({
@@ -1303,7 +1313,10 @@ test("display settings preserve the auto timer and duration changes reschedule i
       )
       .join(""),
   );
-  await page.getByRole("button", { name: "auto", exact: true }).click();
+  await page.keyboard.press("a");
+  await expect(
+    page.getByRole("button", { name: "pause", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await page.clock.runFor(5000);
   await page.getByRole("button", { name: "Collapse bottom controls" }).click();
   await page.getByRole("button", { name: "Expand bottom controls" }).click();
@@ -1551,7 +1564,8 @@ test("settings persist timing and visibility while compact controls stay reachab
     row: "rgb(43, 43, 43)",
     text: "rgb(255, 255, 255)",
   });
-  await page.getByLabel("Keep the bottom panel compact").check();
+  await expect(page.getByLabel("Show the bottom panel")).toBeChecked();
+  await page.getByLabel("Show the bottom panel").uncheck();
   expect(
     await originalImage.evaluate(
       (image) => image === document.querySelector(".redditp__image"),
@@ -1577,7 +1591,7 @@ test("settings persist timing and visibility while compact controls stay reachab
     JSON.parse(localStorage.getItem("redditpPresentationSettings")),
   );
   expect(saved.slideDurationSeconds).toBe(1);
-  expect(saved.controlsCollapsed).toBe(true);
+  expect(saved.showControls).toBe(false);
   expect(saved.showClose).toBe(false);
 
   await expect(page.locator(".redditp__controls")).toHaveClass(
@@ -1776,6 +1790,36 @@ test("the M sound setting is remembered for the next presentation", async ({
   await expect(
     page.locator(".redditp__button", { hasText: "sound on" }),
   ).toBeVisible();
+});
+
+test("a saved legacy controlsCollapsed setting becomes showControls", async ({
+  page,
+}) => {
+  await page.route("https://www.reddit.com/legacy-setting-test", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<div class="thing link" data-url="https://example.com/story" data-permalink="/r/news/comments/one/a/"><a class="title">Only post</a></div>`,
+    }),
+  );
+  await page.goto("https://www.reddit.com/legacy-setting-test");
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "redditpPresentationSettings",
+      JSON.stringify({ controlsCollapsed: true }),
+    ),
+  );
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+  await expect(page.locator(".redditp__controls")).toHaveClass(
+    /redditp__controls--collapsed/,
+  );
+
+  await page.keyboard.press("p");
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("redditpPresentationSettings")),
+  );
+  expect(saved.showControls).toBe(true);
+  expect(saved).not.toHaveProperty("controlsCollapsed");
 });
 
 test("T hides and shows the title panel", async ({ page }) => {

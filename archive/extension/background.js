@@ -109,6 +109,8 @@ function pathToFilename(urlPath) {
   const segments = clean
     .split("/")
     .filter((s) => s && s !== ".json")
+    // Reddit paths are case-insensitive but bucket object names are not.
+    .map((segment) => segment.toLowerCase())
     .map((segment) => {
       if (!segment.includes("+")) return segment;
       const subs = segment.split("+").sort();

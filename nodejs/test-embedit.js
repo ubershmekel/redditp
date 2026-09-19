@@ -532,12 +532,18 @@ suite("archiveFilenameForPath — default sort", () => {
     assert.strictEqual(embedit.archiveFilenameForPath("/.json"), "root.json");
   });
 
-  test("subreddit name casing is preserved verbatim", () => {
-    // Reddit paths are case-insensitive but bucket object names are not, so
-    // the snapshot's casing is the only one that resolves.
+  test("subreddit name is lowercased, so any casing finds the snapshot", () => {
+    // Reddit paths are case-insensitive but bucket object names are not.
     assert.strictEqual(
       embedit.archiveFilenameForPath("/r/EarthPorn/.json"),
-      "r-EarthPorn.json",
+      "r-earthporn.json",
+    );
+  });
+
+  test("multireddit casing does not change sort order or hash", () => {
+    assert.strictEqual(
+      embedit.archiveFilenameForPath("/r/B+a+C+d+E+f/.json"),
+      embedit.archiveFilenameForPath("/r/a+b+c+d+e+f/.json"),
     );
   });
 });

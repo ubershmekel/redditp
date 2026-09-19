@@ -67,6 +67,10 @@ embedit.archiveFilenameForPath = function (path) {
       return s && s !== ".json";
     })
     .map(function (segment) {
+      // Reddit paths are case-insensitive but bucket object names are not.
+      return segment.toLowerCase();
+    })
+    .map(function (segment) {
       if (segment.indexOf("+") === -1) return segment;
       var subs = segment.split("+").sort();
       var preview = subs.slice(0, 5).join("+");

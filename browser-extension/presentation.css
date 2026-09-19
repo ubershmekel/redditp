@@ -168,6 +168,11 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 0;
+  /* Grow past the usual width for "pause", "(2/7)" or "· loading more"
+     rather than wrapping onto a second row. */
+  width: max-content;
+  min-width: min(450px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
   padding: 5px 7px;
 }
 
@@ -184,6 +189,20 @@
   margin-left: auto;
   padding: 5px 7px;
   color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+#redditp-presentation .redditp__count + .redditp__gallery {
+  margin-left: -5px;
+}
+
+#redditp-presentation .redditp__button.redditp__gallery {
+  min-width: 0;
+  padding-right: 3px;
+  padding-left: 3px;
+  color: #5dd;
+  font-size: 11px;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 
@@ -298,6 +317,7 @@
 
 #redditp-presentation .redditp__controls--collapsed {
   width: auto;
+  min-width: 0;
 }
 
 #redditp-presentation .redditp__controls--collapsed .redditp__control-item,
@@ -504,6 +524,7 @@
   #redditp-presentation .redditp__details,
   #redditp-presentation .redditp__controls {
     width: calc(100vw - 40px);
+    max-width: none;
   }
 
   #redditp-presentation .redditp__details {

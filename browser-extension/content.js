@@ -856,9 +856,17 @@
   stage.append(mediaBox, empty);
 
   const count = element("div", "redditp__count", "");
+  const galleryButton = element(
+    "button",
+    "redditp__button redditp__gallery redditp__control-item",
+    "",
+  );
+  galleryButton.title = "Skip the rest of this gallery (G)";
+  galleryButton.setAttribute("aria-label", "Skip gallery");
   const closeButton = element("button", "redditp__button redditp__close", "×");
   closeButton.type = "button";
   closeButton.setAttribute("aria-label", "Close presentation mode");
+  closeButton.title = "Close presentation mode (Esc)";
   const details = element("div", "redditp__details", "");
   const title = element("h1", "redditp__title", "");
   const meta = element("div", "redditp__meta", "");
@@ -868,6 +876,7 @@
   controls.setAttribute("aria-label", "Slideshow controls");
   const prevButton = element("button", "redditp__arrow redditp__prev", "‹");
   prevButton.setAttribute("aria-label", "Previous slide");
+  prevButton.title = "Previous slide (←)";
   const settingsButton = element(
     "button",
     "redditp__button redditp__gear redditp__control-item",
@@ -885,6 +894,7 @@
     "redditp__button redditp__playback-control redditp__control-item",
     "auto",
   );
+  autoButton.title = "Advance slides automatically";
   const soundButton = element(
     "button",
     "redditp__button redditp__playback-control redditp__control-item redditp__sound",
@@ -892,16 +902,19 @@
   );
   const nextButton = element("button", "redditp__arrow redditp__next", "›");
   nextButton.setAttribute("aria-label", "Next slide");
+  nextButton.title = "Next slide (→)";
   const sourceLink = element(
     "a",
     "redditp__button redditp__link-control redditp__control-item",
     "media",
   );
+  sourceLink.title = "Open the original media in a new tab";
   const commentsLink = element(
     "a",
     "redditp__button redditp__link-control redditp__control-item",
     "comments",
   );
+  commentsLink.title = "Open comments in a new tab (C)";
   const collapseButton = element(
     "button",
     "redditp__button redditp__collapse",
@@ -913,6 +926,7 @@
     autoButton.type =
     soundButton.type =
     nextButton.type =
+    galleryButton.type =
     collapseButton.type =
       "button";
   sourceLink.target = commentsLink.target = "_blank";
@@ -925,6 +939,7 @@
     autoButton,
     soundButton,
     count,
+    galleryButton,
     collapseButton,
   );
 
@@ -1150,14 +1165,35 @@
     soundButton.setAttribute("aria-pressed", String(state.settings.sound));
     soundButton.title = state.embedKeepsOwnSound
       ? "This embedded player answers only to its own sound control"
+      : "Toggle video sound (M)";
+    collapseButton.title = state.settings.controlsCollapsed
+      ? "Expand controls (P)"
+      : "Collapse controls (P)";
+    updateCount(state.loadingMore && isOnLastPost());
+    const slide = hasSlides ? state.slides[state.index] : null;
+    galleryButton.hidden = !slide?.galleryItem;
+    galleryButton.textContent = slide?.galleryItem
+      ? `(${slide.galleryItem}/${slide.galleryTotal})`
       : "";
-    count.textContent = hasSlides
-      ? `${state.index + 1} / ${state.slides.length}${
-          state.loadingMore && state.index === state.slides.length - 1
-            ? " · loading more"
-            : ""
-        }`
-      : "0 posts";
+  }
+
+  // Counts posts rather than slides, so a gallery advances only its own
+  // "(2/7)" counter while the post number stays put.
+  function updateCount(loading) {
+    if (!state.slides.length) {
+      count.textContent = "0 posts";
+      return;
+    }
+    let current = 0;
+    let total = 0;
+    let previous = null;
+    state.slides.forEach((slide, index) => {
+      const identity = postIdentity(slide);
+      if (identity !== previous) total += 1;
+      previous = identity;
+      if (index === state.index) current = total;
+    });
+    count.textContent = `${current} / ${total}${loading ? " · loading more" : ""}`;
   }
 
   function render() {
@@ -1170,9 +1206,6 @@
     // forcing the timer path.
     slide.mediaFailed = false;
     title.textContent = slide.title;
-    const galleryLabel = slide.galleryItem
-      ? `gallery ${slide.galleryItem}/${slide.galleryTotal}`
-      : "";
     const metaItems = [];
     if (slide.community) {
       const communityLink = element("a", "redditp__meta-link", slide.community);
@@ -1180,7 +1213,6 @@
       communityLink.addEventListener("click", navigateToPresentation);
       metaItems.push(communityLink);
     }
-    if (galleryLabel) metaItems.push(document.createTextNode(galleryLabel));
     if (slide.author) {
       const authorLink = element("a", "redditp__meta-link", slide.author);
       authorLink.href = redditPageUrl(slide.author, "user");
@@ -1291,7 +1323,9 @@
     scheduleAuto();
     void enrichSlide(slide);
     void upgradePendingAdaptiveSlide(slide);
-    if (!isSinglePostPage() && state.index === state.slides.length - 1) {
+    // Start loading on the last post's first slide so the next post is ready
+    // by the time its gallery ends.
+    if (!isSinglePostPage() && isOnLastPost()) {
       void loadMoreAtEnd(false);
     }
   }
@@ -1309,16 +1343,14 @@
     if (state.loadingMore) {
       if (delta > 0 && state.index === state.slides.length - 1) {
         state.advanceAfterLoad = true;
-        count.textContent = `${state.index + 1} / ${state.slides.length} · loading more`;
+        updateCount(true);
         return;
       }
-      if (delta < 0) {
+      if (delta < 0 && state.index + delta < lastPostStart()) {
         state.loadRequest += 1;
         state.loadingMore = false;
         state.advanceAfterLoad = false;
         document.documentElement.style.overflow = "hidden";
-      } else {
-        return;
       }
     }
     if (delta > 0 && state.index === state.slides.length - 1) {
@@ -1355,6 +1387,20 @@
     move(1);
   }
 
+  function lastPostStart() {
+    const lastIndex = state.slides.length - 1;
+    const identity = postIdentity(state.slides[lastIndex]);
+    let start = lastIndex;
+    while (start > 0 && postIdentity(state.slides[start - 1]) === identity) {
+      start -= 1;
+    }
+    return start;
+  }
+
+  function isOnLastPost() {
+    return state.slides.length > 0 && state.index >= lastPostStart();
+  }
+
   function postIdentity(slide) {
     if (slide.postKey) return `post:${slide.postKey}`;
     if (slide.commentsUrl) return `comments:${slide.commentsUrl}`;
@@ -1379,15 +1425,15 @@
     if (state.loadingMore) {
       if (advanceWhenReady) {
         state.advanceAfterLoad = true;
-        count.textContent = `${state.index + 1} / ${state.slides.length} · loading more`;
+        updateCount(true);
       }
       return;
     }
-    if (!state.open || state.index !== state.slides.length - 1) return;
+    if (!state.open || !isOnLastPost()) return;
     state.loadingMore = true;
     state.advanceAfterLoad = Boolean(advanceWhenReady);
     const request = ++state.loadRequest;
-    count.textContent = `${state.index + 1} / ${state.slides.length} · loading more`;
+    updateCount(true);
 
     let added = appendNewPosts();
     try {
@@ -1419,7 +1465,7 @@
       state.index = 0;
       render();
     } else {
-      count.textContent = `${state.index + 1} / ${state.slides.length}`;
+      updateCount(false);
     }
   }
 
@@ -1797,6 +1843,7 @@
   nextButton.addEventListener("click", () => move(1));
   autoButton.addEventListener("click", toggleAuto);
   soundButton.addEventListener("click", toggleSound);
+  galleryButton.addEventListener("click", skipGallery);
   root.addEventListener("pointerdown", (event) => {
     state.pointerStart = {
       x: event.clientX,

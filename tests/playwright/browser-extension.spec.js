@@ -624,7 +624,7 @@ test("the sound button commands a player that publishes a message protocol", asy
   );
 
   const soundButton = page.locator(".redditp__sound");
-  await expect(soundButton).toHaveAttribute("title", "");
+  await expect(soundButton).toHaveAttribute("title", "Toggle video sound (M)");
 
   // The real player never loads here, so stand in for the window the command
   // is posted to and record what it receives.
@@ -886,14 +886,14 @@ for (const expanded of [false, true]) {
     await page.addStyleTag({ path: extensionStyles });
     await page.addScriptTag({ path: extensionScript });
 
-    await expect(page.locator(".redditp__count")).toHaveText("1 / 5");
+    await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
     for (let index = 0; index < oldGalleryIds.length; index += 1) {
       await expect(page.locator(".redditp__image")).toHaveAttribute(
         "src",
         oldGalleryImage(oldGalleryIds[index]),
       );
-      await expect(page.locator(".redditp__meta")).toContainText(
-        `gallery ${index + 1}/5`,
+      await expect(page.locator(".redditp__gallery")).toHaveText(
+        `(${index + 1}/5)`,
       );
       if (index < oldGalleryIds.length - 1) {
         if (index % 2) await page.keyboard.press("ArrowRight");
@@ -919,7 +919,7 @@ for (const expanded of [false, true]) {
       await expect(previous).toBeInViewport();
       await expect(page.locator(".redditp__controls")).toBeInViewport();
       await previous.click();
-      await expect(page.locator(".redditp__meta")).toContainText("gallery 4/5");
+      await expect(page.locator(".redditp__gallery")).toHaveText("(4/5)");
       // Exercise the touch-pointer swipe handler without relying on Chromium's
       // touch-only emulation, so this also runs in Firefox.
       const stage = page.locator(".redditp__stage");
@@ -935,7 +935,7 @@ for (const expanded of [false, true]) {
         clientX: 100,
         clientY: 300,
       });
-      await expect(page.locator(".redditp__meta")).toContainText("gallery 5/5");
+      await expect(page.locator(".redditp__gallery")).toHaveText("(5/5)");
     }
     expect(
       await page.evaluate(() => window.cachedGalleryScriptRan),
@@ -965,28 +965,38 @@ test("G skips only the current gallery and advances ordinary posts", async ({
     <div class="thing link" data-url="https://example.com/after"><a class="title">After galleries</a></div>
     <div class="thing link" data-url="https://example.com/final"><a class="title">Final post</a></div>`,
   );
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 9");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 4");
 
   await page
     .getByRole("button", { name: "Open presentation settings" })
     .click();
   await page.keyboard.press("g");
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 9");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 4");
   await page
     .getByRole("button", { name: "Close presentation settings" })
     .click();
 
   await page.keyboard.press("g");
   await expect(page.locator(".redditp__title")).toHaveText("Next gallery");
-  await expect(page.locator(".redditp__meta")).toContainText("gallery 1/2");
-  await expect(page.locator(".redditp__count")).toHaveText("6 / 9");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(1/2)");
+  await expect(page.locator(".redditp__count")).toHaveText("2 / 4");
+  // The gallery counter must not wrap the controls onto a second row.
+  const controlsBox = await page.locator(".redditp__controls").boundingBox();
+  const countBox = await page.locator(".redditp__count").boundingBox();
+  expect(controlsBox.height).toBeLessThan(countBox.height * 2);
   await page.keyboard.press("ArrowLeft");
-  await expect(page.locator(".redditp__meta")).toContainText("gallery 5/5");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(5/5)");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 4");
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("Shift+G");
-  await expect(page.locator(".redditp__count")).toHaveText("6 / 9");
-  await page.keyboard.press("g");
+  await expect(page.locator(".redditp__count")).toHaveText("2 / 4");
+  await expect(page.locator(".redditp__gallery")).toHaveAttribute(
+    "title",
+    /\(G\)/,
+  );
+  await page.locator(".redditp__gallery").click();
   await expect(page.locator(".redditp__title")).toHaveText("After galleries");
+  await expect(page.locator(".redditp__gallery")).toBeHidden();
   await page.keyboard.press("g");
   await expect(page.locator(".redditp__title")).toHaveText("Final post");
 });
@@ -998,7 +1008,7 @@ test("G at the final gallery waits for more posts and otherwise wraps", async ({
   await startPresentation(page, oldGalleryPost());
   await page.keyboard.press("g");
   await expect(page.locator(".redditp__count")).toHaveText(
-    "5 / 5 · loading more",
+    "1 / 1 · loading more",
   );
   await page.evaluate(() => {
     document.body.insertAdjacentHTML(
@@ -1008,8 +1018,8 @@ test("G at the final gallery waits for more posts and otherwise wraps", async ({
   });
   await expect(page.locator(".redditp__title")).toHaveText("Newly loaded post");
   await page.keyboard.press("g");
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 6");
-  await expect(page.locator(".redditp__meta")).toContainText("gallery 1/5");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(1/5)");
   // Skipping a gallery with no next post must also wrap safely.
   await page.keyboard.press("Escape");
   await page.evaluate(() =>
@@ -1017,7 +1027,39 @@ test("G at the final gallery waits for more posts and otherwise wraps", async ({
   );
   await page.evaluate(() => window.__redditpPresentation.toggle());
   await page.keyboard.press("g");
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 5");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+});
+
+test("the last gallery starts loading more posts from its first image", async ({
+  page,
+}) => {
+  await page.route("https://preview.redd.it/**", (route) => route.abort());
+  await startPresentation(page, oldGalleryPost());
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "1 / 1 · loading more",
+  );
+  await expect(page.locator(".redditp__gallery")).toHaveText("(1/5)");
+
+  // Browsing the gallery keeps working while the next posts load.
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(2/5)");
+  await page.locator(".redditp__button", { hasText: "auto" }).click();
+  await expect(
+    page.locator(".redditp__button", { hasText: "pause" }),
+  ).toBeVisible();
+  const controlsBox = await page.locator(".redditp__controls").boundingBox();
+  const countBox = await page.locator(".redditp__count").boundingBox();
+  expect(controlsBox.height).toBeLessThan(countBox.height * 2);
+  await page.locator(".redditp__button", { hasText: "pause" }).click();
+
+  await page.evaluate(() => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div class="thing link" data-url="https://example.com/new"><a class="title">Newly loaded post</a></div>',
+    );
+  });
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(2/5)");
 });
 
 test("G on a single-post gallery stops at its last image", async ({ page }) => {
@@ -1029,13 +1071,13 @@ test("G on a single-post gallery stops at its last image", async ({ page }) => {
   await page.addStyleTag({ path: extensionStyles });
   await page.addScriptTag({ path: extensionScript });
   await page.keyboard.press("g");
-  await expect(page.locator(".redditp__count")).toHaveText("5 / 5");
-  await expect(page.locator(".redditp__meta")).toContainText("gallery 5/5");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(5/5)");
   await expect(page.locator(".redditp__next")).toBeDisabled();
   await page.keyboard.press("g");
-  await expect(page.locator(".redditp__count")).toHaveText("5 / 5");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
   await page.keyboard.press("ArrowLeft");
-  await expect(page.locator(".redditp__meta")).toContainText("gallery 4/5");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(4/5)");
 });
 
 test("old Reddit search enrichment recognizes cached galleries", async ({
@@ -1049,8 +1091,8 @@ test("old Reddit search enrichment recognizes cached galleries", async ({
     page,
     `<div class="search-result search-result-link" data-fullname="t3_1vy9ca0"><a class="search-title" href="${oldGalleryComments}">Apple pie gallery</a><a class="search-comments" href="${oldGalleryComments}">comments</a><a class="search-link" href="${oldGalleryUrl}">gallery</a></div>`,
   );
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 5");
-  await expect(page.locator(".redditp__meta")).toContainText("gallery 1/5");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(1/5)");
 });
 
 test("old Reddit galleries without usable cached media keep their link fallback", async ({
@@ -1093,10 +1135,10 @@ test("extension expands lazy Reddit galleries in order without decorative duplic
     `,
   );
 
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 3");
-  await expect(page.locator(".redditp__meta")).toContainText("gallery 1/3");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(1/3)");
   await page.keyboard.press("ArrowRight");
-  await expect(page.locator(".redditp__meta")).toContainText("gallery 2/3");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(2/3)");
   await expect(page.locator(".redditp__image")).toHaveAttribute(
     "src",
     /gallery-2\.jpg\?width=1080/,

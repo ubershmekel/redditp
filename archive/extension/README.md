@@ -102,6 +102,14 @@ still good; the failure is recorded as `last_error` on the existing entry.
 clean slate; note that this only clears the extension's record, not the
 already-downloaded files.
 
+The extension can't read the `manifest.json` on disk, and its storage is wiped
+when it's removed and loaded again, which used to mean the next run overwrote
+the folder's manifest with only its own entries. So each **Start** first merges
+in the uploaded archive's `manifest.json` (anything storage is missing, or has
+only as a failure). Keep the uploaded manifest current for that to help. After
+**Clear manifest history** this merge is skipped until the extension is
+reinstalled, so the clean slate stays clean.
+
 That storage doesn't survive reinstalling the extension, so **Skip paths already
 downloaded** doesn't rely on it alone: it also asks Chrome's download history
 which snapshot files still exist on disk. Subreddits reddit reports as banned or

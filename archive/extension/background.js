@@ -403,6 +403,46 @@ async function deadChecker() {
     keys.has(listingKey(urlPath)) || markers.has(deadMarkerName(urlPath));
 }
 
+// chrome.storage.local is the only copy the extension can read back — it
+// can write files to disk but never read them — and it's wiped when the
+// extension is removed and loaded again. The next writeManifest would then
+// overwrite the folder's cumulative manifest.json with just the new run's
+// entries. The uploaded archive's manifest.json is the durable copy, so each
+// run starts by merging in whatever it knows that storage doesn't. After an
+// explicit "Clear manifest history" this is skipped, or clearing would be
+// undone on the very next start.
+const ARCHIVE_MANIFEST_URL =
+  "https://storage.googleapis.com/uberbuck/redditp-archive/manifest.json";
+
+async function seedManifestFromArchive() {
+  const { manifest = {}, manifestCleared } = await chrome.storage.local.get([
+    "manifest",
+    "manifestCleared",
+  ]);
+  if (manifestCleared) return;
+  let entries;
+  try {
+    const response = await fetch(ARCHIVE_MANIFEST_URL, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    ({ entries } = await response.json());
+  } catch (err) {
+    await appendLog(`WARN could not load archive manifest.json: ${err.message}`);
+    return;
+  }
+  let added = 0;
+  for (const entry of entries || []) {
+    const current = manifest[entry.urlPath];
+    if (!current || (!current.ok && entry.ok)) {
+      manifest[entry.urlPath] = entry;
+      added++;
+    }
+  }
+  await chrome.storage.local.set({ manifest });
+  if (added) {
+    await appendLog(`Merged ${added} entries from the archive's manifest.json`);
+  }
+}
+
 async function writeManifest() {
   const { manifest = {} } = await chrome.storage.local.get("manifest");
   const entries = Object.values(manifest).sort((a, b) =>
@@ -513,6 +553,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "start") {
     (async () => {
       await chrome.storage.local.set({ logs: [] });
+      await seedManifestFromArchive();
 
       // Resuming is the normal case, not the exception — a run gets
       // interrupted by a block, a closed browser, or a Stop, and re-fetching
@@ -577,7 +618,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ advanced: true });
   } else if (message.type === "clear-history") {
     (async () => {
-      await chrome.storage.local.set({ manifest: {} });
+      await chrome.storage.local.set({ manifest: {}, manifestCleared: true });
       const markers = await deadMarkerDownloads();
       for (const item of markers) {
         await chrome.downloads.removeFile(item.id).catch(() => {});

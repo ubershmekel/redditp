@@ -1119,7 +1119,11 @@ $(function () {
             subredditUrl + ".json" + (getVars.length ? "?" + getVars : ""),
           ),
         dataType: "json",
-        success: handleData,
+        success: function (data) {
+          // Flag the rip link so it's visible this page came from the archive.
+          $(".rip-link").addClass("from-archive");
+          handleData(data);
+        },
         error: failedAjax,
         timeout: 5000,
       });

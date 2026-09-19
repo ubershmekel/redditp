@@ -359,6 +359,11 @@ label.checkbox {
   padding: 4px;
 }
 
+/* The listing was served from the bucket archive, not live reddit. */
+.rip-link.from-archive {
+  border: 1px solid #acacac;
+}
+
 /* A lasting empty state, independent of slideshow animations and toasts. */
 #emptySlideshow[hidden] {
   display: none;

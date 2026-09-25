@@ -474,6 +474,63 @@
   font-size: 12px;
 }
 
+/* The Show filter's checkboxes share a row where they fit. */
+#redditp-presentation .redditp__filter {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+#redditp-presentation .redditp__filter h3 {
+  margin: 4px 0 0;
+  color: #fff;
+  font-size: 16px;
+}
+
+#redditp-presentation .redditp__filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+#redditp-presentation .redditp__filter-options .redditp__setting {
+  flex: 1 1 auto;
+}
+
+#redditp-presentation .redditp__filter p {
+  margin: 0;
+  color: #bbb;
+  font-size: 12px;
+}
+
+#redditp-presentation .redditp__setting input:disabled + span {
+  opacity: 0.6;
+}
+
+/* A dot on the gear, or on + while the controls are collapsed, says the Show
+   filter is hiding some posts. */
+#redditp-presentation.redditp--filtered .redditp__gear,
+#redditp-presentation.redditp--filtered
+  .redditp__controls--collapsed
+  .redditp__collapse {
+  position: relative;
+}
+
+#redditp-presentation.redditp--filtered .redditp__gear::after,
+#redditp-presentation.redditp--filtered
+  .redditp__controls--collapsed
+  .redditp__collapse::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5dd;
+  pointer-events: none;
+}
+
 #redditp-presentation .redditp__link-card {
   position: absolute;
   top: 50%;

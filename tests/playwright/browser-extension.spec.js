@@ -1468,6 +1468,11 @@ test("settings shortcut reference fits mobile and desktop screens", async ({
     [360, 420],
   ]) {
     await page.setViewportSize({ width, height });
+    if (width === 360 && height === 780) {
+      await expect(
+        page.getByRole("group", { name: "Show", exact: true }),
+      ).toBeVisible();
+    }
     await help.locator("p").scrollIntoViewIfNeeded();
     const bounds = await page
       .locator(".redditp__settings")
@@ -1736,7 +1741,7 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
   await expect(page.locator("#redditp-presentation")).toBeVisible();
 
   const prevented = await page.evaluate(() =>
-    ["f", "m", "g", "v"].map((key) => {
+    ["f", "m", "g", "v", "o"].map((key) => {
       const event = new KeyboardEvent("keydown", {
         key,
         ctrlKey: true,
@@ -1747,7 +1752,7 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
       return event.defaultPrevented;
     }),
   );
-  expect(prevented).toEqual([false, false, false, false]);
+  expect(prevented).toEqual([false, false, false, false, false]);
 
   // The unmodified key still works.
   await page.keyboard.press("m");
@@ -2296,4 +2301,496 @@ test("thumbnail tiles upgrade in view, two posts at a time", async ({
   expect([...requests.keys()].sort()).toEqual(numbers.map(detailUrl).sort());
   expect([...requests.values()]).toEqual([1, 1, 1, 1, 1]);
   expect(maxInFlight).toBeLessThanOrEqual(2);
+});
+
+// Seven posts in page order, one of each kind the Show filter tells apart:
+// an image, a GIF, a Reddit video, an embed, an imgur GIFV, a link post, and
+// a second image.
+function mediaMixPosts() {
+  return `
+    <div class="thing link" data-url="https://i.redd.it/mix-first.jpg" data-permalink="/r/mix/comments/mix1/post/"><a class="title">First image</a></div>
+    <div class="thing link" data-url="https://i.redd.it/mix-party.gif" data-permalink="/r/mix/comments/mix2/post/"><a class="title">Party gif</a></div>
+    <div class="thing link" data-url="https://v.redd.it/mixclip" data-permalink="/r/mix/comments/mix3/post/"><a class="title">Mix clip</a><video src="https://v.redd.it/mixclip/DASH_480.mp4" poster="https://external-preview.redd.it/mixclip.png"></video></div>
+    <shreddit-post id="t3_mix4" post-title="Mix interview" content-href="https://www.youtube.com/watch?v=l74r1s8y7uY" permalink="/r/mix/comments/mix4/post/"></shreddit-post>
+    <div class="thing link" data-url="https://i.imgur.com/mixloop.gifv" data-permalink="/r/mix/comments/mix5/post/"><a class="title">Imgur loop</a></div>
+    <div class="thing link" data-url="https://example.com/mix-story" data-permalink="/r/mix/comments/mix6/post/"><a class="title">Mix story</a></div>
+    <div class="thing link" data-url="https://i.redd.it/mix-last.jpg" data-permalink="/r/mix/comments/mix7/post/"><a class="title">Last image</a></div>
+  `;
+}
+
+// Pictures load; players and embeds never do, so nothing waits on them.
+async function routeMediaMix(page) {
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill(svgImage(800, 600)),
+  );
+  await page.route("https://external-preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(640, 360)),
+  );
+  for (const pattern of [
+    "https://v.redd.it/**",
+    "https://i.imgur.com/**",
+    "https://www.youtube.com/**",
+  ]) {
+    await page.route(pattern, (route) => route.abort());
+  }
+}
+
+// A routed Reddit page has storage, unlike setContent's about:blank, so the
+// saved settings can be set before the extension starts.
+async function openRoutedPage(page, url, body, settings) {
+  await page.route(url, (route) =>
+    route.fulfill({ contentType: "text/html", body }),
+  );
+  await page.goto(url);
+  await page.evaluate(
+    (value) =>
+      localStorage.setItem(
+        "redditpPresentationSettings",
+        JSON.stringify(value),
+      ),
+    settings,
+  );
+}
+
+async function injectExtension(page) {
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+}
+
+function mixVideoPost(id, title) {
+  return `<div class="thing link" data-url="https://v.redd.it/${id}" data-permalink="/r/mixload/comments/${id}/post/"><a class="title">${title}</a><video src="https://v.redd.it/${id}/DASH_480.mp4" poster="https://external-preview.redd.it/${id}.png"></video></div>`;
+}
+
+function mixImagePost(id, title) {
+  return `<shreddit-post id="t3_${id}" post-title="${title}" content-href="https://i.redd.it/${id}.jpg" permalink="/r/mixload/comments/${id}/post/"></shreddit-post>`;
+}
+
+function insertPosts(page, html) {
+  return page.evaluate(
+    (markup) => document.body.insertAdjacentHTML("beforeend", markup),
+    html,
+  );
+}
+
+function gearDot(locator) {
+  return locator.evaluate(
+    (button) => getComputedStyle(button, "::after").content,
+  );
+}
+
+test("images only hides video, embed and GIF posts in the slideshow and the grid", async ({
+  page,
+}) => {
+  await routeMediaMix(page);
+  await openRoutedPage(page, "https://www.reddit.com/r/mix/", mediaMixPosts(), {
+    showGifs: false,
+    showVideos: false,
+  });
+  await injectExtension(page);
+
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  const gear = page.getByRole("button", { name: "Open presentation settings" });
+  await expect(title).toHaveText("First image");
+  await expect(count).toHaveText("1 / 2 · images only");
+  await expect(page.locator("#redditp-presentation")).toHaveClass(
+    /redditp--filtered/,
+  );
+  await expect(gear).toHaveAttribute(
+    "title",
+    "Presentation settings (images only)",
+  );
+  expect(await gearDot(gear)).not.toBe("none");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Last image");
+  await expect(count).toHaveText(/^2 \/ 2 · images only( · loading more)?$/);
+  await expect(page.locator(".redditp__video")).toHaveCount(0);
+  await expect(page.locator(".redditp__embed")).toHaveCount(0);
+
+  await page.keyboard.press("v");
+  const grid = page.locator(".redditp__grid");
+  await expect(grid.locator(".redditp__tile")).toHaveCount(2);
+  for (const name of ["First image", "Last image"]) {
+    await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+  }
+  // Video tiles are named "…, video", so match the start of the name.
+  for (const name of [
+    "Party gif",
+    "Mix clip",
+    "Mix interview",
+    "Imgur loop",
+    "Mix story",
+  ]) {
+    await expect(
+      grid.getByRole("button", { name: new RegExp(`^${name}`) }),
+    ).toHaveCount(0);
+  }
+  await expect(grid.locator(".redditp__tile-play")).toHaveCount(0);
+  await expect(count).toHaveText(/^2 posts · images only/);
+
+  // With the controls collapsed, the + button carries the dot instead.
+  await page.keyboard.press("p");
+  expect(
+    await gearDot(page.getByRole("button", { name: "Expand bottom controls" })),
+  ).not.toBe("none");
+});
+
+test("changing the shown types re-filters, keeps a matching slide, and persists", async ({
+  page,
+}) => {
+  await routeMediaMix(page);
+  const feedUrl = "https://www.reddit.com/r/mixsettings/";
+  // Saved settings that show nothing at all are read as showing everything.
+  await openRoutedPage(page, feedUrl, mediaMixPosts(), {
+    showImages: false,
+    showGifs: false,
+    showVideos: false,
+  });
+  await injectExtension(page);
+
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("1 / 7");
+  await expect(page.locator("#redditp-presentation")).not.toHaveClass(
+    /redditp--filtered/,
+  );
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Mix clip");
+
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  const images = page.getByLabel("Images", { exact: true });
+  const gifs = page.getByLabel("GIFs", { exact: true });
+  const videos = page.getByLabel("Videos", { exact: true });
+  await expect(images).toBeChecked();
+  await expect(gifs).toBeChecked();
+  await expect(videos).toBeChecked();
+
+  // The hidden video makes way for the next post that still shows.
+  await videos.uncheck();
+  await expect(title).toHaveText("Imgur loop");
+  await expect(count).toHaveText("3 / 4 · no videos");
+
+  await gifs.uncheck();
+  await expect(title).toHaveText("Last image");
+  await expect(count).toHaveText(/^2 \/ 2 · images only( · loading more)?$/);
+  // The last type shown cannot be turned off.
+  await expect(images).toBeChecked();
+  await expect(images).toBeDisabled();
+
+  // A current slide that still matches stays, without reloading its image.
+  const image = await page.locator(".redditp__image").elementHandle();
+  await videos.check();
+  await expect(count).toHaveText(/^4 \/ 4 · no GIFs( · loading more)?$/);
+  await expect(title).toHaveText("Last image");
+  await expect(images).toBeEnabled();
+  expect(
+    await image.evaluate(
+      (element) => element === document.querySelector(".redditp__image"),
+    ),
+  ).toBe(true);
+
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("redditpPresentationSettings")),
+  );
+  expect(saved).toMatchObject({
+    showImages: true,
+    showGifs: false,
+    showVideos: true,
+  });
+
+  // A fresh content script, as on the next page load, reads it back.
+  await page.goto(feedUrl);
+  await injectExtension(page);
+  await expect(count).toHaveText(/^1 \/ 4 · no GIFs/);
+});
+
+test("O cycles all, images, GIFs, videos and back", async ({ page }) => {
+  await routeMediaMix(page);
+  await startPresentation(page, mediaMixPosts());
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("1 / 7");
+
+  await page.keyboard.press("o");
+  await expect(count).toHaveText("1 / 2 · images only");
+  await expect(title).toHaveText("First image");
+  await page.keyboard.press("o");
+  await expect(count).toHaveText("1 / 2 · GIFs only");
+  await expect(title).toHaveText("Party gif");
+  await page.keyboard.press("o");
+  await expect(count).toHaveText("1 / 2 · videos only");
+  await expect(title).toHaveText("Mix clip");
+
+  await page.keyboard.press("v");
+  const grid = page.locator(".redditp__grid");
+  await expect(grid.locator(".redditp__tile")).toHaveCount(2);
+  for (const name of ["Mix clip, video", "Mix interview, video"]) {
+    await expect(
+      page
+        .getByRole("button", { name, exact: true })
+        .locator(".redditp__tile-play"),
+    ).toHaveCount(1);
+  }
+
+  await page.keyboard.press("o");
+  await expect(count).toHaveText(/^7 posts/);
+  await expect(grid.locator(".redditp__tile")).toHaveCount(7);
+  await expect(page.locator("#redditp-presentation")).not.toHaveClass(
+    /redditp--filtered/,
+  );
+});
+
+test("a filtered load keeps scrolling past non-matching posts until one matches", async ({
+  page,
+}) => {
+  await routeMediaMix(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/mixload/",
+    `${mixVideoPost("opening", "Opening clip")}<div style="height: 4000px"></div>`,
+    { showGifs: false, showVideos: false },
+  );
+  await page.evaluate(() => {
+    window.__redditpScrollCalls = 0;
+    const originalScrollTo = window.scrollTo.bind(window);
+    window.scrollTo = (...args) => {
+      window.__redditpScrollCalls += 1;
+      originalScrollTo(...args);
+    };
+  });
+  await injectExtension(page);
+
+  const heading = page.locator(".redditp__empty h2");
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(heading).toHaveText("No images here yet");
+  await expect(page.locator(".redditp__empty p")).toHaveText(
+    "Loading more posts…",
+  );
+  await expect(count).toHaveText("0 posts · images only · loading more");
+  await expect(
+    page.getByRole("button", { name: "Open presentation settings" }),
+  ).toBeVisible();
+
+  // Hidden posts keep the load going rather than ending it.
+  await insertPosts(
+    page,
+    ["one", "two", "three"]
+      .map((id) => mixVideoPost(`hidden${id}`, `Hidden clip ${id}`))
+      .join(""),
+  );
+  await page.waitForTimeout(600);
+  await expect(heading).toHaveText("No images here yet");
+  expect(
+    await page.evaluate(() => window.__redditpScrollCalls),
+  ).toBeGreaterThan(0);
+
+  await insertPosts(page, mixImagePost("firstmatch", "First match"));
+  await expect(title).toHaveText("First match");
+  await expect(count).toHaveText(/^1 \/ 1 · images only/);
+  await expect(page.locator(".redditp__video")).toHaveCount(0);
+
+  // Next on the last slide waits for the next match, past hidden posts.
+  await page.keyboard.press("ArrowRight");
+  await insertPosts(
+    page,
+    mixVideoPost("hiddenfour", "Hidden clip four") +
+      mixVideoPost("hiddenfive", "Hidden clip five"),
+  );
+  await page.waitForTimeout(400);
+  await insertPosts(page, mixImagePost("secondmatch", "Second match"));
+  await expect(title).toHaveText("Second match");
+
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__tile")).toHaveCount(2);
+  await expect(page.locator(".redditp__tile-play")).toHaveCount(0);
+});
+
+test("a filter with no matches says so and the gear still changes it", async ({
+  page,
+}) => {
+  await routeMediaMix(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/mixempty/",
+    `${mixVideoPost("opening", "Opening clip")}<div style="height: 4000px"></div>`,
+    { showGifs: false, showVideos: false },
+  );
+  await injectExtension(page);
+
+  const heading = page.locator(".redditp__empty h2");
+  const count = page.locator(".redditp__count");
+  await expect(heading).toHaveText("Nothing here matches the filter");
+  await expect(page.locator(".redditp__empty p")).toHaveText(
+    "Only images are shown. Change that in the settings, or press O.",
+  );
+  await expect(count).toHaveText("0 posts · images only");
+  // Controls that need a slide stay out of the way.
+  await expect(page.locator(".redditp__link-control:visible")).toHaveCount(0);
+  await expect(page.locator(".redditp__view")).toBeHidden();
+
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  const videos = page.getByLabel("Videos", { exact: true });
+  await videos.check();
+  await expect(page.locator(".redditp__title")).toHaveText("Opening clip");
+  await expect(count).toHaveText(/^1 \/ 1 · no GIFs( · loading more)?$/);
+  await expect(page.locator(".redditp__view")).toBeVisible();
+
+  await videos.uncheck();
+  await expect(heading).toHaveText(
+    /^(No images here yet|Nothing here matches the filter)$/,
+  );
+  await expect(page.locator(".redditp__link-control:visible")).toHaveCount(0);
+  await expect(page.locator(".redditp__view")).toBeHidden();
+});
+
+const filterSearchUrl = "https://www.reddit.com/search/?q=filtersearch";
+const filterDetailUrl = (number) =>
+  `https://www.reddit.com/r/test/comments/fsearch${number}/post/`;
+
+// Three search results: 1 shows a thumbnail but is a video, 2 shows nothing
+// and is a text post, and 3 shows a thumbnail and is an image.
+async function routeFilterSearch(page) {
+  const requests = new Map();
+  const details = {
+    1: `<shreddit-post id="t3_fsearch1" post-title="Search result 1" post-type="video" content-href="https://v.redd.it/fsearch1" permalink="/r/test/comments/fsearch1/post/"><shreddit-player src="https://v.redd.it/fsearch1/HLSPlaylist.m3u8" preview="https://v.redd.it/fsearch1/DASH_480.mp4" poster="https://external-preview.redd.it/fsearch1.png"></shreddit-player></shreddit-post>`,
+    2: `<shreddit-post id="t3_fsearch2" post-title="Search result 2" post-type="text" permalink="/r/test/comments/fsearch2/post/"><div slot="text-body"><div class="md"><p>Only words here.</p></div></div></shreddit-post>`,
+    3: `<shreddit-post id="t3_fsearch3" post-title="Search result 3" content-href="https://i.redd.it/fsearch3.jpg" permalink="/r/test/comments/fsearch3/post/"></shreddit-post>`,
+  };
+  await page.route("https://external-preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(640, 360)),
+  );
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill(svgImage(800, 600)),
+  );
+  await page.route("https://v.redd.it/**", (route) => route.abort());
+  await page.route(
+    /^https:\/\/www\.reddit\.com\/r\/test\/comments\/fsearch\d\/post\/$/,
+    (route) => {
+      const url = route.request().url();
+      requests.set(url, (requests.get(url) || 0) + 1);
+      const number = Number(url.match(/fsearch(\d)/)[1]);
+      return route.fulfill({ contentType: "text/html", body: details[number] });
+    },
+  );
+  const results = [1, 2, 3]
+    .map((number) => {
+      const url = filterDetailUrl(number);
+      const thumbnail =
+        number === 2
+          ? ""
+          : `<a href="${url}" aria-label="Search result ${number} thumbnail image"><faceplate-img data-testid="search_post_thumbnail" src="https://external-preview.redd.it/fsearch${number}-thumb.png" alt="Search result ${number}"></faceplate-img></a>`;
+      return `<search-telemetry-tracker data-faceplate-tracking-context='{"post":{"id":"t3_fsearch${number}","title":"Search result ${number}"},"subreddit":{"name":"test"}}'><div data-testid="search-post-unit"><h2><a href="${url}">Search result ${number}</a></h2>${thumbnail}</div></search-telemetry-tracker>`;
+    })
+    .join("");
+  return { requests, results };
+}
+
+test("an upgraded search thumbnail that turns out to be a video leaves the images-only grid", async ({
+  page,
+}) => {
+  const { requests, results } = await routeFilterSearch(page);
+  await openRoutedPage(page, filterSearchUrl, results, {
+    openInGrid: true,
+    showGifs: false,
+    showVideos: false,
+  });
+  await injectExtension(page);
+
+  const tiles = page.locator(".redditp__tile");
+  const match = page.getByRole("button", {
+    name: "Search result 3",
+    exact: true,
+  });
+  await expect(match.locator("img")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/fsearch3.jpg",
+  );
+  await expect(tiles).toHaveCount(1);
+  await expect(match.locator(".redditp__tile-play")).toHaveCount(0);
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 post · images only/,
+  );
+  // Focus followed the current tile as the tiles before it left.
+  await expect(match).toBeFocused();
+  await expect(page.locator(".redditp__grid-status")).toHaveText(
+    "No more images found",
+  );
+  await expect(tiles).toHaveCount(1);
+  expect([...requests.keys()].sort()).toEqual(
+    [1, 2, 3].map(filterDetailUrl).sort(),
+  );
+  expect([...requests.values()]).toEqual([1, 1, 1]);
+});
+
+test("the slideshow skips search results whose posts the filter hides", async ({
+  page,
+}) => {
+  const { requests, results } = await routeFilterSearch(page);
+  await openRoutedPage(page, filterSearchUrl, results, {
+    showGifs: false,
+    showVideos: false,
+  });
+  await injectExtension(page);
+
+  await expect(page.locator(".redditp__image")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/fsearch3.jpg",
+  );
+  await expect(page.locator(".redditp__title")).toHaveText("Search result 3");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 1 · images only/,
+  );
+  await expect(page.locator(".redditp__video")).toHaveCount(0);
+  expect([...requests.values()]).toEqual([1, 1, 1]);
+});
+
+test("a dormant adaptive video keeps its category after upgrading", async ({
+  page,
+}) => {
+  await page.setContent(`
+    <base href="https://www.reddit.com/">
+    <shreddit-post id="t3_image" post-title="First image" content-href="https://i.redd.it/first.jpg" permalink="/r/test/comments/image/first/"></shreddit-post>
+    <shreddit-post id="t3_feedvideo" post-title="Feed video" post-type="video" content-href="https://v.redd.it/feedvideo" permalink="/r/test/comments/feedvideo/post/">
+      <shreddit-player src="https://v.redd.it/feedvideo/HLSPlaylist.m3u8" preview="https://v.redd.it/feedvideo/CMAF_96.mp4" poster="https://external-preview.redd.it/feedvideo.png"></shreddit-player>
+    </shreddit-post>
+  `);
+  await page.locator("shreddit-player").evaluate((player) => {
+    const shadow = player.attachShadow({ mode: "open" });
+    const video = document.createElement("video");
+    video.id = "feed-adaptive-video";
+    video.addEventListener("click", () => {
+      if (!video.getAttribute("src")) {
+        video.src = URL.createObjectURL(
+          new Blob(["not real media"], { type: "video/mp4" }),
+        );
+      }
+    });
+    shadow.append(video);
+  });
+  await injectExtension(page);
+  await expect(page.locator(".redditp__title")).toHaveText("First image");
+
+  const liveVideo = page.locator(".redditp__media #feed-adaptive-video");
+  const count = page.locator(".redditp__count");
+  for (let press = 0; press < 3; press += 1) await page.keyboard.press("o");
+  await expect(liveVideo).toBeVisible();
+  await expect(count).toHaveText(/^1 \/ 1 · videos only( · loading more)?$/);
+
+  // Filtering again after the upgrade finds the same slide as a video.
+  for (let press = 0; press < 4; press += 1) await page.keyboard.press("o");
+  await expect(count).toHaveText(/^1 \/ 1 · videos only( · loading more)?$/);
+  await expect(page.locator(".redditp__title")).toHaveText("Feed video");
+  await expect(liveVideo).toBeVisible();
 });

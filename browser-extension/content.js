@@ -51,6 +51,10 @@
     showControls: true,
     sound: false,
     openInGrid: false,
+    // The Show filter: which media types the slideshow and the grid show.
+    showImages: true,
+    showGifs: true,
+    showVideos: true,
   };
 
   // redditp-grid-layout:start
@@ -204,6 +208,11 @@
   const state = {
     open: false,
     opening: false,
+    // Waiting for Reddit's full-quality player before reading the page.
+    preparing: false,
+    // Every slide extracted this open, in page order; slides is the part of
+    // it the Show filter lets through, and the list everything else reads.
+    allSlides: [],
     slides: [],
     index: 0,
     autoTimer: null,
@@ -250,6 +259,13 @@
   const gridEnrichTried = new WeakSet();
   const GRID_ENRICH_CONCURRENCY = 2;
   const GRID_ENRICH_MAX_FAILURES = 3;
+  // A load scrolls Reddit up to LOAD_ATTEMPTS times, 200 ms apart, until a
+  // post to show arrives. With a filter on, the new posts may all be hidden,
+  // so it keeps going for longer. Either way it stops once Reddit has added
+  // no post at all for LOAD_IDLE_ATTEMPTS scrolls in a row.
+  const LOAD_ATTEMPTS = 20;
+  const LOAD_IDLE_ATTEMPTS = 20;
+  const FILTERED_LOAD_ATTEMPTS = 60;
 
   function absoluteUrl(value) {
     if (!value || value === "#") return "";
@@ -942,7 +958,18 @@
 
       const detailSource = contentUrl(detailNode, slide.commentsUrl);
       const detailMedia = mediaFromNode(detailNode, detailSource);
-      if (!detailMedia.length) throw new Error("Post had no supported media");
+      if (!detailMedia.length) {
+        // A thumbnail stays as it is. A result that showed no media is now
+        // known to be a link or text post, which the Show filter can judge.
+        if (slide.kind !== "link") {
+          throw new Error("Post had no supported media");
+        }
+        detailMedia.push({
+          kind: "link",
+          url: detailSource || slide.commentsUrl,
+          poster: "",
+        });
+      }
       const isGallery = isGalleryPost(detailNode);
       const replacements = detailMedia.map((item, index) =>
         Object.assign({}, slide, item, {
@@ -955,25 +982,45 @@
         }),
       );
 
-      const slideIndex = state.slides.findIndex(
+      const fullIndex = state.allSlides.findIndex(
         (candidate) =>
           candidate.needsEnrichment &&
           (candidate.postKey || candidate.commentsUrl) === key,
       );
-      if (slideIndex < 0) return;
+      if (fullIndex < 0) return;
       // After a reopen during the fetch this is a newer copy of the argument,
       // and the one the grid has a tile for.
-      const replaced = state.slides[slideIndex];
+      const replaced = state.allSlides[fullIndex];
+      state.allSlides.splice(fullIndex, 1, ...replacements);
+      state.enrichments.set(key, "done");
+      // A slide the filter hid since needs nothing more.
+      const slideIndex = state.slides.indexOf(replaced);
+      if (slideIndex < 0) return true;
+      // Now that the post is known, the filter may keep none of it.
+      const shown = replacements.filter((candidate) =>
+        slideMatchesFilter(candidate, state.settings),
+      );
       const wasCurrent = state.index === slideIndex;
       if (slideIndex < state.index) {
-        state.index += replacements.length - 1;
+        state.index += shown.length - 1;
       }
-      state.slides.splice(slideIndex, 1, ...replacements);
-      if (state.gridBuilt) replaceGridTile(replaced, replacements);
-      state.enrichments.set(key, "done");
+      state.slides.splice(slideIndex, 1, ...shown);
+      // A current slide that dropped out makes way for the next shown slide,
+      // or for the last one when it was last.
+      if (wasCurrent) {
+        state.index = Math.max(
+          0,
+          Math.min(slideIndex, state.slides.length - 1),
+        );
+      }
+      if (state.gridBuilt) replaceGridTile(replaced, shown);
       if (wasCurrent && state.open) {
-        state.index = slideIndex;
         render();
+        refocusIfLost();
+        loadForEmptyFilter();
+      } else if (state.open) {
+        // The counter may have lost a post.
+        syncPresentationUi();
       }
       return true;
     } catch (_error) {
@@ -1010,6 +1057,12 @@
       typeof value.controlsCollapsed === "boolean"
     ) {
       result.showControls = !value.controlsCollapsed;
+    }
+    // At least one media type always shows.
+    if (!MEDIA_FILTER_TYPES.some(([key]) => result[key])) {
+      MEDIA_FILTER_TYPES.forEach(([key]) => {
+        result[key] = true;
+      });
     }
     return result;
   }
@@ -1215,6 +1268,24 @@
     return label;
   }
 
+  // The Show filter's checkboxes, which apply to the slideshow and the grid.
+  const filterGroup = element("div", "redditp__filter", "");
+  filterGroup.setAttribute("role", "group");
+  filterGroup.setAttribute("aria-labelledby", "redditp-filter-title");
+  const filterTitle = element("h3", "", "Show");
+  filterTitle.id = "redditp-filter-title";
+  const filterOptions = element("div", "redditp__filter-options", "");
+  filterOptions.append(
+    checkboxSetting("showImages", "Images"),
+    checkboxSetting("showGifs", "GIFs"),
+    checkboxSetting("showVideos", "Videos"),
+  );
+  filterGroup.append(
+    filterTitle,
+    filterOptions,
+    element("p", "", "Link and text posts show only when all three are on."),
+  );
+
   const shortcutHelp = element("section", "redditp__shortcuts", "");
   shortcutHelp.setAttribute("aria-labelledby", "redditp-shortcuts-title");
   const shortcutTitle = element("h3", "", "Keyboard shortcuts");
@@ -1225,6 +1296,7 @@
     [["←", "PgUp"], "Previous slide"],
     [["G"], "Skip gallery / next post"],
     [["V"], "Switch between grid and slideshow"],
+    [["O"], "Cycle media: all, images, GIFs, videos"],
     [["F"], "Toggle fullscreen (if available)"],
     [["M"], "Toggle video sound"],
     [["T"], "Show / hide the title panel"],
@@ -1254,6 +1326,7 @@
     settingsTitle,
     settingsClose,
     durationLabel,
+    filterGroup,
     checkboxSetting("showDetails", "Show the title panel"),
     checkboxSetting("showArrows", "Show previous and next arrows"),
     checkboxSetting(
@@ -1529,7 +1602,8 @@
   }
 
   // An upgraded thumbnail's tile makes way for the tiles of the slides that
-  // replaced it, in the same place in the same column.
+  // replaced it, in the same place in the same column. When the filter shows
+  // none of them, the tile simply leaves.
   function replaceGridTile(oldSlide, replacements) {
     const oldTile = state.gridTiles.get(oldSlide);
     state.gridTiles.delete(oldSlide);
@@ -1539,6 +1613,9 @@
       return;
     }
     const hadFocus = document.activeElement === oldTile;
+    // Where focus goes when no tile replaces this one.
+    const neighbour =
+      oldTile.nextElementSibling || oldTile.previousElementSibling;
     const newTiles = replacements.map(createGridTile);
     if (gridObserver) gridObserver.unobserve(oldTile);
     oldTile.replaceWith(...newTiles);
@@ -1556,7 +1633,10 @@
     );
     state.gridColumnHeights[columnIndex] +=
       newHeight - gridTileInfo.get(oldTile).height;
-    if (hadFocus) newTiles[0].focus({ preventScroll: true });
+    if (!hadFocus) return;
+    if (newTiles.length) newTiles[0].focus({ preventScroll: true });
+    else if (neighbour) neighbour.focus({ preventScroll: true });
+    else focusInitialControl();
   }
 
   function resetGrid() {
@@ -1723,10 +1803,17 @@
   function syncPresentationUi() {
     const hasSlides = state.slides.length > 0;
     const inGrid = state.view === "grid" && hasSlides;
+    const filtering = mediaFilterActive(state.settings);
     root.classList.toggle("redditp--grid", inGrid);
+    root.classList.toggle("redditp--filtered", filtering);
     empty.hidden = hasSlides;
+    syncEmptyState();
     details.hidden = !hasSlides || !state.settings.showDetails;
-    controls.hidden = !hasSlides;
+    // A filter that hides every post keeps the controls, so the gear can
+    // still change it; the controls that need a slide go meanwhile.
+    controls.hidden = !hasSlides && !filtering;
+    viewButton.hidden = !hasSlides;
+    if (!hasSlides) sourceLink.hidden = commentsLink.hidden = true;
     prevButton.hidden = nextButton.hidden =
       !hasSlides || !state.settings.showArrows;
     prevButton.disabled = !hasSlides || state.index === 0;
@@ -1762,7 +1849,14 @@
     collapseButton.title = state.settings.showControls
       ? "Collapse controls (P)"
       : "Expand controls (P)";
-    updateCount(state.loadingMore && (state.view === "grid" || isOnLastPost()));
+    // A dot on the gear says a filter is on; its tooltip says which.
+    settingsButton.title = filtering
+      ? `Presentation settings (${mediaFilterSummary(state.settings)})`
+      : "Presentation settings";
+    updateCount(
+      state.loadingMore &&
+        (state.view === "grid" || !hasSlides || isOnLastPost()),
+    );
     const slide = hasSlides ? state.slides[state.index] : null;
     galleryButton.hidden = !slide?.galleryItem;
     galleryButton.textContent = slide?.galleryItem
@@ -1772,10 +1866,14 @@
 
   // Counts posts rather than slides, so a gallery advances only its own
   // "(2/7)" counter while the post number stays put. The grid shows every
-  // post at once, so it shows only the total.
+  // post at once, so it shows only the total. An active filter adds what it
+  // shows, such as "images only", before "loading more".
   function updateCount(loading) {
+    const summary = mediaFilterSummary(state.settings);
+    const suffix =
+      (summary ? ` · ${summary}` : "") + (loading ? " · loading more" : "");
     if (!state.slides.length) {
-      count.textContent = "0 posts";
+      count.textContent = `0 posts${suffix}`;
       return;
     }
     let current = 0;
@@ -1787,11 +1885,32 @@
       previous = identity;
       if (index === state.index) current = total;
     });
-    const suffix = loading ? " · loading more" : "";
     count.textContent =
       state.view === "grid"
         ? `${total} post${total === 1 ? "" : "s"}${suffix}`
         : `${current} / ${total}${suffix}`;
+  }
+
+  // The empty stage says why it is empty: Reddit's player is still being
+  // prepared, the page has no posts, or the Show filter hides them all.
+  function syncEmptyState() {
+    let heading = "No posts found on this page";
+    let text =
+      "Scroll Reddit to load some posts, then try presentation mode again.";
+    if (state.preparing) {
+      heading = "Preparing Reddit video…";
+      text = "Waiting for Reddit's full-quality player.";
+    } else if (mediaFilterActive(state.settings)) {
+      if (state.loadingMore) {
+        heading = `No ${shownMediaLabel(state.settings, "or")} here yet`;
+        text = "Loading more posts…";
+      } else {
+        heading = "Nothing here matches the filter";
+        text = `Only ${shownMediaLabel(state.settings, "and")} are shown. Change that in the settings, or press O.`;
+      }
+    }
+    emptyTitle.textContent = heading;
+    emptyText.textContent = text;
   }
 
   function render() {
@@ -1954,10 +2073,7 @@
         return;
       }
       if (delta < 0 && state.index + delta < lastPostStart()) {
-        state.loadRequest += 1;
-        state.loadingMore = false;
-        state.advanceAfterLoad = false;
-        document.documentElement.style.overflow = "hidden";
+        cancelLoadMore();
       }
     }
     if (delta > 0 && state.index === state.slides.length - 1) {
@@ -2015,17 +2131,24 @@
     return `fallback:${slide.title}|${slide.sourceUrl}`;
   }
 
+  // Adds the posts Reddit has rendered since the last look. Every new slide
+  // joins allSlides; the ones the filter lets through also join slides.
+  // Returns how many new slides were found and how many of them show.
   function appendNewPosts() {
-    const existingPosts = new Set(state.slides.map(postIdentity));
+    const existingPosts = new Set(state.allSlides.map(postIdentity));
     const additions = extractSlides().filter(
       (slide) => !existingPosts.has(postIdentity(slide)),
     );
-    if (additions.length) {
-      state.slides.push(...additions);
+    const shown = additions.filter((slide) =>
+      slideMatchesFilter(slide, state.settings),
+    );
+    state.allSlides.push(...additions);
+    if (shown.length) {
+      state.slides.push(...shown);
       // A built grid gets the new tiles even while it is hidden.
-      if (state.gridBuilt) placeGridTiles(additions);
+      if (state.gridBuilt) placeGridTiles(shown);
     }
-    return additions.length;
+    return { found: additions.length, shown: shown.length };
   }
 
   function wait(milliseconds) {
@@ -2047,27 +2170,41 @@
   }
 
   // Scrolls the Reddit page underneath so it renders more posts, and adds
-  // them as slides. Resolves to the number of slides added, or null when the
-  // presentation closed or a newer request took over. Callers check their own
-  // preconditions first; loadingMore is set before the first await, so a
-  // second caller sees the load that is already running.
+  // them as slides. Resolves to the number of added slides the filter shows,
+  // or null when the presentation closed or a newer request took over.
+  // Callers check their own preconditions first; loadingMore is set before
+  // the first await, so a second caller sees the load that is already
+  // running.
   async function loadMorePosts() {
     state.loadingMore = true;
     const request = ++state.loadRequest;
     updateCount(true);
+    syncEmptyState();
     syncGridStatus();
 
-    let added = appendNewPosts();
+    let scan = appendNewPosts();
+    let added = scan.shown;
     try {
       if (!added) {
         document.documentElement.style.overflow = state.oldOverflow;
-        for (let attempt = 0; attempt < 20; attempt += 1) {
+        const attempts = mediaFilterActive(state.settings)
+          ? FILTERED_LOAD_ATTEMPTS
+          : LOAD_ATTEMPTS;
+        let idle = 0;
+        for (
+          let attempt = 0;
+          attempt < attempts && idle < LOAD_IDLE_ATTEMPTS;
+          attempt += 1
+        ) {
           const scrollingElement = document.scrollingElement;
           window.scrollTo(0, scrollingElement?.scrollHeight || 0);
           await wait(200);
           if (!state.open || request !== state.loadRequest) return null;
-          added = appendNewPosts();
+          scan = appendNewPosts();
+          added = scan.shown;
           if (added) break;
+          // Posts the filter hides still show that Reddit is loading.
+          idle = scan.found ? 0 : idle + 1;
         }
       }
     } finally {
@@ -2078,15 +2215,22 @@
     }
 
     if (!state.open || request !== state.loadRequest) return null;
-    // A load that found nothing stops the grid loading on its own until the
-    // grid is shown again; otherwise the grid watches its end afresh.
+    // A load that found nothing to show stops the grid loading on its own
+    // until the grid is shown again or the filter changes; otherwise the
+    // grid watches its end afresh.
     if (!added) state.gridExhausted = true;
+    syncEmptyState();
     syncGridStatus();
     rearmGridSentinel();
     // Only the slideshow moves on to a newly loaded post.
     const shouldAdvance = state.advanceAfterLoad && state.view === "slideshow";
     state.advanceAfterLoad = false;
-    if (added && shouldAdvance) {
+    if (added && state.slides.length === added) {
+      // The first posts a filter lets through; either view starts there.
+      state.index = 0;
+      render();
+      refocusIfLost();
+    } else if (added && shouldAdvance) {
       state.index += 1;
       render();
     } else if (!added && shouldAdvance) {
@@ -2113,11 +2257,100 @@
     void loadMorePosts();
   }
 
+  // Stops a load in flight: its loop sees the newer request and gives up.
+  function cancelLoadMore() {
+    state.loadRequest += 1;
+    state.loadingMore = false;
+    state.advanceAfterLoad = false;
+    document.documentElement.style.overflow = "hidden";
+  }
+
+  // Where a slide sits, or would sit, among the shown slides: the number of
+  // shown slides before it in page order. A hidden slide makes way for the
+  // next shown slide after it, or for the last one when none follows.
+  function shownIndexFor(slide) {
+    const position = state.allSlides.indexOf(slide);
+    let index = 0;
+    for (let before = 0; before < position; before += 1) {
+      if (slideMatchesFilter(state.allSlides[before], state.settings)) {
+        index += 1;
+      }
+    }
+    return Math.max(0, Math.min(index, state.slides.length - 1));
+  }
+
+  // A filter change or an upgrade can remove the focused tile or hide the
+  // focused control. Focus then goes where opening the view would put it.
+  function refocusIfLost() {
+    if (state.settingsOpen) return;
+    const active = document.activeElement;
+    if (!active || !root.contains(active) || !active.getClientRects().length) {
+      focusInitialControl();
+    }
+  }
+
+  // A filter that shows none of the loaded posts keeps loading until one
+  // matches.
+  function loadForEmptyFilter() {
+    if (
+      !state.open ||
+      state.preparing ||
+      state.slides.length ||
+      state.loadingMore ||
+      isSinglePostPage() ||
+      !mediaFilterActive(state.settings)
+    )
+      return;
+    state.advanceAfterLoad = false;
+    void loadMorePosts();
+  }
+
+  // Shows what the Show filter now lets through. The slides come from the
+  // ones already read rather than from the page, so upgraded thumbnails stay
+  // upgraded. A current slide that still matches stays, and the slideshow
+  // then keeps its image, video and timer; otherwise the next shown slide in
+  // page order takes over.
+  function applyMediaFilter() {
+    if (!state.open || state.preparing) return;
+    const current = state.slides[state.index];
+    cancelLoadMore();
+    state.gridExhausted = false;
+    state.slides = state.allSlides.filter((slide) =>
+      slideMatchesFilter(slide, state.settings),
+    );
+    state.index = shownIndexFor(current);
+    if (state.gridBuilt) resetGrid();
+    if (
+      state.view === "slideshow" &&
+      current &&
+      state.slides[state.index] === current
+    ) {
+      syncPresentationUi();
+      if (!isSinglePostPage() && isOnLastPost()) void loadMoreAtEnd(false);
+    } else {
+      render();
+      if (state.view === "grid") {
+        revealGridTile(state.gridTiles.get(state.slides[state.index]));
+      }
+    }
+    refocusIfLost();
+    loadForEmptyFilter();
+  }
+
   function syncGridStatus() {
     let text = "";
     if (!isSinglePostPage()) {
-      if (state.loadingMore) text = "Loading more posts…";
-      else if (state.gridExhausted) text = "No more posts right now";
+      const filtering = mediaFilterActive(state.settings);
+      const shownLabel = shownMediaLabel(state.settings, "or");
+      if (state.loadingMore) {
+        text = filtering
+          ? `Looking for more ${shownLabel}…`
+          : "Loading more posts…";
+      } else if (state.gridExhausted) {
+        text = filtering
+          ? `No more ${shownLabel} found`
+          : "No more posts right now";
+      }
     }
     gridStatus.textContent = text;
     gridStatus.hidden = !text;
@@ -2151,6 +2384,19 @@
     Object.keys(settingCheckboxes).forEach((key) => {
       settingCheckboxes[key].checked = state.settings[key];
     });
+    // At least one media type always shows, so its box cannot be unticked.
+    const shownTypes = MEDIA_FILTER_TYPES.filter(
+      ([key]) => state.settings[key],
+    );
+    MEDIA_FILTER_TYPES.forEach(([key]) => {
+      const input = settingCheckboxes[key];
+      input.disabled = shownTypes.length === 1 && Boolean(state.settings[key]);
+      if (input.disabled) {
+        input.parentElement.title = "At least one type stays shown";
+      } else {
+        input.parentElement.removeAttribute("title");
+      }
+    });
   }
 
   function openSettings() {
@@ -2169,13 +2415,22 @@
     });
   }
 
-  function updateSetting(key, value) {
-    state.settings[key] = value;
+  function updateSettings(changes) {
+    Object.assign(state.settings, changes);
     saveSettings();
     // Display changes must not reload the image, restart playback, or reset
-    // the current slide's timer. Only a new duration needs a fresh timer.
+    // the current slide's timer. Only a new duration needs a fresh timer,
+    // and only the Show filter changes which slides there are.
     syncPresentationUi();
-    if (key === "slideDurationSeconds") scheduleAuto();
+    if ("slideDurationSeconds" in changes) scheduleAuto();
+    if (MEDIA_FILTER_TYPES.some(([key]) => key in changes)) {
+      syncSettingsUi();
+      applyMediaFilter();
+    }
+  }
+
+  function updateSetting(key, value) {
+    updateSettings({ [key]: value });
   }
 
   function setAutoPlaying(playing) {
@@ -2413,6 +2668,7 @@
     if (!state.open && !state.opening) return;
     state.open = false;
     state.opening = false;
+    state.preparing = false;
     state.autoPlaying = false;
     state.loadingMore = false;
     state.advanceAfterLoad = false;
@@ -2465,19 +2721,22 @@
     // run's enrichment results no longer refer to anything. Keeping them would
     // make enrichSlide skip every thumbnail it had already upgraded once.
     state.enrichments.clear();
+    state.allSlides = [];
     state.slides = [];
-    emptyTitle.textContent = "Preparing Reddit video…";
-    emptyText.textContent = "Waiting for Reddit's full-quality player.";
+    state.preparing = true;
     render();
     await waitForAdaptivePlayer(request);
     if (!state.open || request !== state.openRequest) return;
-    emptyTitle.textContent = "No posts found on this page";
-    emptyText.textContent =
-      "Scroll Reddit to load some posts, then try presentation mode again.";
-    state.slides = extractSlides();
+    state.preparing = false;
+    state.allSlides = extractSlides();
+    state.slides = state.allSlides.filter((slide) =>
+      slideMatchesFilter(slide, state.settings),
+    );
     state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
     render();
     focusInitialControl();
+    // A filter that hides every post here goes looking for more.
+    loadForEmptyFilter();
   }
 
   function focusableElements() {
@@ -2566,6 +2825,12 @@
       event.preventDefault();
       event.stopPropagation();
       toggleView();
+      return;
+    }
+    if (event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      event.stopPropagation();
+      updateSettings(nextMediaFilter(state.settings));
       return;
     }
     if (state.view === "grid") {

@@ -2794,3 +2794,131 @@ test("a dormant adaptive video keeps its category after upgrading", async ({
   await expect(page.locator(".redditp__title")).toHaveText("Feed video");
   await expect(liveVideo).toBeVisible();
 });
+
+// Two image posts whose permalinks are absolute, so they resolve even on
+// setContent's about:blank.
+const newTabPosts = [1, 2]
+  .map(
+    (number) =>
+      `<div class="thing link" data-url="https://i.redd.it/newtab-${number}.jpg" data-permalink="https://www.reddit.com/r/pics/comments/newtab${number}/post/"><a class="title">New tab post ${number}</a></div>`,
+  )
+  .join("");
+
+// A new tab does not share the page's routes, so the opened URLs are routed
+// for the whole context.
+async function routeNewTabs(page) {
+  await page
+    .context()
+    .route("https://i.redd.it/**", (route) =>
+      route.fulfill(svgImage(800, 600)),
+    );
+  await page
+    .context()
+    .route("https://www.reddit.com/r/pics/comments/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "comments page" }),
+    );
+}
+
+test("middle-click on the slide's picture opens its media in a new tab", async ({
+  page,
+}) => {
+  await routeNewTabs(page);
+  await startPresentation(page, newTabPosts);
+  const image = page.locator(".redditp__image");
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/newtab-1.jpg");
+
+  const [mediaPage] = await Promise.all([
+    page.context().waitForEvent("page"),
+    image.click({ button: "middle" }),
+  ]);
+  await mediaPage.waitForLoadState();
+  expect(mediaPage.url()).toBe("https://i.redd.it/newtab-1.jpg");
+  await mediaPage.close();
+
+  // The slideshow stays where it was.
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+  await expect(page.locator(".redditp__title")).toHaveText("New tab post 1");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+});
+
+test("Ctrl+click or middle-click on a grid tile opens its media and stays in the grid", async ({
+  page,
+}) => {
+  await routeNewTabs(page);
+  await startPresentation(page, newTabPosts);
+  await page.keyboard.press("v");
+  const grid = page.locator(".redditp__grid");
+  const first = page.getByRole("button", {
+    name: "New tab post 1",
+    exact: true,
+  });
+  const second = page.getByRole("button", {
+    name: "New tab post 2",
+    exact: true,
+  });
+  await expect(second).toBeVisible();
+
+  const [ctrlPage] = await Promise.all([
+    page.context().waitForEvent("page"),
+    second.click({ modifiers: ["ControlOrMeta"] }),
+  ]);
+  await ctrlPage.waitForLoadState();
+  expect(ctrlPage.url()).toBe("https://i.redd.it/newtab-2.jpg");
+  await ctrlPage.close();
+  await expect(grid).toBeVisible();
+  await expect(page.locator(".redditp__stage")).toBeHidden();
+
+  const [middlePage] = await Promise.all([
+    page.context().waitForEvent("page"),
+    first.click({ button: "middle" }),
+  ]);
+  await middlePage.waitForLoadState();
+  expect(middlePage.url()).toBe("https://i.redd.it/newtab-1.jpg");
+  await middlePage.close();
+  await expect(grid).toBeVisible();
+
+  // A plain click still opens the slideshow at that tile.
+  await second.click();
+  await expect(grid).toBeHidden();
+  await expect(page.locator(".redditp__title")).toHaveText("New tab post 2");
+  expect(page.context().pages()).toHaveLength(1);
+});
+
+test("the title opens the post in a new tab and the presentation stays open", async ({
+  page,
+}) => {
+  await routeNewTabs(page);
+  await startPresentation(
+    page,
+    `${newTabPosts}<div class="thing link" data-url="https://i.redd.it/newtab-3.jpg"><a class="title">Post without comments</a></div>`,
+  );
+  const titleLink = page.getByRole("link", {
+    name: "New tab post 1",
+    exact: true,
+  });
+  await expect(titleLink).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/r/pics/comments/newtab1/post/",
+  );
+  await expect(titleLink).toHaveAttribute("target", "_blank");
+
+  const [postPage] = await Promise.all([
+    page.context().waitForEvent("page"),
+    titleLink.click(),
+  ]);
+  await postPage.waitForLoadState();
+  expect(postPage.url()).toBe(
+    "https://www.reddit.com/r/pics/comments/newtab1/post/",
+  );
+  await postPage.close();
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+  await expect(page.locator(".redditp__title")).toHaveText("New tab post 1");
+
+  // A post with no comments link keeps a plain title.
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "Post without comments",
+  );
+  await expect(page.locator(".redditp__title-link")).toHaveCount(0);
+});

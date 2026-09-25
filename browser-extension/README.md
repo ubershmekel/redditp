@@ -90,6 +90,12 @@ last image.
 - Tab: cycle the controls; focus stays inside the presentation
 - **Auto**: advance using the saved time-per-slide setting
 
+The post title in the title panel links to the post on Reddit and opens it in a
+new tab. Middle-click, or Ctrl+click (Cmd+click on a Mac), the picture or video
+in the slideshow, or a tile in the grid, to open that slide's hosted file in a
+new tab: the same file as the **media** link and I. A plain click still plays or
+pauses a video, and a plain click on a tile still opens the slideshow there.
+
 The grid shows every loaded post as a tile, and each image of a gallery as a
 numbered tile of its own. Click or tap a tile, or focus it and press Enter, to
 open the slideshow at that slide; Escape then returns to the grid at the same

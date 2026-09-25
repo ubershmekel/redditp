@@ -1930,7 +1930,17 @@
     // Revisiting a slide retries its media, so a past failure must not keep
     // forcing the timer path.
     slide.mediaFailed = false;
-    title.textContent = slide.title;
+    // The title is a link to the post on Reddit, so a left, middle or
+    // Ctrl/Cmd click all open it in a new tab.
+    if (slide.commentsUrl) {
+      const titleLink = element("a", "redditp__title-link", slide.title);
+      titleLink.href = slide.commentsUrl;
+      titleLink.target = "_blank";
+      titleLink.rel = "noopener noreferrer";
+      title.replaceChildren(titleLink);
+    } else {
+      title.textContent = slide.title;
+    }
     const metaItems = [];
     if (slide.community) {
       const communityLink = element("a", "redditp__meta-link", slide.community);
@@ -2509,6 +2519,53 @@
     else root.requestFullscreen().catch(() => {});
   }
 
+  // Safari has had no auxclick event; a middle click still ends in a mouseup
+  // there.
+  const MIDDLE_CLICK_EVENT = "onauxclick" in window ? "auxclick" : "mouseup";
+
+  // The slide whose media a middle click or a Ctrl/Cmd click opens in a new
+  // tab: the slideshow's picture or video, or a grid tile. Link cards are
+  // real links already, and an embedded player keeps its own clicks.
+  function newTabSlide(event) {
+    const target = event.target;
+    if (!target || typeof target.closest !== "function") return null;
+    const tile = target.closest(".redditp__tile");
+    if (tile) {
+      return gridColumns.contains(tile)
+        ? gridTileInfo.get(tile)?.slide || null
+        : null;
+    }
+    const media = target.closest(".redditp__image, .redditp__video");
+    if (!media || media.parentNode !== mediaBox) return null;
+    return state.slides[state.index] || null;
+  }
+
+  function opensNewTab(event) {
+    if (event.type === "click") {
+      return event.button === 0 && (event.ctrlKey || event.metaKey);
+    }
+    return event.button === 1;
+  }
+
+  // Opens the slide's hosted file in a new tab, the way a middle click or a
+  // Ctrl/Cmd click would on a link. A plain click keeps its own job: playing
+  // or pausing a video, or opening the slideshow from a tile.
+  function openMediaInNewTab(event) {
+    if (!opensNewTab(event)) return;
+    const slide = newTabSlide(event);
+    const href = slide ? mediaHref(slide) : "";
+    if (!href) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  // Keeps the middle button from starting the browser's autoscroll where
+  // its click opens the media instead.
+  function preventMiddleButtonScroll(event) {
+    if (event.button === 1 && newTabSlide(event)) event.preventDefault();
+  }
+
   function onGridClick(event) {
     const tile = event.target.closest?.(".redditp__tile");
     if (!tile || !gridColumns.contains(tile)) return;
@@ -2910,6 +2967,9 @@
   collapseButton.addEventListener("click", () => {
     updateSetting("showControls", !state.settings.showControls);
   });
+  // Ahead of the surface toggle, so a Ctrl/Cmd click opens the media rather
+  // than pausing it.
+  mediaBox.addEventListener("click", openMediaInNewTab, true);
   mediaBox.addEventListener("click", toggleVideoFromSurface, true);
   // After clicking "mute" and "unmute" the right-left arows failed to change
   // the current slide in Chrome (seemed to work in Firefox).
@@ -2925,7 +2985,14 @@
   soundButton.addEventListener("click", toggleSound);
   galleryButton.addEventListener("click", skipGallery);
   viewButton.addEventListener("click", toggleView);
+  // Ahead of onGridClick, so a Ctrl/Cmd click opens the media and stays in
+  // the grid.
+  grid.addEventListener("click", openMediaInNewTab, true);
   grid.addEventListener("click", onGridClick);
+  [mediaBox, grid].forEach((surface) => {
+    surface.addEventListener(MIDDLE_CLICK_EVENT, openMediaInNewTab);
+    surface.addEventListener("mousedown", preventMiddleButtonScroll);
+  });
   root.addEventListener("pointerdown", (event) => {
     state.pointerStart = {
       x: event.clientX,

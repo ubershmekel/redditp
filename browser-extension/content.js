@@ -136,9 +136,24 @@
     // display:none drops the grid's scroll offset, so it is kept here.
     gridScrollTop: 0,
     gridResizeTimer: null,
+    // A load from the grid found no new posts. Cleared when the grid is
+    // shown again, so a sentinel left in range stops scrolling Reddit.
+    gridExhausted: false,
+    // Thumbnail slides waiting for the grid to upgrade them, and how many of
+    // those upgrades are in flight.
+    gridEnrichQueue: [],
+    gridEnrichActive: 0,
+    // Failed upgrades in a row; the grid stops asking after a few.
+    gridEnrichFailures: 0,
   };
   // Grid tile -> { slide, height }, the height in column widths.
   const gridTileInfo = new WeakMap();
+  // Watches the end of the grid and its thumbnail tiles, where supported.
+  let gridObserver = null;
+  // Slides the grid has tried to upgrade: once each, per open.
+  const gridEnrichTried = new WeakSet();
+  const GRID_ENRICH_CONCURRENCY = 2;
+  const GRID_ENRICH_MAX_FAILURES = 3;
 
   function absoluteUrl(value) {
     if (!value || value === "#") return "";
@@ -1343,11 +1358,13 @@
       gridColumns.children[column].append(tile);
       state.gridColumnHeights[column] += gridTileInfo.get(tile).height;
       state.gridTiles.set(slide, tile);
+      observeGridTile(tile, slide);
     });
   }
 
   function buildGrid() {
     makeGridColumns(gridColumnCount(grid.clientWidth || window.innerWidth));
+    ensureGridObserver();
     placeGridTiles(state.slides);
     state.gridBuilt = true;
   }
@@ -1405,9 +1422,11 @@
     }
     const hadFocus = document.activeElement === oldTile;
     const newTiles = replacements.map(createGridTile);
+    if (gridObserver) gridObserver.unobserve(oldTile);
     oldTile.replaceWith(...newTiles);
     replacements.forEach((slide, index) => {
       state.gridTiles.set(slide, newTiles[index]);
+      observeGridTile(newTiles[index], slide);
     });
     const columnIndex = Array.prototype.indexOf.call(
       gridColumns.children,
@@ -1423,12 +1442,107 @@
   }
 
   function resetGrid() {
+    if (gridObserver) {
+      gridObserver.disconnect();
+      gridObserver = null;
+    }
+    // Upgrades still in flight count themselves down when they finish.
+    state.gridEnrichQueue = [];
+    state.gridEnrichFailures = 0;
+    state.gridExhausted = false;
     gridColumns.replaceChildren();
     state.gridTiles.clear();
     state.gridColumnHeights = [];
     state.gridBuilt = false;
     state.gridScrollTop = 0;
     grid.scrollTop = 0;
+  }
+
+  // Loading more posts and upgrading thumbnails both wait for the grid to
+  // be scrolled near them. Without IntersectionObserver the grid still
+  // shows and opens every post that is already loaded.
+  function ensureGridObserver() {
+    if (gridObserver || typeof IntersectionObserver !== "function") return;
+    gridObserver = new IntersectionObserver(onGridIntersection, {
+      root: grid,
+      // A screen ahead, so posts load before the end of the grid shows.
+      rootMargin: "100% 0px",
+    });
+    gridObserver.observe(gridSentinel);
+  }
+
+  function observeGridTile(tile, slide) {
+    if (gridObserver && slide.needsEnrichment) gridObserver.observe(tile);
+  }
+
+  function onGridIntersection(entries) {
+    entries.forEach((entry) => {
+      if (entry.target === gridSentinel) {
+        if (entry.isIntersecting) loadMoreFromGrid();
+        return;
+      }
+      const info = gridTileInfo.get(entry.target);
+      if (!info) return;
+      if (entry.isIntersecting) queueGridEnrichment(info.slide);
+      else dropGridEnrichment(info.slide);
+    });
+  }
+
+  // An observer reports only changes, so a sentinel that is still in range
+  // after a load must be observed afresh to be reported again.
+  function rearmGridSentinel() {
+    if (!gridObserver) return;
+    gridObserver.unobserve(gridSentinel);
+    gridObserver.observe(gridSentinel);
+  }
+
+  // Thumbnail-only slides are upgraded as their tiles come into range, a
+  // couple at a time and at most once each per open. Several failures in a
+  // row, such as Reddit answering with a challenge page, stop the grid from
+  // asking again until the next open.
+  function queueGridEnrichment(slide) {
+    if (
+      !slide.needsEnrichment ||
+      gridEnrichTried.has(slide) ||
+      state.gridEnrichQueue.includes(slide) ||
+      state.gridEnrichFailures >= GRID_ENRICH_MAX_FAILURES
+    )
+      return;
+    state.gridEnrichQueue.push(slide);
+    pumpGridEnrichment();
+  }
+
+  // A tile scrolled out of range gives up its place in the queue, though an
+  // upgrade already in flight carries on.
+  function dropGridEnrichment(slide) {
+    const index = state.gridEnrichQueue.indexOf(slide);
+    if (index >= 0) state.gridEnrichQueue.splice(index, 1);
+  }
+
+  function pumpGridEnrichment() {
+    while (
+      state.gridEnrichActive < GRID_ENRICH_CONCURRENCY &&
+      state.gridEnrichFailures < GRID_ENRICH_MAX_FAILURES &&
+      state.gridEnrichQueue.length
+    ) {
+      const slide = state.gridEnrichQueue.shift();
+      // The slideshow may have upgraded and replaced it in the meantime.
+      if (!state.slides.includes(slide)) continue;
+      gridEnrichTried.add(slide);
+      state.gridEnrichActive += 1;
+      const openRequest = state.openRequest;
+      enrichSlide(slide)
+        .then((upgraded) => {
+          // A result from before a close or reopen counts for nothing now.
+          if (openRequest !== state.openRequest) return;
+          if (upgraded === false) state.gridEnrichFailures += 1;
+          else if (upgraded) state.gridEnrichFailures = 0;
+        })
+        .finally(() => {
+          state.gridEnrichActive -= 1;
+          pumpGridEnrichment();
+        });
+    }
   }
 
   async function upgradePendingAdaptiveSlide(slide) {
@@ -1568,6 +1682,7 @@
       // grid kept in shape; its tiles update through their own hooks.
       if (!state.gridBuilt) buildGrid();
       else relayoutGrid();
+      syncGridStatus();
       return;
     }
 
@@ -1819,6 +1934,7 @@
     state.loadingMore = true;
     const request = ++state.loadRequest;
     updateCount(true);
+    syncGridStatus();
 
     let added = appendNewPosts();
     try {
@@ -1841,6 +1957,11 @@
     }
 
     if (!state.open || request !== state.loadRequest) return null;
+    // A load that found nothing stops the grid loading on its own until the
+    // grid is shown again; otherwise the grid watches its end afresh.
+    if (!added) state.gridExhausted = true;
+    syncGridStatus();
+    rearmGridSentinel();
     // Only the slideshow moves on to a newly loaded post.
     const shouldAdvance = state.advanceAfterLoad && state.view === "slideshow";
     state.advanceAfterLoad = false;
@@ -1854,6 +1975,31 @@
       updateCount(false);
     }
     return added;
+  }
+
+  // Scrolling near the end of the grid loads more posts the way the last
+  // slide does, without moving to them.
+  function loadMoreFromGrid() {
+    if (
+      isSinglePostPage() ||
+      !state.open ||
+      state.view !== "grid" ||
+      state.loadingMore ||
+      state.gridExhausted
+    )
+      return;
+    state.advanceAfterLoad = false;
+    void loadMorePosts();
+  }
+
+  function syncGridStatus() {
+    let text = "";
+    if (!isSinglePostPage()) {
+      if (state.loadingMore) text = "Loading more posts…";
+      else if (state.gridExhausted) text = "No more posts right now";
+    }
+    gridStatus.textContent = text;
+    gridStatus.hidden = !text;
   }
 
   function scheduleAuto() {
@@ -1931,6 +2077,7 @@
     state.view = "grid";
     state.returnToGrid = false;
     state.advanceAfterLoad = false;
+    state.gridExhausted = false;
     setAutoPlaying(false);
     render();
     // display:none dropped the grid's scroll position.
@@ -1941,6 +2088,8 @@
   function showSlideshow(index) {
     if (!state.open || index < 0 || index >= state.slides.length) return;
     if (state.view === "grid") state.gridScrollTop = grid.scrollTop;
+    // Hidden tiles are out of range; upgrades already in flight still land.
+    state.gridEnrichQueue = [];
     state.view = "slideshow";
     state.returnToGrid = true;
     state.index = index;

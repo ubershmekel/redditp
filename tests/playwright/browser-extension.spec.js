@@ -1972,7 +1972,10 @@ test("V shows every slide as a grid tile without starting a player", async ({
   await expect(grid).toBeVisible();
   await expect(page.locator(".redditp__stage")).toBeHidden();
   await expect(grid.locator(".redditp__tile")).toHaveCount(9);
-  await expect(page.locator(".redditp__count")).toHaveText("5 posts");
+  // The grid may already be loading more posts at its end.
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^5 posts( · loading more)?$/,
+  );
   await expect(viewButton).toHaveAttribute("aria-pressed", "true");
   await expect(viewButton).toHaveAttribute("title", /\(V\)/);
   await expect(
@@ -2142,4 +2145,155 @@ test("the grid fits phone and desktop screens", async ({ page }) => {
     await expect(tiles).toHaveCount(12);
     await expect(firstTile).toBeFocused();
   }
+});
+
+test("the end of the grid loads more posts without rebuilding its tiles", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  const feedUrl = "https://www.reddit.com/r/gridfeed/";
+  await page.route(feedUrl, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<shreddit-post id="t3_gfeed1" post-title="Post 1" content-href="https://i.redd.it/grid-1.jpg" permalink="/r/gridfeed/comments/gfeed1/post/"></shreddit-post><div style="height: 4000px"></div>`,
+    }),
+  );
+  await page.goto(feedUrl);
+  await page.evaluate(() => {
+    localStorage.setItem(
+      "redditpPresentationSettings",
+      JSON.stringify({ openInGrid: true }),
+    );
+    window.__redditpScrollCalls = 0;
+    const originalScrollTo = window.scrollTo.bind(window);
+    window.scrollTo = (...args) => {
+      window.__redditpScrollCalls += 1;
+      originalScrollTo(...args);
+    };
+  });
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  const grid = page.locator(".redditp__grid");
+  const count = page.locator(".redditp__count");
+  const status = page.locator(".redditp__grid-status");
+  await expect(count).toHaveText("1 post · loading more");
+  await expect(status).toHaveText("Loading more posts…");
+  const firstTile = await page
+    .getByRole("button", { name: "Post 1", exact: true })
+    .elementHandle();
+  const gridScrollTop = await grid.evaluate((element) => element.scrollTop);
+  await page.evaluate(() => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `
+        <shreddit-post id="t3_gfeed2" post-title="Post 2" content-href="https://i.redd.it/grid-2.jpg" permalink="/r/gridfeed/comments/gfeed2/post/"></shreddit-post>
+        <shreddit-post id="t3_gfeed3" post-title="Post 3" content-href="https://i.redd.it/grid-3.jpg" permalink="/r/gridfeed/comments/gfeed3/post/"></shreddit-post>
+      `,
+    );
+  });
+
+  await expect(page.locator(".redditp__tile")).toHaveCount(3);
+  await expect(count).toHaveText(/^3 posts/);
+  // New posts join the grid; the tiles already there are left alone.
+  expect(
+    await firstTile.evaluate(
+      (tile) =>
+        tile.isConnected &&
+        tile === document.querySelector(".redditp__tile[aria-label='Post 1']"),
+    ),
+  ).toBe(true);
+  // Loading scrolls the Reddit page underneath, never the grid.
+  expect(
+    await page.evaluate(() => window.__redditpScrollCalls),
+  ).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  expect(await grid.evaluate((element) => element.scrollTop)).toBe(
+    gridScrollTop,
+  );
+  // A load that finds nothing ends the loading until the grid is shown again.
+  await expect(status).toHaveText("No more posts right now");
+  await expect(count).toHaveText("3 posts");
+});
+
+test("thumbnail tiles upgrade in view, two posts at a time", async ({
+  page,
+}) => {
+  const searchUrl = "https://www.reddit.com/search/?q=gridsearch";
+  const detailUrl = (number) =>
+    `https://www.reddit.com/r/test/comments/gsearch${number}/post/`;
+  const numbers = [1, 2, 3, 4, 5];
+  const requests = new Map();
+  let inFlight = 0;
+  let maxInFlight = 0;
+  await page.route("https://external-preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(640, 360)),
+  );
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill(svgImage(800, 600)),
+  );
+  await page.route(
+    /^https:\/\/www\.reddit\.com\/r\/test\/comments\/gsearch\d\/post\/$/,
+    async (route) => {
+      const url = route.request().url();
+      const number = Number(url.match(/gsearch(\d)/)[1]);
+      requests.set(url, (requests.get(url) || 0) + 1);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      inFlight -= 1;
+      // The first result turns out to be a three-image gallery.
+      const body =
+        number === 1
+          ? `<shreddit-post id="t3_gsearch1" post-title="Search result 1" gallery post-type="gallery" permalink="/r/test/comments/gsearch1/post/"><gallery-carousel>${[1, 2, 3].map((item) => `<figure><img src="https://i.redd.it/gsearch1-${item}.jpg"></figure>`).join("")}</gallery-carousel></shreddit-post>`
+          : `<shreddit-post id="t3_gsearch${number}" post-title="Search result ${number}" content-href="https://i.redd.it/gsearch${number}.jpg" permalink="/r/test/comments/gsearch${number}/post/"></shreddit-post>`;
+      await route.fulfill({ contentType: "text/html", body });
+    },
+  );
+  await page.route(searchUrl, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: numbers
+        .map(
+          (number) =>
+            `<search-telemetry-tracker data-faceplate-tracking-context='{"post":{"id":"t3_gsearch${number}","title":"Search result ${number}"},"subreddit":{"name":"test"}}'><div data-testid="search-post-unit"><h2><a href="${detailUrl(number)}">Search result ${number}</a></h2><a href="${detailUrl(number)}" aria-label="Search result ${number} thumbnail image"><faceplate-img data-testid="search_post_thumbnail" src="https://external-preview.redd.it/gsearch${number}-thumb.png" alt="Search result ${number}"></faceplate-img></a></div></search-telemetry-tracker>`,
+        )
+        .join(""),
+    }),
+  );
+  await page.goto(searchUrl);
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "redditpPresentationSettings",
+      JSON.stringify({ openInGrid: true }),
+    ),
+  );
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  await expect(page.locator(".redditp__tile")).toHaveCount(7);
+  for (const number of [2, 3, 4, 5]) {
+    await expect(
+      page
+        .getByRole("button", { name: `Search result ${number}`, exact: true })
+        .locator("img"),
+    ).toHaveAttribute("src", `https://i.redd.it/gsearch${number}.jpg`);
+  }
+  for (let item = 1; item <= 3; item += 1) {
+    await expect(
+      page
+        .getByRole("button", {
+          name: `Search result 1, ${item} of 3`,
+          exact: true,
+        })
+        .locator(".redditp__tile-badge"),
+    ).toHaveText(`${item}/3`);
+  }
+  // The focused thumbnail hands focus to the first tile that replaced it.
+  await expect(
+    page.getByRole("button", { name: "Search result 1, 1 of 3", exact: true }),
+  ).toBeFocused();
+  expect([...requests.keys()].sort()).toEqual(numbers.map(detailUrl).sort());
+  expect([...requests.values()]).toEqual([1, 1, 1, 1, 1]);
+  expect(maxInFlight).toBeLessThanOrEqual(2);
 });

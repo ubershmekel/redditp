@@ -93,10 +93,12 @@ The grid shows every loaded post as a tile, and each image of a gallery as a
 numbered tile of its own. Click or tap a tile, or focus it and press Enter, to
 open the slideshow at that slide; Escape then returns to the grid at the same
 tile, while the × button still closes presentation mode. The arrow keys, Page
-Up/Page Down, and Home/End scroll the grid. The grid turns auto-advance off and
-starts no video or embedded player: video tiles show the post's poster, and
-players load only in the slideshow. Turn on **Open in grid view** in the
-settings panel to start presentation mode in the grid.
+Up/Page Down, and Home/End scroll the grid. Scrolling to the end of the grid
+loads more posts, and search results that show only a small thumbnail upgrade to
+their actual media as their tiles come into view, two at a time. The grid turns
+auto-advance off and starts no video or embedded player: video tiles show the
+post's poster, and players load only in the slideshow. Turn on **Open in grid
+view** in the settings panel to start presentation mode in the grid.
 
 Open the gear button's settings panel for a keyboard shortcut reference. Use the
 gear button in the bottom-left controls to choose the auto-advance duration,

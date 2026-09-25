@@ -105,6 +105,102 @@
   }
   // redditp-grid-layout:end
 
+  // redditp-media-filter:start
+  // Media types for the Show filter. Like the grid layout block, this stays
+  // DOM-free and self-contained, so nodejs/test-embedit.js can evaluate it on
+  // its own.
+  const GIF_URL_RE = /\.gif(?:$|[?#])/i;
+  // Each type's setting key and the label the counter and messages use.
+  const MEDIA_FILTER_TYPES = [
+    ["showImages", "images"],
+    ["showGifs", "GIFs"],
+    ["showVideos", "videos"],
+  ];
+
+  // A slide's media type: "image", "gif", "video", or "link" for link cards,
+  // text posts, and anything else that is not media of its own. A GIF is a
+  // picture or video served from a .gif URL, or a video converted from one
+  // (Reddit's mp4 rendition, an imgur GIFV).
+  function mediaCategory(kind, url, fromGif) {
+    if (kind === "image" || kind === "video") {
+      return fromGif || GIF_URL_RE.test(url || "") ? "gif" : kind;
+    }
+    if (
+      kind === "native-video" ||
+      kind === "pending-native-video" ||
+      kind === "embed"
+    ) {
+      return "video";
+    }
+    return "link";
+  }
+
+  function mediaFilterActive(settings) {
+    return !(settings.showImages && settings.showGifs && settings.showVideos);
+  }
+
+  // A later include/exclude list of domains would test the host of
+  // slide.sourceUrl, falling back to slide.url and slide.commentsUrl, let
+  // mediaUnknown slides through as well, and apply whenever the media filter
+  // is active or a domain list is set.
+  function slideMatchesFilter(slide, settings) {
+    if (!mediaFilterActive(settings)) return true;
+    // A search result that shows only a thumbnail stands in for its post
+    // until enrichSlide has read the post.
+    if (slide.mediaUnknown) return true;
+    // A preview picture scraped from a link post's card is not the post's
+    // own media. Reddit's own players are added without postMedia, so the
+    // check stays with pictures.
+    if (slide.postMedia === false && slide.kind === "image") return false;
+    if (slide.media === "image") return Boolean(settings.showImages);
+    if (slide.media === "gif") return Boolean(settings.showGifs);
+    if (slide.media === "video") return Boolean(settings.showVideos);
+    // Link and text posts need every type on.
+    return false;
+  }
+
+  // The counter's note: "images only" with one type on, "no GIFs" with two,
+  // and nothing when every type (or, by mistake, none) is on.
+  function mediaFilterSummary(settings) {
+    const shown = MEDIA_FILTER_TYPES.filter(([key]) => settings[key]);
+    if (shown.length === 1) return `${shown[0][1]} only`;
+    if (shown.length === 2) {
+      const hidden = MEDIA_FILTER_TYPES.find(([key]) => !settings[key]);
+      return `no ${hidden[1]}`;
+    }
+    return "";
+  }
+
+  // The shown types in words: "images", "images or GIFs", "images and
+  // videos", "images, GIFs and videos".
+  function shownMediaLabel(settings, conjunction) {
+    const labels = MEDIA_FILTER_TYPES.filter(([key]) => settings[key]).map(
+      ([, label]) => label,
+    );
+    if (labels.length < 2) return labels.join("");
+    return `${labels.slice(0, -1).join(", ")} ${conjunction} ${labels[labels.length - 1]}`;
+  }
+
+  // O steps through everything, images only, GIFs only, videos only, and
+  // back to everything. Any other mix goes back to everything. Returns the
+  // three settings to apply.
+  function nextMediaFilter(settings) {
+    const shown = MEDIA_FILTER_TYPES.filter(([key]) => settings[key]);
+    let only = -1;
+    if (shown.length === MEDIA_FILTER_TYPES.length) {
+      only = 0;
+    } else if (shown.length === 1) {
+      only = MEDIA_FILTER_TYPES.indexOf(shown[0]) + 1;
+      if (only >= MEDIA_FILTER_TYPES.length) only = -1;
+    }
+    const result = {};
+    MEDIA_FILTER_TYPES.forEach(([key], index) => {
+      result[key] = only < 0 || index === only;
+    });
+    return result;
+  }
+  // redditp-media-filter:end
+
   const state = {
     open: false,
     opening: false,
@@ -346,7 +442,11 @@
       if (!match || /\/gallery\/|\/a\//.test(parsed.pathname)) return null;
       const extension = (match[2] || "").toLowerCase();
       if (extension === "gifv" || extension === "gif") {
-        return { kind: "video", url: `https://i.imgur.com/${match[1]}.mp4` };
+        return {
+          kind: "video",
+          url: `https://i.imgur.com/${match[1]}.mp4`,
+          fromGif: true,
+        };
       }
       return {
         kind: "image",
@@ -569,7 +669,8 @@
     const seen = new Set();
     // postMedia marks the post's own media, as opposed to a preview image
     // scraped out of a listing card for a post that links somewhere else.
-    function add(kind, url, poster, postMedia) {
+    // fromGif marks a video that a host converted from a GIF.
+    function add(kind, url, poster, postMedia, fromGif) {
       const normalized = absoluteUrl(url);
       const key = canonicalMediaKey(normalized);
       if (!normalized || seen.has(key)) return;
@@ -579,6 +680,7 @@
         url: normalized,
         poster: absoluteUrl(poster),
         postMedia: Boolean(postMedia),
+        fromGif: Boolean(fromGif),
       });
     }
 
@@ -690,10 +792,14 @@
 
     if (isVideoUrl(sourceUrl)) add("video", sourceUrl);
     const external = externalMedia(sourceUrl);
-    if (external) add(external.kind, external.url, "", true);
+    if (external) {
+      add(external.kind, external.url, "", true, external.fromGif);
+    }
     node.querySelectorAll("iframe[src]").forEach((iframe) => {
       const iframeMedia = externalMedia(iframe.getAttribute("src"));
-      if (iframeMedia) add(iframeMedia.kind, iframeMedia.url);
+      if (iframeMedia) {
+        add(iframeMedia.kind, iframeMedia.url, "", false, iframeMedia.fromGif);
+      }
     });
     return media;
   }
@@ -781,6 +887,14 @@
             node.getAttribute("post-type") === "link" &&
             media[0]?.kind === "image",
           ));
+      // A search result's thumbnail says nothing about the post's media, so
+      // the Show filter judges it only once enrichSlide has read the post.
+      // A feed link preview is judged by its preview picture.
+      const mediaUnknown =
+        needsEnrichment &&
+        node.matches(
+          "[data-testid='search-post-unit'], .search-result.search-result-link",
+        );
       media.forEach((item, mediaIndex) => {
         const key = `${comments || base.title}|${item.url}`;
         if (!seenPostMedia.has(key)) {
@@ -790,6 +904,8 @@
               galleryItem: isGallery ? mediaIndex + 1 : 0,
               galleryTotal: isGallery ? media.length : 0,
               needsEnrichment,
+              mediaUnknown,
+              media: mediaCategory(item.kind, item.url, item.fromGif),
             }),
           );
         }
@@ -834,6 +950,8 @@
           galleryItem: isGallery ? index + 1 : 0,
           galleryTotal: isGallery ? detailMedia.length : 0,
           needsEnrichment: false,
+          mediaUnknown: false,
+          media: mediaCategory(item.kind, item.url, item.fromGif),
         }),
       );
 
@@ -1545,6 +1663,9 @@
     }
   }
 
+  // Upgrades the slide in place. Its media type stays "video" on both paths,
+  // including the link card a failed upgrade falls back to, so the slide
+  // keeps its place under the Show filter.
   async function upgradePendingAdaptiveSlide(slide) {
     if (
       slide.kind !== "pending-native-video" ||

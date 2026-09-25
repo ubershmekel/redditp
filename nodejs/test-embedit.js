@@ -837,34 +837,40 @@ suite("listingUrl", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Grid view layout in browser-extension/content.js
+// DOM-free blocks of browser-extension/content.js
 //
-// The content script is one IIFE, but its grid layout math sits between two
-// markers and touches no DOM, so that block can be evaluated here on its own.
+// The content script is one IIFE, but its grid layout math and its media
+// filter rules each sit between two markers and touch no DOM, so each block
+// can be evaluated here on its own.
 // ---------------------------------------------------------------------------
 
-const GRID_LAYOUT_START = "// redditp-grid-layout:start";
-const GRID_LAYOUT_END = "// redditp-grid-layout:end";
-
-function loadGridLayoutHelpers() {
+// Evaluates the block between "// <name>:start" and "// <name>:end" and
+// returns the named functions. Returns null if the markers are gone, which
+// each suite's first test asserts on rather than silently skipping its checks.
+function loadContentScriptBlock(name, exportNames) {
   const fs = require("fs");
   const path = require("path");
   const source = fs.readFileSync(
     path.join(__dirname, "../browser-extension/content.js"),
     "utf8",
   );
-  const start = source.indexOf(GRID_LAYOUT_START);
-  const end = source.indexOf(GRID_LAYOUT_END);
+  const start = source.indexOf(`// ${name}:start`);
+  const end = source.indexOf(`// ${name}:end`);
   if (start < 0 || end < start) return null;
   return new Function(
     '"use strict";\n' +
       source.slice(start, end) +
-      "\nreturn { gridColumnCount, shortestColumn, tileHeightRatio, layoutColumns };",
+      `\nreturn { ${exportNames.join(", ")} };`,
   )();
 }
 
 suite("browser-extension grid layout", () => {
-  const grid = loadGridLayoutHelpers();
+  const grid = loadContentScriptBlock("redditp-grid-layout", [
+    "gridColumnCount",
+    "shortestColumn",
+    "tileHeightRatio",
+    "layoutColumns",
+  ]);
 
   test("grid layout helpers could be loaded", () => {
     // Guards the slice above: if the markers move or disappear, this fails
@@ -958,6 +964,261 @@ suite("browser-extension grid layout", () => {
         1,
         `${width}x${height}`,
       );
+    });
+  });
+});
+
+suite("browser-extension media filter", () => {
+  const filter = loadContentScriptBlock("redditp-media-filter", [
+    "mediaCategory",
+    "mediaFilterActive",
+    "slideMatchesFilter",
+    "mediaFilterSummary",
+    "shownMediaLabel",
+    "nextMediaFilter",
+  ]);
+  const shows = (images, gifs, videos) => ({
+    showImages: images,
+    showGifs: gifs,
+    showVideos: videos,
+  });
+  const ALL = shows(true, true, true);
+  const NONE = shows(false, false, false);
+  const IMAGES_ONLY = shows(true, false, false);
+  const GIFS_ONLY = shows(false, true, false);
+  const VIDEOS_ONLY = shows(false, false, true);
+  const NO_IMAGES = shows(false, true, true);
+  const NO_GIFS = shows(true, false, true);
+  const NO_VIDEOS = shows(true, true, false);
+
+  // Slides the way extractSlides tags them. Reddit's own players are added
+  // without postMedia; an embed from the post's link is its own media.
+  const image = { kind: "image", media: "image", postMedia: true };
+  const gif = { kind: "image", media: "gif", postMedia: true };
+  const redditVideo = { kind: "video", media: "video", postMedia: false };
+  const gifVideo = { kind: "video", media: "gif", postMedia: true };
+  const embed = { kind: "embed", media: "video", postMedia: true };
+  const link = { kind: "link", media: "link" };
+  const linkPreview = { kind: "image", media: "image", postMedia: false };
+  const searchThumbnail = {
+    kind: "image",
+    media: "image",
+    postMedia: false,
+    needsEnrichment: true,
+    mediaUnknown: true,
+  };
+  const feedLinkPreview = {
+    kind: "image",
+    media: "image",
+    postMedia: false,
+    needsEnrichment: true,
+    mediaUnknown: false,
+  };
+
+  function assertShown(settings, expected) {
+    Object.keys(expected).forEach((name) => {
+      const slide = {
+        image,
+        gif,
+        redditVideo,
+        gifVideo,
+        embed,
+        link,
+        linkPreview,
+        searchThumbnail,
+        feedLinkPreview,
+      }[name];
+      assert.strictEqual(
+        filter.slideMatchesFilter(slide, settings),
+        expected[name],
+        name,
+      );
+    });
+  }
+
+  test("media filter helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      filter,
+      "did not find the redditp-media-filter markers in content.js",
+    );
+  });
+
+  test("each kind of slide gets a media type", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    [
+      ["image", "https://i.redd.it/a.jpg", false, "image"],
+      ["image", "https://i.redd.it/a.gif", false, "gif"],
+      ["image", "https://i.redd.it/A.GIF", false, "gif"],
+      [
+        "image",
+        "https://preview.redd.it/a.gif?width=640&format=png8&s=x",
+        false,
+        "gif",
+      ],
+      ["image", "https://i.imgur.com/a.gifv", false, "image"],
+      ["video", "https://i.imgur.com/a.mp4", true, "gif"],
+      [
+        "video",
+        "https://external-preview.redd.it/a.gif?format=mp4&s=x",
+        false,
+        "gif",
+      ],
+      ["video", "https://v.redd.it/a/DASH_480.mp4", false, "video"],
+      ["native-video", "https://www.reddit.com/r/a/", undefined, "video"],
+      ["pending-native-video", "https://v.redd.it/a", undefined, "video"],
+      ["embed", "https://www.youtube.com/embed/a", false, "video"],
+      ["link", "https://example.com/story", undefined, "link"],
+      ["something-new", "", undefined, "link"],
+    ].forEach(([kind, url, fromGif, expected]) => {
+      assert.strictEqual(
+        filter.mediaCategory(kind, url, fromGif),
+        expected,
+        `${kind} ${url}`,
+      );
+    });
+  });
+
+  test("the filter is active unless every type is on", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assert.strictEqual(filter.mediaFilterActive(ALL), false);
+    [IMAGES_ONLY, NO_GIFS, NO_VIDEOS, NONE].forEach((settings) => {
+      assert.strictEqual(filter.mediaFilterActive(settings), true);
+    });
+  });
+
+  test("every slide shows while every type is on", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assertShown(ALL, {
+      image: true,
+      gif: true,
+      redditVideo: true,
+      gifVideo: true,
+      embed: true,
+      link: true,
+      linkPreview: true,
+      searchThumbnail: true,
+      feedLinkPreview: true,
+    });
+  });
+
+  test("images only hides GIFs, videos and link posts", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assertShown(IMAGES_ONLY, {
+      image: true,
+      gif: false,
+      redditVideo: false,
+      gifVideo: false,
+      embed: false,
+      link: false,
+    });
+  });
+
+  test("GIFs include videos converted from a GIF", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assertShown(GIFS_ONLY, {
+      image: false,
+      gif: true,
+      gifVideo: true,
+      redditVideo: false,
+      embed: false,
+    });
+  });
+
+  test("Reddit's own players and embeds count as videos", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assertShown(VIDEOS_ONLY, {
+      redditVideo: true,
+      embed: true,
+      image: false,
+      gif: false,
+      gifVideo: false,
+      link: false,
+    });
+  });
+
+  test("a search thumbnail shows until its post is read", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assertShown(VIDEOS_ONLY, { searchThumbnail: true, feedLinkPreview: false });
+    assertShown(IMAGES_ONLY, { searchThumbnail: true, feedLinkPreview: false });
+  });
+
+  test("a link post's preview picture is not an image", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assertShown(IMAGES_ONLY, { linkPreview: false, image: true });
+    assertShown(NO_VIDEOS, { linkPreview: false });
+    assertShown(GIFS_ONLY, { linkPreview: false });
+    assert.strictEqual(
+      filter.slideMatchesFilter(
+        { kind: "image", media: "gif", postMedia: false },
+        GIFS_ONLY,
+      ),
+      false,
+    );
+    assertShown(ALL, { linkPreview: true });
+  });
+
+  test("hiding one type keeps the other two", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assertShown(NO_VIDEOS, {
+      image: true,
+      gif: true,
+      gifVideo: true,
+      redditVideo: false,
+      embed: false,
+      link: false,
+    });
+    assertShown(NO_IMAGES, { image: false, gif: true, redditVideo: true });
+  });
+
+  test("the counter names what the filter shows", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    [
+      [ALL, ""],
+      [NONE, ""],
+      [IMAGES_ONLY, "images only"],
+      [GIFS_ONLY, "GIFs only"],
+      [VIDEOS_ONLY, "videos only"],
+      [NO_IMAGES, "no images"],
+      [NO_GIFS, "no GIFs"],
+      [NO_VIDEOS, "no videos"],
+    ].forEach(([settings, summary]) => {
+      assert.strictEqual(filter.mediaFilterSummary(settings), summary);
+    });
+  });
+
+  test("the shown types read as a list", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    assert.strictEqual(filter.shownMediaLabel(IMAGES_ONLY, "or"), "images");
+    assert.strictEqual(filter.shownMediaLabel(VIDEOS_ONLY, "and"), "videos");
+    assert.strictEqual(
+      filter.shownMediaLabel(NO_VIDEOS, "or"),
+      "images or GIFs",
+    );
+    assert.strictEqual(
+      filter.shownMediaLabel(NO_GIFS, "and"),
+      "images and videos",
+    );
+    assert.strictEqual(
+      filter.shownMediaLabel(ALL, "and"),
+      "images, GIFs and videos",
+    );
+  });
+
+  test("O cycles all, images, GIFs, videos and back to all", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    let settings = ALL;
+    [IMAGES_ONLY, GIFS_ONLY, VIDEOS_ONLY, ALL].forEach((expected) => {
+      settings = filter.nextMediaFilter(settings);
+      assert.deepStrictEqual(settings, expected);
+    });
+  });
+
+  test("O from any other mix shows everything", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    [NO_IMAGES, NO_GIFS, NO_VIDEOS, NONE].forEach((settings) => {
+      assert.deepStrictEqual(filter.nextMediaFilter(settings), ALL);
     });
   });
 });

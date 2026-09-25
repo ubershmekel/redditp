@@ -1439,8 +1439,17 @@
       return;
     }
     if (!state.open || !isOnLastPost()) return;
-    state.loadingMore = true;
     state.advanceAfterLoad = Boolean(advanceWhenReady);
+    return loadMorePosts();
+  }
+
+  // Scrolls the Reddit page underneath so it renders more posts, and adds
+  // them as slides. Resolves to the number of slides added, or null when the
+  // presentation closed or a newer request took over. Callers check their own
+  // preconditions first; loadingMore is set before the first await, so a
+  // second caller sees the load that is already running.
+  async function loadMorePosts() {
+    state.loadingMore = true;
     const request = ++state.loadRequest;
     updateCount(true);
 
@@ -1452,7 +1461,7 @@
           const scrollingElement = document.scrollingElement;
           window.scrollTo(0, scrollingElement?.scrollHeight || 0);
           await wait(200);
-          if (!state.open || request !== state.loadRequest) return;
+          if (!state.open || request !== state.loadRequest) return null;
           added = appendNewPosts();
           if (added) break;
         }
@@ -1464,7 +1473,7 @@
       }
     }
 
-    if (!state.open || request !== state.loadRequest) return;
+    if (!state.open || request !== state.loadRequest) return null;
     const shouldAdvance = state.advanceAfterLoad;
     state.advanceAfterLoad = false;
     if (added && shouldAdvance) {
@@ -1476,6 +1485,7 @@
     } else {
       updateCount(false);
     }
+    return added;
   }
 
   function scheduleAuto() {

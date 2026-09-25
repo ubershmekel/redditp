@@ -1736,7 +1736,7 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
   await expect(page.locator("#redditp-presentation")).toBeVisible();
 
   const prevented = await page.evaluate(() =>
-    ["f", "m", "g"].map((key) => {
+    ["f", "m", "g", "v"].map((key) => {
       const event = new KeyboardEvent("keydown", {
         key,
         ctrlKey: true,
@@ -1747,7 +1747,7 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
       return event.defaultPrevented;
     }),
   );
-  expect(prevented).toEqual([false, false, false]);
+  expect(prevented).toEqual([false, false, false, false]);
 
   // The unmodified key still works.
   await page.keyboard.press("m");
@@ -1909,5 +1909,237 @@ test("Tab cycles focus inside the presentation instead of the page behind it", a
       Boolean(document.activeElement?.closest("#redditp-presentation")),
     );
     expect(insideDialog).toBe(true);
+  }
+});
+
+// Grid tiles take their height from the image, so every routed image needs
+// real dimensions.
+function svgImage(width, height) {
+  return {
+    contentType: "image/svg+xml",
+    body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"></svg>`,
+  };
+}
+
+// Image posts titled "Post 1" to "Post <count>", in three shapes so the
+// grid's columns fill unevenly.
+function gridImagePosts(count) {
+  return Array.from({ length: count }, (_, index) => {
+    const number = index + 1;
+    return `<div class="thing link" data-url="https://i.redd.it/grid-${number}.jpg" data-permalink="/r/pics/comments/grid${number}/post/"><a class="title">Post ${number}</a></div>`;
+  }).join("");
+}
+
+function routeGridImages(page) {
+  return page.route(/^https:\/\/i\.redd\.it\/grid-\d+\.jpg$/, (route) => {
+    const number = Number(
+      route
+        .request()
+        .url()
+        .match(/grid-(\d+)\.jpg$/)[1],
+    );
+    return route.fulfill(svgImage(800, [600, 800, 1200][number % 3]));
+  });
+}
+
+test("V shows every slide as a grid tile without starting a player", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill(svgImage(800, 600)),
+  );
+  await page.route("https://preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(1170, 1140)),
+  );
+  await page.route("https://external-preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(640, 360)),
+  );
+  await page.route("https://v.redd.it/**", (route) => route.abort());
+  await startPresentation(
+    page,
+    `<div class="thing link" data-url="https://i.redd.it/grid-first.jpg" data-permalink="/r/pics/comments/gfirst/post/"><a class="title">First image</a></div>
+    ${oldGalleryPost()}
+    <div class="thing link" data-url="https://v.redd.it/gridclip" data-permalink="/r/videos/comments/gclip/post/"><a class="title">Grid clip</a><video src="https://v.redd.it/gridclip/DASH_480.mp4" poster="https://external-preview.redd.it/gridclip.png"></video></div>
+    <shreddit-post id="t3_gridembed" post-title="Grid interview" content-href="https://www.youtube.com/watch?v=l74r1s8y7uY" permalink="/r/videos/comments/gridembed/post/"></shreddit-post>
+    <div class="thing link" data-url="https://i.redd.it/grid-last.jpg" data-permalink="/r/pics/comments/glast/post/"><a class="title">Last image</a></div>`,
+  );
+  await expect(page.locator(".redditp__title")).toHaveText("First image");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 5");
+
+  await page.keyboard.press("v");
+  const grid = page.locator(".redditp__grid");
+  const viewButton = page.getByRole("button", { name: "grid", exact: true });
+  await expect(grid).toBeVisible();
+  await expect(page.locator(".redditp__stage")).toBeHidden();
+  await expect(grid.locator(".redditp__tile")).toHaveCount(9);
+  await expect(page.locator(".redditp__count")).toHaveText("5 posts");
+  await expect(viewButton).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton).toHaveAttribute("title", /\(V\)/);
+  await expect(
+    page.getByRole("button", { name: "First image", exact: true }),
+  ).toBeFocused();
+  for (let item = 1; item <= 5; item += 1) {
+    await expect(
+      page
+        .getByRole("button", {
+          name: `Apple pie gallery, ${item} of 5`,
+          exact: true,
+        })
+        .locator(".redditp__tile-badge"),
+    ).toHaveText(`${item}/5`);
+  }
+  await expect(
+    page.getByRole("button", { name: "Grid clip, video", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Grid interview, video", exact: true }),
+  ).toBeVisible();
+  await expect(grid.locator("video")).toHaveCount(0);
+  await expect(grid.locator("iframe")).toHaveCount(0);
+  await expect(grid.locator(".redditp__tile-play")).toHaveCount(2);
+  await expect(page.locator(".redditp__prev")).toBeHidden();
+  await expect(page.locator(".redditp__next")).toBeHidden();
+  await expect(page.locator(".redditp__details")).toBeHidden();
+
+  await page.keyboard.press("v");
+  await expect(grid).toBeHidden();
+  await expect(page.locator(".redditp__title")).toHaveText("First image");
+  await expect(viewButton).toHaveAttribute("aria-pressed", "false");
+
+  await page.keyboard.press("v");
+  await page
+    .getByRole("button", { name: "Apple pie gallery, 3 of 5", exact: true })
+    .click();
+  await expect(grid).toBeHidden();
+  await expect(page.locator(".redditp__gallery")).toHaveText("(3/5)");
+  await expect(page.locator(".redditp__count")).toHaveText("2 / 5");
+});
+
+test("a grid tile opens its slide and Escape returns to that slide's tile", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await startPresentation(page, gridImagePosts(30));
+  await page.keyboard.press("v");
+  await page.getByRole("button", { name: "Post 25", exact: true }).click();
+  await expect(page.locator(".redditp__title")).toHaveText("Post 25");
+  await expect(page.locator(".redditp__count")).toHaveText("25 / 30");
+  for (let press = 0; press < 20; press += 1) {
+    await page.keyboard.press("ArrowLeft");
+  }
+  await expect(page.locator(".redditp__title")).toHaveText("Post 5");
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  const tile = page.getByRole("button", { name: "Post 5", exact: true });
+  await expect(tile).toBeFocused();
+  await expect(tile).toBeInViewport();
+
+  // Enter presses the focused tile.
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".redditp__title")).toHaveText("Post 5");
+  await page.keyboard.press("Escape");
+  await expect(tile).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+});
+
+test("the grid stops auto-advance", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-08-25T12:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-08-25T12:00:01Z"));
+  await startPresentation(
+    page,
+    ["First", "Second", "Third"]
+      .map(
+        (title) =>
+          `<div class="thing link" data-url="https://example.com/${title}"><a class="title">${title}</a></div>`,
+      )
+      .join(""),
+  );
+  await page.keyboard.press("a");
+  await expect(
+    page.getByRole("button", { name: "pause", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await page.clock.runFor(10000);
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__title")).toHaveText("First");
+  await expect(
+    page.getByRole("button", { name: "auto", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await page.clock.runFor(10000);
+  await expect(page.locator(".redditp__title")).toHaveText("First");
+});
+
+test("the Open in grid view setting is saved and starts in the grid", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await page.route("https://www.reddit.com/grid-setting-test", (route) =>
+    route.fulfill({ contentType: "text/html", body: gridImagePosts(3) }),
+  );
+  async function openPresentation() {
+    await page.goto("https://www.reddit.com/grid-setting-test");
+    await page.addStyleTag({ path: extensionStyles });
+    await page.addScriptTag({ path: extensionScript });
+  }
+  await openPresentation();
+  await expect(page.locator(".redditp__title")).toHaveText("Post 1");
+
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await page.getByLabel("Open in grid view").check();
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  // The setting chooses the starting view; it does not switch this one.
+  await expect(page.locator(".redditp__grid")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("redditpPresentationSettings")),
+  );
+  expect(saved.openInGrid).toBe(true);
+
+  await openPresentation();
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await expect(page.locator(".redditp__stage")).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Post 1", exact: true }),
+  ).toBeFocused();
+});
+
+test("the grid fits phone and desktop screens", async ({ page }) => {
+  await routeGridImages(page);
+  await startPresentation(page, gridImagePosts(12));
+  await page.keyboard.press("v");
+  const tiles = page.locator(".redditp__tile");
+  const firstTile = page.getByRole("button", { name: "Post 1", exact: true });
+  await expect(tiles).toHaveCount(12);
+  await expect(firstTile).toBeFocused();
+
+  for (const [width, height, columns] of [
+    [360, 780, 2],
+    [390, 844, 2],
+    [393, 852, 2],
+    [412, 915, 2],
+    [1920, 1080, 6],
+    [2560, 1440, 8],
+  ]) {
+    await page.setViewportSize({ width, height });
+    // Relayout waits for the resize to settle; expect retries until then.
+    await expect(page.locator(".redditp__grid-column")).toHaveCount(columns);
+    const overflow = await page
+      .locator(".redditp__grid")
+      .evaluate((grid) => grid.scrollWidth - grid.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    await expect(page.locator(".redditp__controls")).toBeInViewport();
+    await expect(firstTile).toBeInViewport();
+    await expect(tiles).toHaveCount(12);
+    await expect(firstTile).toBeFocused();
   }
 });

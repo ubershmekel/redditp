@@ -837,6 +837,132 @@ suite("listingUrl", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Grid view layout in browser-extension/content.js
+//
+// The content script is one IIFE, but its grid layout math sits between two
+// markers and touches no DOM, so that block can be evaluated here on its own.
+// ---------------------------------------------------------------------------
+
+const GRID_LAYOUT_START = "// redditp-grid-layout:start";
+const GRID_LAYOUT_END = "// redditp-grid-layout:end";
+
+function loadGridLayoutHelpers() {
+  const fs = require("fs");
+  const path = require("path");
+  const source = fs.readFileSync(
+    path.join(__dirname, "../browser-extension/content.js"),
+    "utf8",
+  );
+  const start = source.indexOf(GRID_LAYOUT_START);
+  const end = source.indexOf(GRID_LAYOUT_END);
+  if (start < 0 || end < start) return null;
+  return new Function(
+    '"use strict";\n' +
+      source.slice(start, end) +
+      "\nreturn { gridColumnCount, shortestColumn, tileHeightRatio, layoutColumns };",
+  )();
+}
+
+suite("browser-extension grid layout", () => {
+  const grid = loadGridLayoutHelpers();
+
+  test("grid layout helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      grid,
+      "did not find the redditp-grid-layout markers in content.js",
+    );
+  });
+
+  test("column count follows the width", () => {
+    assert.ok(grid, "grid layout helpers not loaded");
+    [
+      [360, 2],
+      [390, 2],
+      [393, 2],
+      [412, 2],
+      [899, 2],
+      [900, 3],
+      [1280, 4],
+      [1920, 6],
+      [2400, 8],
+      [2560, 8],
+      [3840, 8],
+    ].forEach(([width, columns]) => {
+      assert.strictEqual(grid.gridColumnCount(width), columns, `${width}px`);
+    });
+  });
+
+  test("an unknown width gets two columns", () => {
+    assert.ok(grid, "grid layout helpers not loaded");
+    [0, NaN, undefined, Infinity].forEach((width) => {
+      assert.strictEqual(grid.gridColumnCount(width), 2, String(width));
+    });
+  });
+
+  test("ties go to the first shortest column", () => {
+    assert.ok(grid, "grid layout helpers not loaded");
+    assert.strictEqual(grid.shortestColumn([0, 0, 0]), 0);
+    assert.strictEqual(grid.shortestColumn([2, 1, 1]), 1);
+    assert.strictEqual(grid.shortestColumn([1.5, 2, 0.75, 0.75]), 2);
+    assert.deepStrictEqual(
+      grid.layoutColumns([1, 1, 1, 1], 2).columns,
+      [0, 1, 0, 1],
+    );
+  });
+
+  test("each tile goes to the shortest column so far", () => {
+    assert.ok(grid, "grid layout helpers not loaded");
+    assert.deepStrictEqual(grid.layoutColumns([2, 1, 1, 0.5], 2), {
+      columns: [0, 1, 1, 0],
+      heights: [2.5, 2],
+    });
+  });
+
+  test("appending tiles never moves the ones already placed", () => {
+    assert.ok(grid, "grid layout helpers not loaded");
+    const heights = [1, 0.75, 2, 0.5, 1.3, 1, 0.9, 2, 0.6, 1.1, 0.75, 1.5];
+    [2, 3, 4, 6, 8].forEach((columnCount) => {
+      for (let count = 0; count < heights.length; count += 1) {
+        const before = grid.layoutColumns(heights.slice(0, count), columnCount);
+        const after = grid.layoutColumns(
+          heights.slice(0, count + 1),
+          columnCount,
+        );
+        assert.deepStrictEqual(
+          after.columns.slice(0, count),
+          before.columns,
+          `${columnCount} columns, tile ${count + 1}`,
+        );
+      }
+    });
+  });
+
+  test("tile heights are clamped, and an unknown size starts square", () => {
+    assert.ok(grid, "grid layout helpers not loaded");
+    assert.strictEqual(grid.tileHeightRatio(800, 600), 0.75);
+    assert.strictEqual(grid.tileHeightRatio(600, 900), 1.5);
+    assert.strictEqual(grid.tileHeightRatio(100, 1000), 2);
+    assert.strictEqual(grid.tileHeightRatio(1000, 100), 0.5);
+    [
+      [0, 600],
+      [800, 0],
+      [NaN, 600],
+      [800, undefined],
+      [undefined, undefined],
+      [-5, 10],
+    ].forEach(([width, height]) => {
+      assert.strictEqual(
+        grid.tileHeightRatio(width, height),
+        1,
+        `${width}x${height}`,
+      );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 

@@ -66,7 +66,9 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - Right arrow, Page Down, or Space: next slide
 - Left arrow or Page Up: previous slide
 - G: skip the rest of the current gallery; otherwise advance one slide
-- Escape: close
+- V: switch between the slideshow and a grid of all loaded posts (the same as
+  the **grid** button)
+- Escape: close, or return to the grid when the slideshow was opened from it
 - F: enter or leave browser fullscreen, when available
 - M: toggle video sound; the choice is remembered for the next presentation
 - T: show or hide the title panel (the same saved setting as in the gear panel)
@@ -74,7 +76,7 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - C: open the current post's comments in a new tab
 - I: open the current slide's original media in a new tab
 - A: toggle auto-advance (the same as the **Auto** button)
-- Swipe horizontally: previous or next slide
+- Swipe horizontally: previous or next slide (slideshow only)
 
 Previous-slide controls stop on the first slide instead of wrapping to the end
 of the slideshow. On an individual Reddit post, next-slide controls likewise
@@ -87,14 +89,23 @@ last image.
 - Tab: cycle the controls; focus stays inside the presentation
 - **Auto**: advance using the saved time-per-slide setting
 
+The grid shows every loaded post as a tile, and each image of a gallery as a
+numbered tile of its own. Click or tap a tile, or focus it and press Enter, to
+open the slideshow at that slide; Escape then returns to the grid at the same
+tile, while the × button still closes presentation mode. The arrow keys, Page
+Up/Page Down, and Home/End scroll the grid. The grid turns auto-advance off and
+starts no video or embedded player: video tiles show the post's poster, and
+players load only in the slideshow. Turn on **Open in grid view** in the
+settings panel to start presentation mode in the grid.
+
 Open the gear button's settings panel for a keyboard shortcut reference. Use the
 gear button in the bottom-left controls to choose the auto-advance duration,
-hide the title panel, navigation arrows, or close button, and show or hide the
-bottom panel. The gear is part of the expandable panel, so compact mode leaves
-only a small expand button. If the close button is hidden, press Escape from the
-slideshow to close presentation mode. These preferences are saved by your
-browser and used the next time presentation mode opens. The **redditp** link
-opens this README on GitHub.
+hide the title panel, navigation arrows, or close button, show or hide the
+bottom panel, and open in grid view. The gear is part of the expandable panel,
+so compact mode leaves only a small expand button. If the close button is
+hidden, press Escape from the slideshow to close presentation mode. These
+preferences are saved by your browser and used the next time presentation mode
+opens. The **redditp** link opens this README on GitHub.
 
 These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation
@@ -142,10 +153,10 @@ link hosts Reddit posts commonly use. Video starts muted and can be unmuted from
 the compact control bar or with M, which is remembered for later presentations.
 
 Media played inside a host's own player frame is opened autoplaying. The frame
-URL requests the viewer's saved sound preference using the common mute and
-sound parameters, since a frame on another origin cannot be scripted from the
-page. Hosts may ignore parameters they do not support. Where a player publishes
-a message protocol the sound toggle keeps working after that too; where it does
+URL requests the viewer's saved sound preference using the common mute and sound
+parameters, since a frame on another origin cannot be scripted from the page.
+Hosts may ignore parameters they do not support. Where a player publishes a
+message protocol the sound toggle keeps working after that too; where it does
 not, the sound button's tooltip says the player keeps its own control. We could
 ask for permissions (or optional permissions) to access any URL to control the
 mute of videos inside iframes, but that would be a privacy concern and cause the

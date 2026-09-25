@@ -520,6 +520,207 @@
   font-weight: 700;
 }
 
+/* The grid view. Author display values beat the hidden attribute, so the
+   switch between the two views needs !important. */
+#redditp-presentation.redditp--grid .redditp__stage,
+#redditp-presentation.redditp--grid .redditp__arrow,
+#redditp-presentation.redditp--grid .redditp__details,
+#redditp-presentation.redditp--grid .redditp__link-control,
+#redditp-presentation.redditp--grid .redditp__playback-control,
+#redditp-presentation.redditp--grid .redditp__gallery {
+  display: none !important;
+}
+
+#redditp-presentation:not(.redditp--grid) .redditp__grid {
+  display: none !important;
+}
+
+#redditp-presentation .redditp__grid {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  /* Room for the close button above and the controls below. The scroll
+     padding keeps focused tiles clear of them too. */
+  padding: 48px 8px calc(104px + env(safe-area-inset-bottom, 0px));
+  scroll-padding: 48px 0 calc(104px + env(safe-area-inset-bottom, 0px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  background: #000;
+}
+
+#redditp-presentation .redditp__grid-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+#redditp-presentation .redditp__grid-column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Reddit styles buttons and images globally, so tiles set everything. */
+#redditp-presentation .redditp__tile {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  color: #eee;
+  background: #171717;
+  font:
+    13px/1.3 Arial,
+    Helvetica,
+    sans-serif;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  aspect-ratio: 1 / 1;
+}
+
+/* Outside the tile: its picture is painted over an inset outline. */
+#redditp-presentation .redditp__tile:focus-visible {
+  outline: 2px solid #5ff;
+  outline-offset: 2px;
+}
+
+#redditp-presentation .redditp__tile-image,
+#redditp-presentation .redditp__tile-card {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#redditp-presentation .redditp__tile-image {
+  display: block;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  object-fit: cover;
+}
+
+#redditp-presentation .redditp__tile-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+#redditp-presentation .redditp__tile-kind {
+  color: #5dd;
+  font-weight: 700;
+}
+
+#redditp-presentation .redditp__tile-title,
+#redditp-presentation .redditp__tile-caption {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+#redditp-presentation .redditp__tile-title {
+  color: #fff;
+  -webkit-line-clamp: 4;
+}
+
+#redditp-presentation .redditp__tile-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.65);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+#redditp-presentation .redditp__tile-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* On a card without a picture the play badge moves clear of the title. */
+#redditp-presentation .redditp__tile-card ~ .redditp__tile-play {
+  top: 8px;
+  left: 8px;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  font-size: 14px;
+}
+
+#redditp-presentation .redditp__tile-caption {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 24px 10px 8px;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  opacity: 0;
+  -webkit-line-clamp: 3;
+}
+
+#redditp-presentation .redditp__tile:focus-visible .redditp__tile-caption {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  #redditp-presentation .redditp__tile:hover .redditp__tile-caption {
+    opacity: 1;
+  }
+}
+
+#redditp-presentation .redditp__grid-status {
+  margin: 16px 0 0;
+  color: #aaa;
+  font-size: 13px;
+  text-align: center;
+}
+
+#redditp-presentation .redditp__grid-status[hidden] {
+  display: none !important;
+}
+
+#redditp-presentation .redditp__grid-sentinel {
+  height: 1px;
+}
+
 @media (max-width: 600px) {
   #redditp-presentation .redditp__details,
   #redditp-presentation .redditp__controls {
@@ -568,6 +769,16 @@
     min-height: 36px;
     padding: 7px 6px;
     font-size: 12px;
+  }
+
+  #redditp-presentation .redditp__grid {
+    padding: 44px 4px calc(120px + env(safe-area-inset-bottom, 0px));
+    scroll-padding: 44px 0 calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  #redditp-presentation .redditp__grid-columns,
+  #redditp-presentation .redditp__grid-column {
+    gap: 4px;
   }
 }
 

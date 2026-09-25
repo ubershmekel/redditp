@@ -50,7 +50,61 @@
     showClose: true,
     showControls: true,
     sound: false,
+    openInGrid: false,
   };
+
+  // redditp-grid-layout:start
+  // Layout math for the grid view. This block stays DOM-free, so
+  // nodejs/test-embedit.js can evaluate it on its own. Heights are measured in
+  // column widths (tile height / column width): every column is equally wide,
+  // so placing a tile needs no layout reads and works while the grid is
+  // display:none.
+  const GRID_MIN_COLUMN_WIDTH = 300;
+  const GRID_MIN_COLUMNS = 2;
+  const GRID_MAX_COLUMNS = 8;
+
+  function gridColumnCount(width) {
+    if (!Number.isFinite(width)) return GRID_MIN_COLUMNS;
+    return Math.min(
+      GRID_MAX_COLUMNS,
+      Math.max(GRID_MIN_COLUMNS, Math.floor(width / GRID_MIN_COLUMN_WIDTH)),
+    );
+  }
+
+  // The first shortest column, so ties fill from the left.
+  function shortestColumn(heights) {
+    let shortest = 0;
+    for (let index = 1; index < heights.length; index += 1) {
+      if (heights[index] < heights[shortest]) shortest = index;
+    }
+    return shortest;
+  }
+
+  // A tile's height in column widths. Panoramas and very tall images are
+  // cropped to a sensible range; a tile of unknown size starts square.
+  function tileHeightRatio(width, height) {
+    const known = (value) => Number.isFinite(value) && value > 0;
+    if (!known(width) || !known(height)) return 1;
+    return Math.min(2, Math.max(0.5, height / width));
+  }
+
+  // Places tiles in order, each in the shortest column so far. A tile's
+  // column depends only on the tiles before it, so appending tiles never
+  // moves the earlier ones.
+  function layoutColumns(tileHeights, columnCount) {
+    const heights = [];
+    for (let index = 0; index < Math.max(1, columnCount); index += 1) {
+      heights.push(0);
+    }
+    const columns = tileHeights.map((height) => {
+      const column = shortestColumn(heights);
+      heights[column] += height;
+      return column;
+    });
+    return { columns, heights };
+  }
+  // redditp-grid-layout:end
+
   const state = {
     open: false,
     opening: false,
@@ -70,7 +124,21 @@
     settingsLoaded: false,
     settingsOpen: false,
     embedKeepsOwnSound: false,
+    // "slideshow" or "grid".
+    view: "slideshow",
+    // The slideshow was opened from the grid, so Escape goes back there.
+    returnToGrid: false,
+    gridBuilt: false,
+    // Slide object -> its grid tile.
+    gridTiles: new Map(),
+    // Running height of each grid column, in column widths.
+    gridColumnHeights: [],
+    // display:none drops the grid's scroll offset, so it is kept here.
+    gridScrollTop: 0,
+    gridResizeTimer: null,
   };
+  // Grid tile -> { slide, height }, the height in column widths.
+  const gridTileInfo = new WeakMap();
 
   function absoluteUrl(value) {
     if (!value || value === "#") return "";
@@ -715,6 +783,8 @@
     return slides;
   }
 
+  // Resolves to true when the slide was upgraded, false when the fetch failed,
+  // and undefined when there was nothing to do or another request owns it.
   async function enrichSlide(slide) {
     if (!slide.needsEnrichment || !slide.commentsUrl) return;
     const key = slide.postKey || slide.commentsUrl;
@@ -758,20 +828,26 @@
           (candidate.postKey || candidate.commentsUrl) === key,
       );
       if (slideIndex < 0) return;
+      // After a reopen during the fetch this is a newer copy of the argument,
+      // and the one the grid has a tile for.
+      const replaced = state.slides[slideIndex];
       const wasCurrent = state.index === slideIndex;
       if (slideIndex < state.index) {
         state.index += replacements.length - 1;
       }
       state.slides.splice(slideIndex, 1, ...replacements);
+      if (state.gridBuilt) replaceGridTile(replaced, replacements);
       state.enrichments.set(key, "done");
       if (wasCurrent && state.open) {
         state.index = slideIndex;
         render();
       }
+      return true;
     } catch (_error) {
       // Keep the visible thumbnail/link card and allow another attempt if the
       // user revisits this slide. Reddit may return a challenge or gated page.
       state.enrichments.delete(key);
+      return false;
     }
   }
 
@@ -862,6 +938,17 @@
   empty.append(emptyTitle, emptyText);
   stage.append(mediaBox, empty);
 
+  // The grid view shows every slide as a tile in equal-width columns.
+  const grid = element("section", "redditp__grid", "");
+  grid.setAttribute("aria-label", "All posts");
+  const gridColumns = element("div", "redditp__grid-columns", "");
+  const gridStatus = element("p", "redditp__grid-status", "");
+  gridStatus.setAttribute("role", "status");
+  gridStatus.hidden = true;
+  const gridSentinel = element("div", "redditp__grid-sentinel", "");
+  gridSentinel.setAttribute("aria-hidden", "true");
+  grid.append(gridColumns, gridStatus, gridSentinel);
+
   const count = element("div", "redditp__count", "");
   const galleryButton = element(
     "button",
@@ -896,6 +983,11 @@
   brand.target = "_blank";
   brand.rel = "noopener noreferrer";
   brand.title = "Open the browser extension README on GitHub";
+  const viewButton = element(
+    "button",
+    "redditp__button redditp__view redditp__control-item",
+    "grid",
+  );
   const autoButton = element(
     "button",
     "redditp__button redditp__playback-control redditp__control-item",
@@ -930,6 +1022,7 @@
   collapseButton.setAttribute("aria-label", "Collapse bottom controls");
   prevButton.type =
     settingsButton.type =
+    viewButton.type =
     autoButton.type =
     soundButton.type =
     nextButton.type =
@@ -941,6 +1034,7 @@
   controls.append(
     settingsButton,
     brand,
+    viewButton,
     commentsLink,
     sourceLink,
     autoButton,
@@ -997,6 +1091,7 @@
     [["→", "PgDn", "Space"], "Next slide"],
     [["←", "PgUp"], "Previous slide"],
     [["G"], "Skip gallery / next post"],
+    [["V"], "Switch between grid and slideshow"],
     [["F"], "Toggle fullscreen (if available)"],
     [["M"], "Toggle video sound"],
     [["T"], "Show / hide the title panel"],
@@ -1004,7 +1099,7 @@
     [["C"], "Open comments in a new tab"],
     [["I"], "Open the original media in a new tab"],
     [["A"], "Toggle auto-advance"],
-    [["Esc"], "Close settings / slideshow"],
+    [["Esc"], "Close settings / back to grid / close"],
     [["Tab", "Shift+Tab"], "Next / previous control"],
     [["Alt+P"], "Toggle presentation (default)"],
   ].forEach(([keys, description]) => {
@@ -1033,11 +1128,13 @@
       "Show the close button (press Esc instead when hidden)",
     ),
     checkboxSetting("showControls", "Show the bottom panel"),
+    checkboxSetting("openInGrid", "Open in grid view"),
     shortcutHelp,
   );
   settingsOverlay.append(settingsPanel);
   root.append(
     stage,
+    grid,
     prevButton,
     nextButton,
     details,
@@ -1091,6 +1188,247 @@
     }
     card.append(element("span", "", slide.sourceUrl || slide.commentsUrl));
     return card;
+  }
+
+  // Grid tiles are built from slide data alone. The grid never creates a
+  // player, loads a third-party frame, or touches Reddit's own video element;
+  // a video tile shows the post's poster when it has one.
+  function isGridVideo(slide) {
+    return (
+      slide.kind === "video" ||
+      slide.kind === "pending-native-video" ||
+      slide.kind === "native-video" ||
+      slide.kind === "embed"
+    );
+  }
+
+  function gridTileCard(label, slide) {
+    const card = element("span", "redditp__tile-card", "");
+    card.append(
+      element("span", "redditp__tile-kind", label),
+      element("span", "redditp__tile-title", slide.title),
+    );
+    return card;
+  }
+
+  function gridTileImage(tile, url, fallbackLabel, slide) {
+    const image = element("img", "redditp__tile-image", "");
+    image.alt = "";
+    image.setAttribute("loading", "lazy");
+    image.setAttribute("decoding", "async");
+    image.addEventListener(
+      "load",
+      () => {
+        setGridTileHeight(
+          tile,
+          tileHeightRatio(image.naturalWidth, image.naturalHeight),
+        );
+      },
+      { once: true },
+    );
+    image.addEventListener(
+      "error",
+      () => {
+        tile.querySelector(".redditp__tile-caption")?.remove();
+        image.replaceWith(gridTileCard(fallbackLabel, slide));
+        setGridTileHeight(tile, 0.75);
+      },
+      { once: true },
+    );
+    image.src = url;
+    return image;
+  }
+
+  function createGridTile(slide) {
+    const tile = element("button", "redditp__tile", "");
+    tile.type = "button";
+    tile.title = slide.title;
+    const isVideo = isGridVideo(slide);
+    const itemLabel = slide.galleryItem
+      ? `, ${slide.galleryItem} of ${slide.galleryTotal}`
+      : "";
+    tile.setAttribute(
+      "aria-label",
+      `${slide.title}${itemLabel}${isVideo ? ", video" : ""}`,
+    );
+
+    let picture = "";
+    let cardLabel = slide.body ? "Text post" : "Link";
+    if (slide.kind === "image") {
+      picture = slide.url;
+      cardLabel = "Image unavailable";
+    } else if (slide.kind === "embed") {
+      cardLabel = "Embedded video";
+    } else if (isVideo) {
+      picture = slide.poster;
+      cardLabel = "Video";
+    }
+    const height = picture ? 1 : 0.75;
+    if (picture) {
+      tile.append(
+        gridTileImage(tile, picture, cardLabel, slide),
+        element("span", "redditp__tile-caption", slide.title),
+      );
+    } else {
+      tile.append(gridTileCard(cardLabel, slide));
+    }
+    if (isVideo) tile.append(element("span", "redditp__tile-play", "▶\uFE0E"));
+    if (slide.galleryItem) {
+      tile.append(
+        element(
+          "span",
+          "redditp__tile-badge",
+          `${slide.galleryItem}/${slide.galleryTotal}`,
+        ),
+      );
+    }
+    gridTileInfo.set(tile, { slide, height });
+    tile.style.aspectRatio = String(1 / height);
+    return tile;
+  }
+
+  // Resizes a tile to its picture and keeps its column's running height in
+  // step. A tile that has left the grid since only records the new height.
+  function setGridTileHeight(tile, height) {
+    const info = gridTileInfo.get(tile);
+    if (!info) return;
+    const previous = info.height;
+    info.height = height;
+    tile.style.aspectRatio = String(1 / height);
+    const column = tile.parentElement;
+    if (!column || column.parentElement !== gridColumns) return;
+    const columnIndex = Array.prototype.indexOf.call(
+      gridColumns.children,
+      column,
+    );
+    state.gridColumnHeights[columnIndex] += height - previous;
+  }
+
+  // Tiles hold their slide rather than an index, because new posts and
+  // upgraded thumbnails shift indices. A slide replaced since is found again
+  // by its post.
+  function gridSlideIndex(tile) {
+    const info = gridTileInfo.get(tile);
+    if (!info) return -1;
+    const index = state.slides.indexOf(info.slide);
+    if (index >= 0) return index;
+    const identity = postIdentity(info.slide);
+    return state.slides.findIndex((slide) => postIdentity(slide) === identity);
+  }
+
+  function focusedGridTile() {
+    const active = document.activeElement;
+    return active &&
+      gridColumns.contains(active) &&
+      active.classList.contains("redditp__tile")
+      ? active
+      : null;
+  }
+
+  function makeGridColumns(count) {
+    const columns = [];
+    for (let index = 0; index < count; index += 1) {
+      columns.push(element("div", "redditp__grid-column", ""));
+    }
+    gridColumns.replaceChildren(...columns);
+    state.gridColumnHeights = columns.map(() => 0);
+  }
+
+  // Each tile goes to the shortest column so far, in slide order, so the
+  // tiles of newly loaded posts never move the ones already placed.
+  function placeGridTiles(slides) {
+    slides.forEach((slide) => {
+      const tile = createGridTile(slide);
+      const column = shortestColumn(state.gridColumnHeights);
+      gridColumns.children[column].append(tile);
+      state.gridColumnHeights[column] += gridTileInfo.get(tile).height;
+      state.gridTiles.set(slide, tile);
+    });
+  }
+
+  function buildGrid() {
+    makeGridColumns(gridColumnCount(grid.clientWidth || window.innerWidth));
+    placeGridTiles(state.slides);
+    state.gridBuilt = true;
+  }
+
+  // When a new width changes the column count, the same tile elements move
+  // into the new columns, so their images do not load again.
+  function relayoutGrid() {
+    const count = gridColumnCount(grid.clientWidth || window.innerWidth);
+    if (count === gridColumns.children.length) return;
+    const focusedTile = focusedGridTile();
+    const anchor =
+      focusedTile || state.gridTiles.get(state.slides[state.index]);
+    const tiles = state.slides
+      .map((slide) => state.gridTiles.get(slide))
+      .filter(Boolean);
+    const layout = layoutColumns(
+      tiles.map((tile) => gridTileInfo.get(tile).height),
+      count,
+    );
+    makeGridColumns(count);
+    tiles.forEach((tile, index) => {
+      gridColumns.children[layout.columns[index]].append(tile);
+    });
+    state.gridColumnHeights = layout.heights;
+    // Moving the focused tile to another column blurred it.
+    if (focusedTile) focusedTile.focus({ preventScroll: true });
+    if (anchor) revealGridTile(anchor);
+  }
+
+  // Scrolls the grid, and only the grid, until the tile is in view.
+  // scrollIntoView would also scroll the Reddit page underneath. The grid's
+  // scroll padding marks where the close button and controls cover it.
+  function revealGridTile(tile) {
+    if (!tile || !gridColumns.contains(tile)) return;
+    const gridBox = grid.getBoundingClientRect();
+    const tileBox = tile.getBoundingClientRect();
+    const style = getComputedStyle(grid);
+    const top = gridBox.top + (parseFloat(style.scrollPaddingTop) || 0);
+    const bottom =
+      gridBox.bottom - (parseFloat(style.scrollPaddingBottom) || 0);
+    if (tileBox.top >= top && tileBox.bottom <= bottom) return;
+    grid.scrollTop +=
+      tileBox.top - top - Math.max(0, (bottom - top - tileBox.height) / 2);
+  }
+
+  // An upgraded thumbnail's tile makes way for the tiles of the slides that
+  // replaced it, in the same place in the same column.
+  function replaceGridTile(oldSlide, replacements) {
+    const oldTile = state.gridTiles.get(oldSlide);
+    state.gridTiles.delete(oldSlide);
+    const column = oldTile?.parentElement;
+    if (!column || column.parentElement !== gridColumns) {
+      placeGridTiles(replacements);
+      return;
+    }
+    const hadFocus = document.activeElement === oldTile;
+    const newTiles = replacements.map(createGridTile);
+    oldTile.replaceWith(...newTiles);
+    replacements.forEach((slide, index) => {
+      state.gridTiles.set(slide, newTiles[index]);
+    });
+    const columnIndex = Array.prototype.indexOf.call(
+      gridColumns.children,
+      column,
+    );
+    const newHeight = newTiles.reduce(
+      (sum, tile) => sum + gridTileInfo.get(tile).height,
+      0,
+    );
+    state.gridColumnHeights[columnIndex] +=
+      newHeight - gridTileInfo.get(oldTile).height;
+    if (hadFocus) newTiles[0].focus({ preventScroll: true });
+  }
+
+  function resetGrid() {
+    gridColumns.replaceChildren();
+    state.gridTiles.clear();
+    state.gridColumnHeights = [];
+    state.gridBuilt = false;
+    state.gridScrollTop = 0;
+    grid.scrollTop = 0;
   }
 
   async function upgradePendingAdaptiveSlide(slide) {
@@ -1149,6 +1487,8 @@
 
   function syncPresentationUi() {
     const hasSlides = state.slides.length > 0;
+    const inGrid = state.view === "grid" && hasSlides;
+    root.classList.toggle("redditp--grid", inGrid);
     empty.hidden = hasSlides;
     details.hidden = !hasSlides || !state.settings.showDetails;
     controls.hidden = !hasSlides;
@@ -1159,6 +1499,15 @@
       !hasSlides ||
       (isSinglePostPage() && state.index === state.slides.length - 1);
     closeButton.hidden = !state.settings.showClose;
+    // In a slideshow opened from the grid, Escape goes back to the grid.
+    closeButton.title =
+      state.view === "slideshow" && state.returnToGrid
+        ? "Close presentation mode"
+        : "Close presentation mode (Esc)";
+    viewButton.setAttribute("aria-pressed", String(inGrid));
+    viewButton.title = inGrid
+      ? "Back to the slideshow (V)"
+      : "Show every post in a grid (V)";
     controls.classList.toggle(
       "redditp__controls--collapsed",
       !state.settings.showControls,
@@ -1178,7 +1527,7 @@
     collapseButton.title = state.settings.showControls
       ? "Collapse controls (P)"
       : "Expand controls (P)";
-    updateCount(state.loadingMore && isOnLastPost());
+    updateCount(state.loadingMore && (state.view === "grid" || isOnLastPost()));
     const slide = hasSlides ? state.slides[state.index] : null;
     galleryButton.hidden = !slide?.galleryItem;
     galleryButton.textContent = slide?.galleryItem
@@ -1187,7 +1536,8 @@
   }
 
   // Counts posts rather than slides, so a gallery advances only its own
-  // "(2/7)" counter while the post number stays put.
+  // "(2/7)" counter while the post number stays put. The grid shows every
+  // post at once, so it shows only the total.
   function updateCount(loading) {
     if (!state.slides.length) {
       count.textContent = "0 posts";
@@ -1202,13 +1552,24 @@
       previous = identity;
       if (index === state.index) current = total;
     });
-    count.textContent = `${current} / ${total}${loading ? " · loading more" : ""}`;
+    const suffix = loading ? " · loading more" : "";
+    count.textContent =
+      state.view === "grid"
+        ? `${total} post${total === 1 ? "" : "s"}${suffix}`
+        : `${current} / ${total}${suffix}`;
   }
 
   function render() {
     stopMedia();
     syncPresentationUi();
     if (!state.slides.length) return;
+    if (state.view === "grid") {
+      // Later render() calls, such as a finished enrichment, only need the
+      // grid kept in shape; its tiles update through their own hooks.
+      if (!state.gridBuilt) buildGrid();
+      else relayoutGrid();
+      return;
+    }
 
     const slide = state.slides[state.index];
     // Revisiting a slide retries its media, so a past failure must not keep
@@ -1340,6 +1701,7 @@
   }
 
   function move(delta) {
+    if (state.view !== "slideshow") return;
     if (!state.slides.length) return;
     if (delta < 0 && state.index === 0) return;
     if (
@@ -1371,6 +1733,7 @@
   }
 
   function skipGallery() {
+    if (state.view !== "slideshow") return;
     const slide = state.slides[state.index];
     if (!slide) return;
     let nextIndex = state.index + 1;
@@ -1421,7 +1784,11 @@
     const additions = extractSlides().filter(
       (slide) => !existingPosts.has(postIdentity(slide)),
     );
-    if (additions.length) state.slides.push(...additions);
+    if (additions.length) {
+      state.slides.push(...additions);
+      // A built grid gets the new tiles even while it is hidden.
+      if (state.gridBuilt) placeGridTiles(additions);
+    }
     return additions.length;
   }
 
@@ -1474,7 +1841,8 @@
     }
 
     if (!state.open || request !== state.loadRequest) return null;
-    const shouldAdvance = state.advanceAfterLoad;
+    // Only the slideshow moves on to a newly loaded post.
+    const shouldAdvance = state.advanceAfterLoad && state.view === "slideshow";
     state.advanceAfterLoad = false;
     if (added && shouldAdvance) {
       state.index += 1;
@@ -1491,7 +1859,12 @@
   function scheduleAuto() {
     clearTimeout(state.autoTimer);
     state.autoTimer = null;
-    if (state.autoPlaying && state.open && state.slides.length > 1) {
+    if (
+      state.autoPlaying &&
+      state.open &&
+      state.view === "slideshow" &&
+      state.slides.length > 1
+    ) {
       state.autoTimer = setTimeout(
         () => move(1),
         state.settings.slideDurationSeconds * 1000,
@@ -1538,13 +1911,96 @@
     if (key === "slideDurationSeconds") scheduleAuto();
   }
 
-  function toggleAuto() {
-    state.autoPlaying = !state.autoPlaying;
-    autoButton.textContent = state.autoPlaying ? "pause" : "auto";
-    autoButton.setAttribute("aria-pressed", String(state.autoPlaying));
+  function setAutoPlaying(playing) {
+    state.autoPlaying = playing;
+    autoButton.textContent = playing ? "pause" : "auto";
+    autoButton.setAttribute("aria-pressed", String(playing));
     const video = mediaBox.querySelector("video");
-    if (video) video.loop = !state.autoPlaying;
+    if (video) video.loop = !playing;
     scheduleAuto();
+  }
+
+  function toggleAuto() {
+    setAutoPlaying(!state.autoPlaying);
+  }
+
+  // The grid and the slideshow share one overlay. The grid stops playback
+  // and auto-advance, and the slideshow opens at whichever tile was chosen.
+  function showGrid() {
+    if (!state.open || !state.slides.length) return;
+    state.view = "grid";
+    state.returnToGrid = false;
+    state.advanceAfterLoad = false;
+    setAutoPlaying(false);
+    render();
+    // display:none dropped the grid's scroll position.
+    grid.scrollTop = state.gridScrollTop;
+    focusInitialControl();
+  }
+
+  function showSlideshow(index) {
+    if (!state.open || index < 0 || index >= state.slides.length) return;
+    if (state.view === "grid") state.gridScrollTop = grid.scrollTop;
+    state.view = "slideshow";
+    state.returnToGrid = true;
+    state.index = index;
+    render();
+    focusInitialControl();
+  }
+
+  function toggleView() {
+    if (!state.slides.length) return;
+    if (state.view !== "grid") {
+      showGrid();
+      return;
+    }
+    const tile = focusedGridTile();
+    const index = tile ? gridSlideIndex(tile) : -1;
+    showSlideshow(index >= 0 ? index : state.index);
+  }
+
+  // In the grid, the current slide's tile. Otherwise the close button, or
+  // whichever control is left when it is hidden.
+  function focusInitialControl() {
+    const tile =
+      state.view === "grid"
+        ? state.gridTiles.get(state.slides[state.index])
+        : null;
+    if (tile) {
+      revealGridTile(tile);
+      tile.focus({ preventScroll: true });
+      return;
+    }
+    const initialFocus = closeButton.hidden
+      ? state.settings.showControls
+        ? settingsButton
+        : collapseButton
+      : closeButton;
+    initialFocus.focus({ preventScroll: true });
+  }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else root.requestFullscreen().catch(() => {});
+  }
+
+  function onGridClick(event) {
+    const tile = event.target.closest?.(".redditp__tile");
+    if (!tile || !gridColumns.contains(tile)) return;
+    const index = gridSlideIndex(tile);
+    if (index >= 0) showSlideshow(index);
+  }
+
+  // Waits for a resize to settle. Only a new width can change the column
+  // count, and relayoutGrid leaves the grid alone otherwise.
+  function onWindowResize() {
+    clearTimeout(state.gridResizeTimer);
+    state.gridResizeTimer = setTimeout(() => {
+      state.gridResizeTimer = null;
+      if (state.open && state.view === "grid" && state.gridBuilt) {
+        relayoutGrid();
+      }
+    }, 150);
   }
 
   function playVideo(video) {
@@ -1697,6 +2153,11 @@
     clearTimeout(state.autoTimer);
     autoButton.textContent = "auto";
     stopMedia();
+    resetGrid();
+    state.returnToGrid = false;
+    clearTimeout(state.gridResizeTimer);
+    state.gridResizeTimer = null;
+    window.removeEventListener("resize", onWindowResize);
     root.hidden = true;
     document.documentElement.style.overflow = state.oldOverflow;
     document.removeEventListener("keydown", onKeyDown, true);
@@ -1724,6 +2185,12 @@
     root.hidden = false;
     document.documentElement.style.overflow = "hidden";
     document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("resize", onWindowResize);
+    // The starting view comes from the setting alone, never from the last
+    // presentation.
+    state.view = state.settings.openInGrid ? "grid" : "slideshow";
+    state.returnToGrid = false;
+    resetGrid();
     // Slides are rebuilt from the live page on every open, so the previous
     // run's enrichment results no longer refer to anything. Keeping them would
     // make enrichSlide skip every thumbnail it had already upgraded once.
@@ -1740,12 +2207,7 @@
     state.slides = extractSlides();
     state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
     render();
-    const initialFocus = closeButton.hidden
-      ? state.settings.showControls
-        ? settingsButton
-        : collapseButton
-      : closeButton;
-    initialFocus.focus({ preventScroll: true });
+    focusInitialControl();
   }
 
   function focusableElements() {
@@ -1774,6 +2236,43 @@
     }
   }
 
+  // In the grid the browser does the work for these keys: it scrolls the
+  // grid and presses the focused tile. They only need keeping from Reddit's
+  // own page shortcuts.
+  const GRID_BROWSER_KEYS = [
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "PageUp",
+    "PageDown",
+    "Home",
+    "End",
+    " ",
+    "Enter",
+  ];
+  // Slide shortcuts, which have no slide to act on in the grid.
+  const GRID_IDLE_KEYS = ["g", "m", "t", "c", "i", "a"];
+
+  function onGridKeyDown(event) {
+    const key = event.key.toLowerCase();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    } else if (key === "f" && document.fullscreenEnabled) {
+      event.preventDefault();
+      toggleFullscreen();
+    } else if (key === "p") {
+      event.preventDefault();
+      updateSetting("showControls", !state.settings.showControls);
+    } else if (GRID_BROWSER_KEYS.includes(event.key)) {
+      event.stopPropagation();
+    } else if (GRID_IDLE_KEYS.includes(key)) {
+      event.preventDefault();
+    }
+  }
+
   function onKeyDown(event) {
     if (!state.open) return;
     // Never swallow browser and OS shortcuts such as Ctrl+F or Cmd+M; every
@@ -1791,6 +2290,16 @@
     }
     if (event.key === "Tab") {
       trapFocus(event);
+      return;
+    }
+    if (event.key.toLowerCase() === "v") {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleView();
+      return;
+    }
+    if (state.view === "grid") {
+      onGridKeyDown(event);
       return;
     }
     if (
@@ -1812,11 +2321,12 @@
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      close();
+      // A slideshow opened from the grid goes back to it; × still closes.
+      if (state.returnToGrid) showGrid();
+      else close();
     } else if (event.key.toLowerCase() === "f" && document.fullscreenEnabled) {
       event.preventDefault();
-      if (document.fullscreenElement) document.exitFullscreen();
-      else root.requestFullscreen().catch(() => {});
+      toggleFullscreen();
     } else if (event.key.toLowerCase() === "m") {
       event.preventDefault();
       toggleSound();
@@ -1879,6 +2389,8 @@
   autoButton.addEventListener("click", toggleAuto);
   soundButton.addEventListener("click", toggleSound);
   galleryButton.addEventListener("click", skipGallery);
+  viewButton.addEventListener("click", toggleView);
+  grid.addEventListener("click", onGridClick);
   root.addEventListener("pointerdown", (event) => {
     state.pointerStart = {
       x: event.clientX,
@@ -1893,6 +2405,7 @@
     const dy = event.clientY - state.pointerStart.y;
     state.pointerStart = null;
     if (
+      state.view === "slideshow" &&
       Math.abs(dx) > 55 &&
       Math.abs(dx) > Math.abs(dy) &&
       !event.target.closest("button, a, video")

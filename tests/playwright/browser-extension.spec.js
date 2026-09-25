@@ -1711,6 +1711,9 @@ test("a thumbnail-only search result upgrades again after reopening", async ({
     });
   });
   await page.route(previewUrl, async (route) => {
+    // An instant abort can swap the video for a link card before the
+    // assertion below polls; hold it long enough for the src check.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     await route.abort();
   });
   await startPresentation(

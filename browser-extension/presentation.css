@@ -568,6 +568,17 @@
   border-bottom-color: transparent;
 }
 
+/* The archive button stays in place, greyed out, away from a subreddit
+   listing or outside the installed extension. */
+#redditp-presentation .redditp__archive:disabled {
+  color: #777;
+  cursor: default;
+}
+
+#redditp-presentation .redditp__archive:disabled:hover {
+  border-bottom-color: transparent;
+}
+
 #redditp-presentation .redditp__link-card {
   position: absolute;
   top: 50%;

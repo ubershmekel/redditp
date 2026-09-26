@@ -1691,6 +1691,81 @@ suite("browser-extension dead media", () => {
   });
 });
 
+suite("browser-extension subreddit path", () => {
+  const paths = loadContentScriptBlock("redditp-subreddit-path", [
+    "ARCHIVE_PSEUDO_SUBS",
+    "subredditFromPath",
+  ]);
+
+  test("subreddit path helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      paths,
+      "did not find the redditp-subreddit-path markers in content.js",
+    );
+  });
+
+  test("a subreddit listing names its subreddit, spelled as in the path", () => {
+    assert.ok(paths, "subreddit path helpers not loaded");
+    [
+      ["/r/pics/", "pics"],
+      ["/r/pics", "pics"],
+      ["/r/Pics/top/", "Pics"],
+      ["/r/pics/new/", "pics"],
+      ["/r/pics/search/", "pics"],
+      ["/r/de/", "de"],
+      ["/r/pics_2/", "pics_2"],
+    ].forEach(([pathname, sub]) => {
+      assert.strictEqual(paths.subredditFromPath(pathname), sub, pathname);
+    });
+  });
+
+  test("post pages, multireddits, front pages and other pages name none", () => {
+    assert.ok(paths, "subreddit path helpers not loaded");
+    [
+      "/r/pics/comments/abc/title/",
+      "/r/pics/comments/abc",
+      "/r/a+b/",
+      "/r/all/",
+      "/r/popular/",
+      "/r/Friends/",
+      "/r/mod/",
+      "/r/random/",
+      "/r/x/",
+      `/r/${"a".repeat(22)}/`,
+      "/user/someone/",
+      "/",
+      "/search/",
+      "",
+      undefined,
+    ].forEach((pathname) => {
+      assert.strictEqual(
+        paths.subredditFromPath(pathname),
+        "",
+        String(pathname),
+      );
+    });
+  });
+
+  test("a name of up to 21 characters is a subreddit", () => {
+    assert.ok(paths, "subreddit path helpers not loaded");
+    const longest = "a".repeat(21);
+    assert.strictEqual(paths.subredditFromPath(`/r/${longest}/`), longest);
+  });
+
+  test("the front pages that gather many subreddits are listed lowercase", () => {
+    assert.ok(paths, "subreddit path helpers not loaded");
+    assert.deepStrictEqual(paths.ARCHIVE_PSEUDO_SUBS, [
+      "all",
+      "popular",
+      "friends",
+      "mod",
+      "random",
+    ]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------

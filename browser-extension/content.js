@@ -354,6 +354,21 @@
   }
   // redditp-dead-media:end
 
+  // redditp-subreddit-path:start
+  // The subreddit whose archive the archive button opens: the one that a
+  // listing page's path names, spelled as in the path. Like the blocks above,
+  // this stays DOM-free, so nodejs/test-embedit.js can evaluate it on its
+  // own. Post pages, multireddits and the front pages that gather many
+  // subreddits have none.
+  const ARCHIVE_PSEUDO_SUBS = ["all", "popular", "friends", "mod", "random"];
+
+  function subredditFromPath(pathname) {
+    const match = /^\/r\/([A-Za-z0-9_]{2,21})(?:\/|$)/.exec(pathname || "");
+    if (!match || /\/comments\/[^/]+/i.test(pathname)) return "";
+    return ARCHIVE_PSEUDO_SUBS.includes(match[1].toLowerCase()) ? "" : match[1];
+  }
+  // redditp-subreddit-path:end
+
   const state = {
     open: false,
     opening: false,
@@ -1500,6 +1515,13 @@
     mediaToggleButtons[key] = button;
     mediaToggles.append(button);
   });
+  // Opens the current subreddit's whole history, ranked by score, in a new
+  // tab.
+  const archiveButton = element(
+    "button",
+    "redditp__button redditp__archive redditp__control-item",
+    "archive",
+  );
   const autoButton = element(
     "button",
     "redditp__button redditp__playback-control redditp__control-item",
@@ -1535,6 +1557,7 @@
   prevButton.type =
     settingsButton.type =
     viewButton.type =
+    archiveButton.type =
     autoButton.type =
     soundButton.type =
     nextButton.type =
@@ -1548,6 +1571,7 @@
     brand,
     viewButton,
     mediaToggles,
+    archiveButton,
     commentsLink,
     sourceLink,
     autoButton,
@@ -1624,6 +1648,7 @@
     [["G"], "Skip gallery / next post"],
     [["V"], "Switch between grid and slideshow"],
     [["O"], "Cycle media: all, images, GIFs, videos"],
+    [["H"], "Browse this subreddit's archive (new tab)"],
     [["F"], "Toggle fullscreen (if available)"],
     [["M"], "Toggle video sound"],
     [["T"], "Show / hide the title panel"],
@@ -2229,6 +2254,7 @@
       ? "Back to the slideshow (V)"
       : "Show every post in a grid (V)";
     syncMediaToggles();
+    syncArchiveButton();
     controls.classList.toggle(
       "redditp__controls--collapsed",
       !state.settings.showControls,
@@ -2273,6 +2299,50 @@
         ? "At least one type stays shown"
         : `${shown ? "Hide" : "Show"} ${label}`;
     });
+  }
+
+  // The installed extension's messaging, when this script runs as part of
+  // it. A page that loads the script by itself has none.
+  function extensionRuntime() {
+    const api =
+      globalThis.browser || (typeof chrome !== "undefined" ? chrome : null);
+    const runtime = api?.runtime;
+    return runtime && typeof runtime.sendMessage === "function"
+      ? runtime
+      : null;
+  }
+
+  // The archive button needs a subreddit listing and the installed extension
+  // to ask. A page that hosts the viewer with a source of its own has no use
+  // for it.
+  function syncArchiveButton() {
+    archiveButton.hidden = activeSource !== liveSource;
+    const sub = subredditFromPath(location.pathname);
+    const runtime = extensionRuntime();
+    archiveButton.disabled = !sub || !runtime;
+    if (!sub) {
+      archiveButton.title = "Open a subreddit's page to browse its archive (H)";
+    } else if (!runtime) {
+      archiveButton.title =
+        "The archive opens from the installed extension (H)";
+    } else {
+      archiveButton.title = `Browse all of r/${sub} ranked by score, in a new tab (H)`;
+    }
+  }
+
+  // Asks the extension to open the archive of the current subreddit.
+  function openArchive() {
+    if (archiveButton.hidden || archiveButton.disabled) return;
+    const runtime = extensionRuntime();
+    const sub = subredditFromPath(location.pathname);
+    if (!runtime || !sub) return;
+    try {
+      const sent = runtime.sendMessage({ type: "open-archive", sub });
+      // Chrome returns a promise here; Firefox's `chrome` alias may not.
+      if (sent && typeof sent.catch === "function") sent.catch(() => {});
+    } catch (_error) {
+      // The extension was reloaded or removed since this page loaded.
+    }
   }
 
   // "loading more" shows where the viewer is waiting on the load: in the
@@ -3723,6 +3793,14 @@
       updateSettings(nextMediaFilter(state.settings));
       return;
     }
+    if (event.key.toLowerCase() === "h") {
+      // Like C and I, H passes through when there is nothing to open.
+      if (archiveButton.hidden || archiveButton.disabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openArchive();
+      return;
+    }
     if (state.view === "grid") {
       onGridKeyDown(event);
       return;
@@ -3818,6 +3896,7 @@
   soundButton.addEventListener("click", toggleSound);
   galleryButton.addEventListener("click", skipGallery);
   viewButton.addEventListener("click", toggleView);
+  archiveButton.addEventListener("click", openArchive);
   MEDIA_FILTER_TYPES.forEach(([key]) => {
     mediaToggleButtons[key].addEventListener("click", () => {
       if (key === lockedMediaType(state.settings)) return;

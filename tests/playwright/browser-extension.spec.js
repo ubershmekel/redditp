@@ -1785,7 +1785,7 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
   await expect(page.locator("#redditp-presentation")).toBeVisible();
 
   const prevented = await page.evaluate(() =>
-    ["f", "m", "g", "v", "o"].map((key) => {
+    ["f", "m", "g", "v", "o", "h"].map((key) => {
       const event = new KeyboardEvent("keydown", {
         key,
         ctrlKey: true,
@@ -1796,7 +1796,7 @@ test("browser shortcuts such as Ctrl+F are not swallowed", async ({ page }) => {
       return event.defaultPrevented;
     }),
   );
-  expect(prevented).toEqual([false, false, false, false, false]);
+  expect(prevented).toEqual([false, false, false, false, false, false]);
 
   // The unmodified key still works.
   await page.keyboard.press("m");
@@ -4074,4 +4074,104 @@ test("media a source left out counts, and an empty stage says it failed", async 
   );
   // The source has nothing more, so the empty stage asks it for nothing.
   expect(await page.evaluate(() => window.sourceCalls)).toEqual([]);
+});
+
+// Stands in for the installed extension's messaging, which records what the
+// page sends in window.__redditpMessages. It has no storage, so settings fall
+// back to localStorage.
+function stubExtensionRuntime(page) {
+  return page.evaluate(() => {
+    window.chrome = {
+      runtime: {
+        sendMessage(message) {
+          (window.__redditpMessages ||= []).push(message);
+          return Promise.resolve();
+        },
+      },
+    };
+  });
+}
+
+function sentMessages(page) {
+  return page.evaluate(() => window.__redditpMessages || []);
+}
+
+test("the archive button sends the subreddit to the extension", async ({
+  page,
+}) => {
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/Pics/",
+    gridImagePost(1),
+    {},
+  );
+  await stubExtensionRuntime(page);
+  await injectExtension(page);
+  const archive = page.getByRole("button", { name: "archive", exact: true });
+  await expect(archive).toBeEnabled();
+  await expect(archive).toHaveAttribute("title", /\(H\)/);
+  await expect(archive).toHaveAttribute("title", /r\/Pics/);
+
+  await archive.click();
+  await expect
+    .poll(() => sentMessages(page))
+    .toEqual([{ type: "open-archive", sub: "Pics" }]);
+  await page.keyboard.press("h");
+  await expect.poll(async () => (await sentMessages(page)).length).toBe(2);
+
+  // H works in the grid as well.
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await page.keyboard.press("h");
+  await expect.poll(async () => (await sentMessages(page)).length).toBe(3);
+
+  // With the settings open, slide shortcuts rest.
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await page.keyboard.press("h");
+  await page.waitForTimeout(200);
+  expect(await sentMessages(page)).toHaveLength(3);
+});
+
+test("the archive button is disabled away from a subreddit listing or without the extension", async ({
+  page,
+}) => {
+  for (const [path, withExtension] of [
+    ["/r/pics/comments/abc/post/", true],
+    ["/user/someone/", true],
+    ["/r/a+b/", true],
+    ["/r/pics/", false],
+  ]) {
+    await openRoutedPage(
+      page,
+      `https://www.reddit.com${path}`,
+      gridImagePost(1),
+      {},
+    );
+    if (withExtension) await stubExtensionRuntime(page);
+    await injectExtension(page);
+    const archive = page.getByRole("button", { name: "archive", exact: true });
+    await expect(archive, path).toBeDisabled();
+    await expect(archive, path).toHaveAttribute("title", /\(H\)/);
+    await page.keyboard.press("h");
+    for (let press = 0; press < 16; press += 1) {
+      await page.keyboard.press("Tab");
+      expect(
+        await page.evaluate(() =>
+          document.activeElement.classList.contains("redditp__archive"),
+        ),
+        path,
+      ).toBe(false);
+    }
+    expect(await sentMessages(page), path).toEqual([]);
+  }
+});
+
+test("a host page's viewer has no archive button", async ({ page }) => {
+  await hostPage(page);
+  await openTestSource(page, { total: 3, batch: 3 });
+  await expect(page.locator(".redditp__title")).toHaveText("Source 1");
+  await expect(page.locator(".redditp__archive")).toHaveCount(1);
+  await expect(page.locator(".redditp__archive")).toBeHidden();
 });

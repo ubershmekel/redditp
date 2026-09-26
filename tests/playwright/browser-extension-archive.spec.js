@@ -509,11 +509,29 @@ test("a rate-limited request backs off, and uses the reset header when the brows
   expect(searches("pics")).toHaveLength(2);
   await expect(status(page)).toHaveText(/retrying in 1 s\)$/);
   // Exactly the last second: the retry goes out, while the request after it,
-  // due a second after the retry, stays out of reach however fast the retry
+  // due seconds after the retry, stays out of reach however fast the retry
   // is answered.
   await page.clock.runFor(1000);
   await expect.poll(() => searches("pics").length).toBe(3);
   expect(searches("pics")[2].before).toBe(searches("pics")[1].before);
+
+  // The retry's page is stored, so the next request is set for two seconds
+  // after the retry went out: the pull stays slower after a rate limit.
+  await expect(
+    libraryRow(page, "r/pics").locator(".redditp-archive__item-count"),
+  ).toHaveText("13 posts");
+  await expect(status(page)).toHaveText(
+    "Pulling… back to Sep 2026 (slowed to one request every 2 s after a rate limit)",
+  );
+  await expect(
+    libraryRow(page, "r/pics").locator(".redditp-archive__item-progress"),
+  ).toHaveText(/^\d+%$/);
+  await page.clock.runFor(1999);
+  // A request that went out would have reached the mock by now.
+  await page.waitForTimeout(300);
+  expect(searches("pics")).toHaveLength(3);
+  await page.clock.runFor(1);
+  await expect.poll(() => searches("pics").length).toBe(4);
 
   // When the API exposes them, the headers say how long to wait.
   script.push({

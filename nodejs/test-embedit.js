@@ -3049,6 +3049,9 @@ suite("browser-extension archive pull", () => {
       "pageOutcome",
       "rateLimitDelayMs",
       "backoffMs",
+      "MAX_PACE_FACTOR",
+      "PACE_RECOVERY_PAGES",
+      "nextPace",
     ],
     "archive.js",
   );
@@ -3148,6 +3151,44 @@ suite("browser-extension archive pull", () => {
       [0, 1, 2, 3, 4, 10].map((attempt) => pull.backoffMs(attempt)),
       [5000, 10000, 20000, 40000, 60000, 60000],
     );
+  });
+
+  test("a rate limit doubles the pause between requests, up to eight times the usual one", () => {
+    assert.ok(pull, "archive pull helpers not loaded");
+    assert.strictEqual(pull.MAX_PACE_FACTOR, 8);
+    let pace = 1000;
+    const paces = [];
+    for (let limit = 0; limit < 5; limit += 1) {
+      pace = pull.nextPace(pace, 1000, "limited", 0);
+      paces.push(pace);
+    }
+    assert.deepStrictEqual(paces, [2000, 4000, 8000, 8000, 8000]);
+    // Capped, not just stopped at a doubling.
+    assert.strictEqual(pull.nextPace(5000, 1000, "limited", 0), 8000);
+    // With no pause at all, there is nothing to double.
+    assert.strictEqual(pull.nextPace(0, 0, "limited", 0), 0);
+  });
+
+  test("the pause halves again after every 30 pages in a row with posts, down to the usual one", () => {
+    assert.ok(pull, "archive pull helpers not loaded");
+    assert.strictEqual(pull.PACE_RECOVERY_PAGES, 30);
+    assert.strictEqual(pull.nextPace(8000, 1000, "data", 29), 8000);
+    assert.strictEqual(pull.nextPace(8000, 1000, "data", 30), 4000);
+    assert.strictEqual(pull.nextPace(4000, 1000, "data", 31), 4000);
+    assert.strictEqual(pull.nextPace(4000, 1000, "data", 60), 2000);
+    assert.strictEqual(pull.nextPace(2000, 1000, "data", 90), 1000);
+    // Never below the usual pause.
+    assert.strictEqual(pull.nextPace(1000, 1000, "data", 30), 1000);
+    assert.strictEqual(pull.nextPace(1500, 1000, "data", 30), 1000);
+    assert.strictEqual(pull.nextPace(8000, 1000, "data", 0), 8000);
+  });
+
+  test("other answers leave the pause as it is", () => {
+    assert.ok(pull, "archive pull helpers not loaded");
+    ["empty", "timeout", "failed"].forEach((outcome) => {
+      assert.strictEqual(pull.nextPace(4000, 1000, outcome, 30), 4000, outcome);
+      assert.strictEqual(pull.nextPace(1000, 1000, outcome, 0), 1000, outcome);
+    });
   });
 });
 

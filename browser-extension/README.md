@@ -227,7 +227,9 @@ as unavailable.
 
 Arctic Shift is a free service, so the page asks for one page of posts a second
 at most, waits a minute or more when the service asks it to slow down, and asks
-for less when a request times out.
+for less when a request times out. After being asked to slow down, the pull
+stays slower for a while, down to one request every eight seconds, and speeds up
+again as pages keep arriving.
 
 Privacy: the archive page is the only part of the extension that talks to
 anything other than Reddit. It sends Arctic Shift the subreddit's name and the

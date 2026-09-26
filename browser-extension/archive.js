@@ -611,6 +611,10 @@
   const MAX_WAIT_MS = 300000;
   const NETWORK_WAIT_MS = 5000;
   const MAX_NETWORK_WAIT_MS = 60000;
+  // After a rate limit, requests stay further apart, up to this many times
+  // the usual pause, until this many pages in a row have brought posts.
+  const MAX_PACE_FACTOR = 8;
+  const PACE_RECOVERY_PAGES = 30;
 
   function narrowLevel(value) {
     const level = Math.floor(Number(value));
@@ -688,6 +692,25 @@
       MAX_NETWORK_WAIT_MS,
       NETWORK_WAIT_MS * 2 ** Math.max(0, attempt || 0),
     );
+  }
+
+  // The pause between requests after an answer, from the pause so far and
+  // the usual one (baseMs): doubled after a rate limit, up to
+  // MAX_PACE_FACTOR times the usual pause, and halved, down to the usual
+  // pause, after each PACE_RECOVERY_PAGES pages in a row that brought posts.
+  // okStreak counts those pages, this one included.
+  function nextPace(paceMs, baseMs, outcome, okStreak) {
+    if (outcome === "limited") {
+      return Math.min(paceMs * 2, baseMs * MAX_PACE_FACTOR);
+    }
+    if (
+      outcome === "data" &&
+      okStreak > 0 &&
+      okStreak % PACE_RECOVERY_PAGES === 0
+    ) {
+      return Math.max(baseMs, paceMs / 2);
+    }
+    return paceMs;
   }
   // archive-pull:end
 
@@ -1062,11 +1085,12 @@
   }
 
   // The pull: one sub's posts, newest first, into IndexedDB, about once a
-  // second (CONFIG.requestIntervalMs), until the chosen range is stored. It
-  // waits while paused, while the tab is hidden and while another tab
-  // pulls the same sub, and it goes on from its stored cursor after a
-  // reload. A refresh pulls the newest posts again first. Only the selected
-  // sub pulls.
+  // second (CONFIG.requestIntervalMs), until the chosen range is stored.
+  // After a rate limit it asks less often for a while (nextPace). It waits
+  // while paused, while the tab is hidden and while another tab pulls the
+  // same sub, and it goes on from its stored cursor after a reload. A
+  // refresh pulls the newest posts again first. Only the selected sub
+  // pulls.
   const REDDIT_FIRST_SECOND = Date.UTC(2005, 5, 1) / 1000;
   // What another tab's pull changes in a record.
   const PULL_FIELDS = [
@@ -1088,9 +1112,18 @@
     // phase: starting, pulling, refreshing, idle (the range is stored),
     // paused, hidden, elsewhere (another tab pulls), failed (stopped on an
     // error until Retry), limited, offline, server, narrowing (waiting
-    // until `until` before asking again) or stopped.
-    const state = { phase: "starting", until: 0, detail: "" };
+    // until `until` before asking again) or stopped. paceMs is the pause
+    // between requests, longer than CONFIG.requestIntervalMs for a while
+    // after a rate limit.
+    const state = {
+      phase: "starting",
+      until: 0,
+      detail: "",
+      paceMs: CONFIG.requestIntervalMs,
+    };
     const attempts = { limited: 0, network: 0, server: 0 };
+    // Pages in a row that brought posts.
+    let okStreak = 0;
     let hold = { until: 0, phase: "", detail: "" };
     let stopped = false;
     let wakeUp = null;
@@ -1187,12 +1220,8 @@
           continue;
         }
         setPhase(job === "refresh" ? "refreshing" : "pulling");
-        // The next request waits out the rest of the interval.
-        hold = {
-          until: Date.now() + CONFIG.requestIntervalMs,
-          phase: "",
-          detail: "",
-        };
+        // The next request waits out the rest of the pause.
+        hold = { until: Date.now() + state.paceMs, phase: "", detail: "" };
         try {
           await step(job === "refresh");
         } catch (error) {
@@ -1220,6 +1249,7 @@
         });
         body = await response.json().catch(() => null);
       } catch (_error) {
+        okStreak = 0;
         holdFor("offline", backoffMs(attempts.network++));
         return;
       }
@@ -1228,6 +1258,15 @@
       const outcome = pageOutcome(response.status, body);
       if (outcome !== "limited") attempts.limited = 0;
       if (outcome !== "failed") attempts.server = 0;
+      // A rate limit slows every request after it for a while, beyond the
+      // wait before its retry.
+      okStreak = outcome === "data" ? okStreak + 1 : 0;
+      state.paceMs = nextPace(
+        state.paceMs,
+        CONFIG.requestIntervalMs,
+        outcome,
+        okStreak,
+      );
       if (outcome === "data") {
         await storeData(refresh, beforeMs, body.data);
       } else if (outcome === "empty") {
@@ -2166,9 +2205,11 @@
       case "refreshing":
         return "Refreshing the newest posts…";
       case "pulling":
-        return Number.isFinite(record.bottom)
-          ? `Pulling… back to ${formatMonth(record.bottom)}`
-          : "Pulling…";
+        return (
+          (Number.isFinite(record.bottom)
+            ? `Pulling… back to ${formatMonth(record.bottom)}`
+            : "Pulling…") + slowedText(state.paceMs)
+        );
       case "idle":
         if (!record.done) {
           return `This date range is stored, back to ${formatMonth(record.bottom)}`;
@@ -2179,6 +2220,13 @@
       default:
         return "Starting…";
     }
+  }
+
+  // What the status adds while a rate limit keeps the pull slower.
+  function slowedText(paceMs) {
+    if (!(paceMs > CONFIG.requestIntervalMs)) return "";
+    const seconds = Math.round(paceMs / 100) / 10;
+    return ` (slowed to one request every ${seconds} s after a rate limit)`;
   }
 
   // The library row's word for how far the pull is.

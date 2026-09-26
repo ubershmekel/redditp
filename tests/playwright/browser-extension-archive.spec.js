@@ -837,6 +837,10 @@ test("posts below the minimum score or under 48 hours old are left out, and remo
   expect((await readArchive(page, "pics")).record.view.minScore).toBe(50);
 });
 
+// Reddit's preview of an i.redd.it GIF: a still picture, and an MP4.
+const GIF_POSTER = "https://preview.redd.it/animated.gif?format=png8&s=still";
+const GIF_MP4 = "https://preview.redd.it/animated.gif?format=mp4&s=motion";
+
 // Posts of every kind the viewer shows, best score first.
 function mediaPosts() {
   const gallery = clone(
@@ -846,10 +850,43 @@ function mediaPosts() {
   Object.values(gallery.media_metadata).forEach((entry) => {
     entry.s.u += "&amp;s=x";
   });
+  const gif = {
+    ...imagePost,
+    url: "https://i.redd.it/animated.gif",
+    url_overridden_by_dest: "https://i.redd.it/animated.gif",
+    preview: {
+      images: [
+        {
+          source: {
+            url: GIF_POSTER.replace("&", "&amp;"),
+            width: 400,
+            height: 300,
+          },
+          variants: {
+            gif: {
+              source: {
+                url: "https://preview.redd.it/animated.gif?s=gif",
+                width: 400,
+                height: 300,
+              },
+            },
+            mp4: {
+              source: {
+                url: GIF_MP4.replace("&", "&amp;"),
+                width: 400,
+                height: 300,
+              },
+            },
+          },
+        },
+      ],
+    },
+  };
   return [
     [gallery, "Gallery post"],
     [videoPost, "Reddit video"],
     [fixturePost("kgcs19"), "Imgur loop"],
+    [gif, "Animated GIF"],
     [fixturePost("kgifs8"), "YouTube clip"],
     [
       {
@@ -878,6 +915,9 @@ function mediaPosts() {
 test("archive posts play their media", async ({ page }) => {
   await page.clock.setFixedTime(NOW);
   const posts = mediaPosts();
+  await page.route(GIF_MP4, (route) =>
+    route.fulfill({ contentType: "video/webm", body: silentVideo }),
+  );
   await mockArchive(page, { media: posts });
   await openArchive(page, "#r/media");
   const title = viewerTitle(page);
@@ -909,6 +949,11 @@ test("archive posts play their media", async ({ page }) => {
   await expect(title).toHaveText("Imgur loop");
   await expect(video).toHaveAttribute("src", "https://i.imgur.com/RCtmQG7.mp4");
   await next();
+  // A GIF plays as the MP4 that Reddit made of it.
+  await expect(title).toHaveText("Animated GIF");
+  await expect(video).toHaveAttribute("src", GIF_MP4);
+  await expect(video).toHaveAttribute("poster", GIF_POSTER);
+  await next();
   await expect(title).toHaveText("YouTube clip");
   await expect(embed).toHaveAttribute(
     "src",
@@ -931,12 +976,21 @@ test("archive posts play their media", async ({ page }) => {
   await expect(page.locator(".redditp__post-body")).toHaveText(
     fixturePost("kgjlvd").selftext,
   );
-  await expect(viewerCount(page)).toHaveText("7 / 7");
+  await expect(viewerCount(page)).toHaveText("8 / 8");
 
-  // With images only, the news story's preview picture goes too.
+  // With images only, the news story's preview picture goes too, and so
+  // does the GIF.
   await page.keyboard.press("o");
   await expect(viewerCount(page)).toHaveText("1 / 1 · images only");
   await expect(title).toHaveText("Gallery post");
+  // With GIFs only, the GIF shows, with the imgur loop.
+  await page.keyboard.press("o");
+  await expect(viewerCount(page)).toHaveText("1 / 2 · GIFs only");
+  await expect(title).toHaveText("Imgur loop");
+  await next();
+  await expect(title).toHaveText("Animated GIF");
+  await expect(video).toHaveAttribute("src", GIF_MP4);
+  await expect(viewerCount(page)).toHaveText("2 / 2 · GIFs only");
 });
 
 test("archive mode never contacts reddit.com", async ({ page }) => {

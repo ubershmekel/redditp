@@ -2194,21 +2194,21 @@ suite("browser-extension archive records", () => {
         `${post.id}: ${record.permalink}`,
       );
       if (post.preview) {
-        assert.deepStrictEqual(
-          record.preview,
-          {
-            images: [
-              {
-                source: {
-                  url: decodedPreview(post),
-                  width: post.preview.images[0].source.width,
-                  height: post.preview.images[0].source.height,
-                },
-              },
-            ],
+        const image = {
+          source: {
+            url: decodedPreview(post),
+            width: post.preview.images[0].source.width,
+            height: post.preview.images[0].source.height,
           },
-          post.id,
-        );
+        };
+        // A GIF's MP4 is kept too, and nothing else of the variants.
+        const mp4 = post.preview.images[0].variants?.mp4?.source?.url;
+        if (mp4) {
+          image.variants = {
+            mp4: { source: { url: mp4.replace(/&amp;/g, "&") } },
+          };
+        }
+        assert.deepStrictEqual(record.preview, { images: [image] }, post.id);
       } else {
         assert.strictEqual(record.preview, undefined, post.id);
       }
@@ -2335,6 +2335,47 @@ suite("browser-extension archive media", () => {
     permalink: "/r/pics/comments/syn1/synthetic/",
     ...fields,
   });
+  // An i.redd.it GIF with Reddit's preview of it: a still picture, the GIF
+  // again, and an MP4, their URLs escaped as older records have them.
+  const GIF_POSTER = "https://preview.redd.it/anim.gif?format=png8&s=a";
+  const GIF_MP4 = "https://preview.redd.it/anim.gif?format=mp4&s=b";
+  const gifPost = (fields) =>
+    post({
+      url: "https://i.redd.it/anim.GIF",
+      domain: "i.redd.it",
+      post_hint: "image",
+      preview: {
+        images: [
+          {
+            source: {
+              url: GIF_POSTER.replace("&", "&amp;"),
+              width: 400,
+              height: 300,
+            },
+            variants: {
+              gif: {
+                source: { url: "https://preview.redd.it/anim.gif?s=g" },
+              },
+              mp4: {
+                source: {
+                  url: GIF_MP4.replace("&", "&amp;"),
+                  width: 400,
+                  height: 300,
+                },
+              },
+            },
+          },
+        ],
+      },
+      ...fields,
+    });
+  // A crosspost of that GIF, without a preview of its own.
+  const gifCrosspost = () =>
+    post({
+      id: "syn2",
+      url: "https://i.redd.it/anim.GIF",
+      crosspost_parent_list: [gifPost()],
+    });
 
   test("archive media helpers could be loaded", () => {
     // Guards the slice above: if the markers move or disappear, this fails
@@ -2367,6 +2408,68 @@ suite("browser-extension archive media", () => {
       postMedia: true,
       fromGif: false,
     });
+  });
+
+  test("a GIF plays as the MP4 that Reddit made of it, where there is one", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const played = {
+      kind: "video",
+      url: GIF_MP4,
+      poster: GIF_POSTER,
+      postMedia: true,
+      fromGif: true,
+    };
+    assert.deepStrictEqual(one(gifPost()), played);
+    assert.deepStrictEqual(
+      one(gifPost({ url: "https://i.redd.it/anim.gif?width=640" })),
+      played,
+    );
+    // A crosspost plays its original's.
+    assert.deepStrictEqual(one(gifCrosspost()), played);
+    // Without an MP4, the GIF itself shows.
+    const still = gifPost();
+    delete still.preview.images[0].variants.mp4;
+    assert.deepStrictEqual(one(still), {
+      kind: "image",
+      url: "https://i.redd.it/anim.GIF",
+      poster: "",
+      postMedia: true,
+      fromGif: false,
+    });
+    // Only a link to a GIF plays so.
+    assert.deepStrictEqual(
+      one(gifPost({ url: "https://i.redd.it/still.jpg" })),
+      {
+        kind: "image",
+        url: "https://i.redd.it/still.jpg",
+        poster: "",
+        postMedia: true,
+        fromGif: false,
+      },
+    );
+    // imgur's own MP4 still comes first for its GIFs.
+    assert.strictEqual(
+      one(gifPost({ url: "https://i.imgur.com/anim.gif" })).url,
+      "https://i.imgur.com/anim.mp4",
+    );
+  });
+
+  test("a stored GIF keeps its MP4, decoded, and nothing else of the variants", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    assert.deepStrictEqual(records.trimPost(gifPost(), "pics").preview, {
+      images: [
+        {
+          source: { url: GIF_POSTER, width: 400, height: 300 },
+          variants: { mp4: { source: { url: GIF_MP4 } } },
+        },
+      ],
+    });
+    const crosspost = records.trimPost(gifCrosspost(), "pics");
+    assert.strictEqual(crosspost.preview, undefined);
+    assert.deepStrictEqual(
+      crosspost.crosspost_parent_list[0].preview.images[0].variants,
+      { mp4: { source: { url: GIF_MP4 } } },
+    );
   });
 
   test("imgur GIFVs play as MP4s, and YouTube links as players", () => {
@@ -2531,7 +2634,12 @@ suite("browser-extension archive media", () => {
 
   test("trimming never changes the slides", () => {
     assert.ok(media, "archive media helpers not loaded");
-    [...archiveFixturePosts, archiveGalleryPost()].forEach((raw) => {
+    [
+      ...archiveFixturePosts,
+      archiveGalleryPost(),
+      gifPost(),
+      gifCrosspost(),
+    ].forEach((raw) => {
       assert.deepStrictEqual(
         media.mediaFromPost(records.trimPost(raw, "x"), urls),
         media.mediaFromPost(raw, urls),

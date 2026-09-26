@@ -90,9 +90,10 @@
     return Number.isFinite(number) ? number : 0;
   }
 
-  // What a post shows: its link, its Reddit video, its preview picture and
-  // its gallery, with the gallery's pictures in their largest size only.
-  // A crosspost keeps the same fields of its original post.
+  // What a post shows: its link, its Reddit video, its preview picture, the
+  // MP4 that Reddit made of a GIF, and its gallery, with the gallery's
+  // pictures in their largest size only. A crosspost keeps the same fields
+  // of its original post.
   function trimMedia(post) {
     const media = {
       is_video: post.is_video === true,
@@ -114,19 +115,21 @@
         },
       };
     }
-    const source = post.preview?.images?.[0]?.source;
-    if (isObject(source) && typeof source.url === "string") {
-      media.preview = {
-        images: [
-          {
-            source: {
-              url: decodeUrl(source.url),
-              width: sizeOf(source.width),
-              height: sizeOf(source.height),
-            },
-          },
-        ],
+    const image = post.preview?.images?.[0];
+    const preview = {};
+    if (isObject(image?.source) && typeof image.source.url === "string") {
+      preview.source = {
+        url: decodeUrl(image.source.url),
+        width: sizeOf(image.source.width),
+        height: sizeOf(image.source.height),
       };
+    }
+    const rendition = image?.variants?.mp4?.source?.url;
+    if (typeof rendition === "string") {
+      preview.variants = { mp4: { source: { url: decodeUrl(rendition) } } };
+    }
+    if (preview.source || preview.variants) {
+      media.preview = { images: [preview] };
     }
     if (Array.isArray(post.gallery_data?.items)) {
       media.gallery_data = {
@@ -206,12 +209,23 @@
   }
   // archive-records:end
 
+  // A link to a GIF, whatever its query.
+  const GIF_URL_RE = /\.gif(?:$|[?#])/i;
+
+  // The MP4 that Reddit made of a GIF, from the post's preview, or "".
+  function mp4Rendition(post) {
+    return safeUrl(post?.preview?.images?.[0]?.variants?.mp4?.source?.url);
+  }
+
   function hasOwnMedia(post) {
-    return Boolean(redditVideo(post) || isObject(post.media_metadata));
+    return Boolean(
+      redditVideo(post) || isObject(post.media_metadata) || mp4Rendition(post),
+    );
   }
 
   // The post whose media a post shows: its own, or a crosspost's original
-  // when only the original has a Reddit video or a gallery.
+  // when only the original has a Reddit video, a gallery or the MP4 of a
+  // GIF.
   function mediaSource(post) {
     const parent = Array.isArray(post.crosspost_parent_list)
       ? post.crosspost_parent_list[0]
@@ -261,8 +275,9 @@
 
   // What a post shows, as one or more media items: a gallery's pictures, a
   // Reddit video's silent MP4, a picture, video or player that its link
-  // leads to, the preview picture of a link, or the link itself. The first
-  // rule that finds something wins, so the result is never empty.
+  // leads to (a GIF as the MP4 that Reddit made of it), the preview picture
+  // of a link, or the link itself. The first rule that finds something
+  // wins, so the result is never empty.
   function mediaFromPost(post, urls) {
     const source = mediaSource(post);
     if (
@@ -296,6 +311,20 @@
           poster: external.kind === "video" ? preview : "",
           postMedia: true,
           fromGif: Boolean(external.fromGif),
+        },
+      ];
+    }
+    // A GIF plays as the MP4 that Reddit made of it, a fraction of its size
+    // and far cheaper to play, where the post has one.
+    const rendition = mp4Rendition(source);
+    if (url && rendition && GIF_URL_RE.test(url)) {
+      return [
+        {
+          kind: "video",
+          url: rendition,
+          poster: preview || previewPicture(source),
+          postMedia: true,
+          fromGif: true,
         },
       ];
     }

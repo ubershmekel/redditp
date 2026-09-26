@@ -178,7 +178,8 @@ score, which a Reddit listing cannot do past its first thousand or so posts. It
 pulls the posts from the [Arctic Shift](https://arctic-shift.photon-reddit.com)
 archive into the browser's own storage (IndexedDB) and shows them in the same
 slideshow and grid as presentation mode, with the same keys, buttons, and Show
-filter.
+filter. A GIF post plays as the MP4 that Reddit made of the GIF, which is a
+fraction of its size.
 
 Open it with the **archive** button or H in presentation mode, or with the small
 round icon at the bottom right of a subreddit's listing pages. Either one opens

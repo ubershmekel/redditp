@@ -150,14 +150,14 @@ test.afterEach(async ({ page }) => {
 
 // Answers the Arctic Shift API from datasets of posts, keyed by the
 // lowercase sub, which a test may change between steps. A search returns
-// the posts created before `before` (and after `after`), newest first, 7 at
-// a time for limit=auto, so pages end at odd places. `script` holds one-off
-// answers, used in order; one with a `sub` answers only that sub's
-// searches. Every request is logged.
+// the posts created before `before` (and after `after`), newest first,
+// `pageSize` (7) at a time for limit=auto, so pages end at odd places.
+// `script` holds one-off answers, used in order; one with a `sub` answers
+// only that sub's searches. Every request is logged.
 async function mockArchive(
   page,
   datasets,
-  { script = [], earliest = {} } = {},
+  { script = [], earliest = {}, pageSize = 7 } = {},
 ) {
   const log = { searches: [], mins: [] };
   await page.route(`${API}/**`, (route) => {
@@ -201,7 +201,7 @@ async function mockArchive(
     }
     const before = Number(params.before);
     const after = params.after ? Number(params.after) : -Infinity;
-    const limit = params.limit === "auto" ? 7 : Number(params.limit);
+    const limit = params.limit === "auto" ? pageSize : Number(params.limit);
     return json(200, {
       data: posts
         .filter(
@@ -1087,33 +1087,192 @@ test("a date range limits what the archive shows", async ({ page }) => {
   await expect(viewerCount(page)).toHaveText("28 / 28");
 });
 
-test("top of everything is offered once the range is complete", async ({
+// The titles of a stretch of "Top of what's stored": the posts from
+// startSec up to (not including) endSec, ranked by the page's own rules.
+function stretchTitles(posts, startSec, endSec) {
+  return expectedTitles(posts, {
+    windowSize: Infinity,
+    start: startSec,
+    end: endSec,
+  });
+}
+
+// The oldest second of a sub stored in full, where "Top of what's stored"
+// ranks down to.
+async function storedFrom(page, sub) {
+  return (await readArchive(page, sub)).record.bottom;
+}
+
+test("top of what's stored ranks the stored posts at once, and slots in what the pull stores by score", async ({
   page,
 }) => {
-  const posts = archivePosts("pics", { count: 30 });
+  // The first page's posts score from 400 down by twos, the second page's
+  // from 311 down by twos, among the lowest of the first page's, and the
+  // last twenty posts score the most of all.
+  const posts = imagePosts("pics", {
+    count: 120,
+    scoreOf: (index) =>
+      index < 50
+        ? 400 - 2 * index
+        : index < 100
+          ? 411 - 2 * index
+          : 500 - index,
+  });
+  await mockArchive(page, { pics: posts }, { pageSize: 51 });
+  await pauseClock(page);
+  await openArchiveQuietly(page, "pics", { requestIntervalMs: 1000 });
+  const count = libraryRow(page, "r/pics").locator(
+    ".redditp-archive__item-count",
+  );
+  await expect(count).toHaveText("51 posts");
+  // The panel's Pause button. While the viewer covers the panel, the test
+  // clicks it through the page's own events.
+  const pause = page.locator("#redditp-archive-pause");
+  await pause.click();
+  await expect(status(page)).toHaveText("Paused");
+  const hint = page.locator("#redditp-archive-order-hint");
+  // The posts stored in full that the viewer has not been handed, in the
+  // order the page ranks them; how many slides the viewer holds; and which
+  // page a post came in.
+  const unseen = async (handed) =>
+    stretchTitles(
+      posts.filter((post) => !handed.includes(post.title)),
+      await storedFrom(page, "pics"),
+      Infinity,
+    );
+  const held = async () =>
+    Number(/ \/ (\d+)/.exec(await viewerCount(page).textContent())[1]);
+  const pageOf = (title) =>
+    Number(title.replace("Archive post ", "")) <= 50 ? 1 : 2;
+
+  // The range is far from complete, yet the top order can start.
+  const top = page.getByLabel("Top of what's stored");
+  await expect(top).toBeEnabled();
+  await expect(hint).toHaveText(
+    "Ranks everything stored so far, back to Sep 2026. The pull keeps running, and posts that arrive while you browse are slotted in by score among those you have not seen yet.",
+  );
+  await top.check();
+  await browseButton(page).click();
+  await expect(viewerCount(page)).toHaveText(/^1 \/ \d+$/);
+  const first = (await unseen([])).slice(0, await held());
+  // The viewer holds the best of the stored posts, not all of them yet.
+  expect(first.length).toBeLessThan(50);
+  await walkSlides(page, first.slice(0, 3));
+
+  // The pull stores another page while the viewer stays open. Its posts
+  // are slotted in by score among the first page's that the viewer does
+  // not hold yet.
+  await pause.dispatchEvent("click");
+  await page.clock.runFor(1000);
+  await expect(count).toHaveText("101 posts");
+  const next = await unseen(first);
+  expect(next.slice(0, 8).map(pageOf)).toEqual([2, 2, 2, 2, 1, 2, 1, 2]);
+  await walkSlides(page, first.slice(2));
+  await expect.poll(held).toBeGreaterThan(first.length);
+  const second = next.slice(0, (await held()) - first.length);
+  await page.keyboard.press("ArrowRight");
+  await walkSlides(page, second.slice(0, 12));
+
+  // The pull completes while the viewer stays open. The rest follows, the
+  // newcomers that outscore it first, and then the list wraps.
+  await runPullUntil(page, /^Complete back to /);
+  await expect(hint).toHaveText(
+    "Ranks everything stored so far, back to Sep 2026 · complete",
+  );
+  const rest = await unseen([...first, ...second]);
+  expect(first.length + second.length + rest.length).toBe(120);
+  expect(Number(rest[0].replace("Archive post ", ""))).toBeGreaterThan(100);
+  await walkSlides(page, [...second.slice(11), ...rest]);
+  await page.keyboard.press("ArrowRight");
+  await expect(viewerTitle(page)).toHaveText(first[0]);
+  await expect(viewerCount(page)).toHaveText("1 / 120");
+});
+
+test("top of what's stored waits for the pull when it runs out", async ({
+  page,
+}) => {
+  const posts = imagePosts("pics", { count: 30 });
   await mockArchive(page, { pics: posts });
   await pauseClock(page);
   await openArchiveQuietly(page, "pics", { requestIntervalMs: 1000 });
-  await expect(
-    libraryRow(page, "r/pics").locator(".redditp-archive__item-count"),
-  ).toHaveText("7 posts");
-  const top = page.getByLabel("Top of everything");
-  await expect(top).toBeDisabled();
-  await expect(page.locator("#redditp-archive-order-hint")).toHaveText(
-    "Top of everything is available once the whole range is pulled.",
+  const count = libraryRow(page, "r/pics").locator(
+    ".redditp-archive__item-count",
   );
-
-  await runPullUntil(page, /^Complete back to /);
-  await page.clock.resume();
-  await expect(top).toBeEnabled();
-  await top.check();
+  await expect(count).toHaveText("7 posts");
+  await page.getByLabel("Top of what's stored").check();
   await browseButton(page).click();
-  // The best post of all is in the second window of ten.
-  const [best] = expectedTitles(posts, { windowSize: 30 });
-  expect(best).toBe("Archive post 20");
-  expect(expectedTitles(posts, { windowSize: 10 })[0]).not.toBe(best);
-  await expect(viewerTitle(page)).toHaveText(best);
-  await expect(viewerCount(page)).toHaveText("1 / 30");
+  const first = stretchTitles(posts, await storedFrom(page, "pics"), Infinity);
+  await walkSlides(page, first);
+  // The pull goes on, so the end of the list waits for it, not wrapping.
+  await page.keyboard.press("ArrowRight");
+  await expect(viewerCount(page)).toHaveText(
+    `${first.length} / ${first.length} · loading more`,
+  );
+  await expect(viewerTitle(page)).toHaveText(first[first.length - 1]);
+
+  // The next page arrives, and the slideshow moves on to its best post.
+  await page.clock.runFor(1000);
+  await expect(count).toHaveText("13 posts");
+  const next = stretchTitles(
+    posts.filter((post) => !first.includes(post.title)),
+    await storedFrom(page, "pics"),
+    Infinity,
+  );
+  expect(next).toHaveLength(6);
+  await walkSlides(page, next);
+});
+
+test("browse and start over rank everything stored at that moment", async ({
+  page,
+}) => {
+  const posts = imagePosts("pics", { count: 30 });
+  await mockArchive(page, { pics: posts });
+  await pauseClock(page);
+  await openArchiveQuietly(page, "pics", { requestIntervalMs: 1000 });
+  const count = libraryRow(page, "r/pics").locator(
+    ".redditp-archive__item-count",
+  );
+  await expect(count).toHaveText("7 posts");
+  const pause = page.locator("#redditp-archive-pause");
+  await pause.click();
+  // Too few posts for a window of ten, but enough for the top order.
+  await expect(browseButton(page)).toBeDisabled();
+  await page.getByLabel("Top of what's stored").check();
+  await expect(browseButton(page)).toBeEnabled();
+  await browseButton(page).click();
+  const before = stretchTitles(posts, await storedFrom(page, "pics"), Infinity);
+  await walkSlides(page, before.slice(0, 3));
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+
+  // Meanwhile the pull stores another page, with a better post.
+  await pause.click();
+  await page.clock.runFor(1000);
+  await expect(count).toHaveText("13 posts");
+  await pause.click();
+  const after = stretchTitles(posts, await storedFrom(page, "pics"), Infinity);
+  expect(after).toHaveLength(12);
+  expect(after[0]).not.toBe(before[0]);
+  // Browse goes back to the post it left on, in the order of everything
+  // stored now, which mixes the new posts in.
+  const left = after.indexOf(before[2]);
+  const rest = after.slice(left);
+  expect(rest).not.toEqual(before.slice(2));
+  await browseButton(page).click();
+  // The title still reads the post the viewer closed on, which is where it
+  // reopens, so the count tells when the new list is there.
+  await expect(viewerCount(page)).toHaveText(`1 / ${rest.length}`);
+  await walkSlides(page, rest);
+  // The pull is paused, so the end of the list wraps.
+  await page.keyboard.press("ArrowRight");
+  await expect(viewerTitle(page)).toHaveText(rest[0]);
+  await expect(viewerCount(page)).toHaveText(`1 / ${rest.length}`);
+
+  // Start over opens at the best post stored now.
+  await page.keyboard.press("Escape");
+  await page.locator("#redditp-archive-start-over").click();
+  await expect(viewerCount(page)).toHaveText(`1 / ${after.length}`);
+  await walkSlides(page, after);
 });
 
 test("author and community links open Reddit in a new tab", async ({
@@ -1362,7 +1521,7 @@ test("500,000 posts stay usable", async ({ page }) => {
   );
 
   await page.keyboard.press("Escape");
-  await page.getByLabel("Top of everything").check();
+  await page.getByLabel("Top of what's stored").check();
   const topMs = await timed(
     () => browseButton(page).click(),
     titleIs,
@@ -1393,6 +1552,6 @@ test("500,000 posts stay usable", async ({ page }) => {
   });
   expect.soft(firstWindowMs, "first window").toBeLessThan(500);
   expect.soft(batchMs, "one batch").toBeLessThan(200);
-  expect.soft(topMs, "Top of everything").toBeLessThan(10000);
+  expect.soft(topMs, "Top of what's stored").toBeLessThan(10000);
   expect.soft(deleteMs, "delete").toBeLessThan(10000);
 });

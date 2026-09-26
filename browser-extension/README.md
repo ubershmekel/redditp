@@ -196,15 +196,17 @@ page itself, open any subreddit with the form at the top, or with
   by score, so browsing starts long before the pull ends. A page opened with a
   subreddit in its address opens the slideshow by itself once the first stretch
   is stored, and the slideshow waits for the pull when it catches up with it.
-  **Top of everything**, which ranks every post in the date range at once,
-  becomes available once the whole range is stored.
+- **Top of what's stored** ranks everything stored so far in the date range, and
+  can start as soon as one post is stored. Posts that arrive while you browse
+  are slotted in by score among what you have not seen yet, so what you have
+  seen never moves; Browse and Start over rank everything stored at that moment.
 
 The panel of the open subreddit has:
 
 - **Date range**: all, the past year, the past month, or custom dates, in UTC. A
   narrower range stops the pull once it is stored; a wider one pulls on.
 - **Minimum score**: posts below it are left out.
-- **Order**: newest stretches first, or top of everything.
+- **Order**: newest stretches first, or top of what's stored.
 - **Browse** reopens where you left off in the same range, minimum score, and
   order; **Start over** starts from the top.
 - **Pause** or **Resume** the pull, **Refresh**, and **Delete**.

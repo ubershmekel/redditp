@@ -485,21 +485,43 @@
     ].join("|");
   }
 
-  // The ids of the entries ({ id, created, score }) that rank, best first:
-  // by score, then newest first, then by id. Posts younger than
+  // The order entries ({ id, created, score }) rank in: by score, then
+  // newest first, then by id.
+  function compareRanked(a, b) {
+    return (
+      b.score - a.score ||
+      b.created - a.created ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    );
+  }
+
+  // The entries that rank, best first. Posts younger than
   // SCORE_BLIND_SECONDS and posts below the minimum score are left out.
-  function rankEntries(entries, { nowSec, minScore }) {
+  function rankedEntries(entries, { nowSec, minScore }) {
     const latest = nowSec - SCORE_BLIND_SECONDS;
     const floor = Number.isFinite(minScore) ? minScore : 0;
     return entries
       .filter((entry) => entry.created <= latest && entry.score >= floor)
-      .sort(
-        (a, b) =>
-          b.score - a.score ||
-          b.created - a.created ||
-          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-      )
-      .map((entry) => entry.id);
+      .sort(compareRanked);
+  }
+
+  // The ids of the entries that rank, best first.
+  function rankEntries(entries, options) {
+    return rankedEntries(entries, options).map((entry) => entry.id);
+  }
+
+  // Two lists of entries, each best first, as one list, best first. Of two
+  // entries that rank alike, the one from `a` comes first.
+  function mergeRanked(a, b) {
+    const merged = [];
+    let fromA = 0;
+    let fromB = 0;
+    while (fromA < a.length && fromB < b.length) {
+      merged.push(
+        compareRanked(b[fromB], a[fromA]) < 0 ? b[fromB++] : a[fromA++],
+      );
+    }
+    return merged.concat(a.slice(fromA), b.slice(fromB));
   }
 
   // A window from entries read newest first: at least `size` of them, then
@@ -543,10 +565,29 @@
     return Boolean(span.done || window.full || span.bottom <= rangeStart);
   }
 
-  // Whether every post in the range is stored, which "Top of everything"
-  // needs.
+  // Whether every post in the range is stored, so the pull has no more to
+  // bring to it.
   function rangeComplete(span, rangeStart) {
     return Boolean(span.done || span.bottom <= rangeStart);
+  }
+
+  // What "Top of what's stored" ranks as it opens, as { start, end } with
+  // end exclusive: the range's posts from the oldest second stored in full
+  // up to just above the newest stored post. During a refresh that post
+  // stays put until the refresh is done, so no gap opens above it. Before
+  // anything is stored, the whole range is still to come. `start` is where
+  // the ranked posts reach down to.
+  function firstStretch(range, span) {
+    const end = span.top > 0 ? Math.min(range.end, span.top + 1) : range.end;
+    return { start: Math.min(Math.max(range.start, span.bottom), end), end };
+  }
+
+  // What the pull has stored in full since "Top of what's stored" ranked
+  // down to rankedFloor: the range's posts below it, as { start, end } with
+  // end exclusive, or null while there are none.
+  function newStretch(rangeStart, rankedFloor, recordBottom) {
+    const start = Math.max(rangeStart, recordBottom);
+    return start < rankedFloor ? { start, end: rankedFloor } : null;
   }
   // archive-ranking:end
 
@@ -971,7 +1012,7 @@
     );
   }
 
-  // Every post of a range, for "Top of everything".
+  // Every post of a stretch, for "Top of what's stored".
   function readRange(db, sub, startSec, endSec) {
     return readEntries(db, sub, startSec, endSec, Infinity);
   }
@@ -1391,8 +1432,11 @@
   // batch at a time (content.js describes the shape at liveSource).
   // "Newest windows first" walks the windows from the newest down, each
   // ranked by score, and waits for the pull while the next one fills. "Top
-  // of everything" ranks the whole range at once. Only ids are ranked; the
-  // posts themselves are read READ_CHUNK at a time.
+  // of what's stored" ranks everything stored so far at once, and slots the
+  // posts that the pull stores meanwhile in by score among those not handed
+  // to the viewer yet, so what it has shown never moves. Only ids, dates
+  // and scores are ranked; the posts themselves are read READ_CHUNK at a
+  // time.
   const BATCH_WANTED = 24;
   const BATCH_MAX_POSTS = 400;
   const READ_CHUNK = 48;
@@ -1411,9 +1455,14 @@
     let queue = Promise.resolve();
     // Post id -> the media keys of its pictures and videos that failed.
     let dead = null;
-    // The window being walked: { windowEnd, start, ids, pos, last }, where
-    // windowEnd 0 is the newest window.
+    // Window mode: the window being walked, { windowEnd, start, ids, pos,
+    // last }, where windowEnd 0 is the newest window.
     let walk = null;
+    // Top mode: { entries, pos, floor, handed }. The ranked entries
+    // ({ id, created, score }) from `pos` on are the posts not handed to
+    // the viewer yet, best first; they cover the range down to the second
+    // `floor`, and `handed` posts came before them.
+    let list = null;
     let exhausted = false;
     let closed = false;
     let pendingResume = null;
@@ -1421,6 +1470,7 @@
     let resumeSavedAt = 0;
 
     const nowSec = () => Math.floor(Date.now() / 1000);
+    const ranking = () => ({ nowSec: nowSec(), minScore: view.minScore });
 
     // A window of the view, ranked, or null while the pull has not filled
     // it. The newest window ends just above the newest stored post; during
@@ -1429,19 +1479,6 @@
     async function readRanked(windowEnd) {
       const range = rangeBounds(view.range, nowSec());
       const newest = Math.min(range.end, record.top + 1);
-      const rank = (entries) =>
-        rankEntries(entries, { nowSec: nowSec(), minScore: view.minScore });
-      if (view.mode === "top") {
-        if (!rangeComplete(record, range.start)) return null;
-        const entries = await readRange(db, sub, range.start, newest);
-        return {
-          windowEnd: 0,
-          start: 0,
-          ids: rank(entries),
-          pos: 0,
-          last: true,
-        };
-      }
       const window = await readWindow(
         db,
         sub,
@@ -1453,7 +1490,7 @@
       return {
         windowEnd,
         start: window.start,
-        ids: rank(window.taken),
+        ids: rankEntries(window.taken, ranking()),
         pos: 0,
         last: !window.full,
       };
@@ -1471,6 +1508,90 @@
       }
     }
 
+    // The next ids to read in window mode, moving on to the next window
+    // once the pull has filled it; null when the view runs out.
+    async function nextWindowChunk() {
+      while (!walk || walk.pos >= walk.ids.length) {
+        if (closed) return null;
+        if (walk?.last) {
+          exhausted = true;
+          return null;
+        }
+        const next = await nextWindow(walk ? walk.start : 0);
+        if (!next) return null;
+        walk = next;
+      }
+      const ids = walk.ids.slice(walk.pos, walk.pos + READ_CHUNK);
+      const chunk = { ids, windowEnd: walk.windowEnd, rank: walk.pos };
+      walk.pos += ids.length;
+      return chunk;
+    }
+
+    // "Top of what's stored" as it opens: everything stored in full in the
+    // range, ranked. Posts that a refresh stores above it later join the
+    // next Browse or Start over, which rank everything stored at that
+    // moment.
+    async function openList() {
+      const range = rangeBounds(view.range, nowSec());
+      const stretch = firstStretch(range, record);
+      const entries = await readRange(db, sub, stretch.start, stretch.end);
+      list = {
+        entries: rankedEntries(entries, ranking()),
+        pos: 0,
+        floor: stretch.start,
+        handed: 0,
+      };
+    }
+
+    // Ranks what the pull has stored below the list since, and slots it in
+    // by score among the posts not handed to the viewer yet. The puller
+    // keeps `record` current, also while another tab pulls. Resolves to
+    // whether the whole range was stored by then, so that nothing more can
+    // come.
+    async function catchUp() {
+      const range = rangeBounds(view.range, nowSec());
+      const complete = rangeComplete(record, range.start);
+      const stretch = newStretch(range.start, list.floor, record.bottom);
+      if (stretch) {
+        const entries = await readRange(db, sub, stretch.start, stretch.end);
+        list.entries = mergeRanked(
+          list.entries.slice(list.pos),
+          rankedEntries(entries, ranking()),
+        );
+        list.pos = 0;
+        list.floor = stretch.start;
+      }
+      return complete;
+    }
+
+    // The next ids to read in top mode: the best of the posts not handed
+    // over yet, the latest arrivals included. When there are none, it waits
+    // for the pull while the pull can bring more and the batch has nothing
+    // to show yet; null when the view runs out, for good once the whole
+    // range is stored.
+    async function nextListChunk(batchShows) {
+      if (!list) await openList();
+      for (;;) {
+        // Listening first, so a change during the read is not missed.
+        const changed = puller.waitForChange();
+        const complete = await catchUp();
+        if (list.pos < list.entries.length) break;
+        if (complete) {
+          exhausted = true;
+          return null;
+        }
+        if (batchShows || closed || !puller.isPulling()) return null;
+        await changed;
+      }
+      const ids = list.entries
+        .slice(list.pos, list.pos + READ_CHUNK)
+        .map((entry) => entry.id);
+      const chunk = { ids, windowEnd: 0, rank: list.handed };
+      list.pos += ids.length;
+      list.handed += ids.length;
+      return chunk;
+    }
+
     // Slides until the Show filter wants BATCH_WANTED of them, or
     // BATCH_MAX_POSTS posts have been read, or the view runs out.
     async function takeBatch(wants) {
@@ -1485,49 +1606,55 @@
         wanted < BATCH_WANTED &&
         read < BATCH_MAX_POSTS
       ) {
-        if (!walk || walk.pos >= walk.ids.length) {
-          if (walk?.last) {
-            exhausted = true;
-            break;
-          }
-          const next = await nextWindow(walk ? walk.start : 0);
-          if (!next) break;
-          walk = next;
-          continue;
-        }
-        const ids = walk.ids.slice(walk.pos, walk.pos + READ_CHUNK);
-        const posts = await getPosts(db, sub, ids);
-        ids.forEach((id, offset) => {
+        const chunk =
+          view.mode === "top"
+            ? await nextListChunk(wanted > 0)
+            : await nextWindowChunk();
+        if (!chunk) break;
+        const posts = await getPosts(db, sub, chunk.ids);
+        chunk.ids.forEach((id, offset) => {
           // A post can be gone, for one, when its archive was deleted.
           if (!posts[offset]) return;
           const result = postSlides(posts[offset], urls, dead.get(id));
           unavailable += result.unavailable;
           result.slides.forEach((slide) => {
-            slide.archive.windowEnd = walk.windowEnd;
-            slide.archive.rank = walk.pos + offset;
+            slide.archive.windowEnd = chunk.windowEnd;
+            slide.archive.rank = chunk.rank + offset;
             slides.push(slide);
             if (wants(slide)) wanted += 1;
           });
         });
-        read += ids.length;
-        walk.pos += ids.length;
+        read += chunk.ids.length;
       }
       return { slides, unavailable };
     }
 
-    // Resume opens the view's window where it left off, at the post it
-    // left on, found by its id in case the ranking has moved since.
+    // Where a resume position lies among ranked posts: at the post it left
+    // on, found by its id in case the ranking has moved since, or else at
+    // its rank.
+    function resumeIndex(found, length) {
+      return found >= 0
+        ? found
+        : Math.min(Math.max(0, resume.rank || 0), length);
+    }
+
+    // Resume opens the view where it left off: in its window, or in the top
+    // list ranked afresh over everything stored now, which then takes in
+    // new arrivals as usual.
     async function start(wants) {
-      if (resume) {
-        const window = await nextWindow(
-          view.mode === "top" ? 0 : resume.windowEnd || 0,
+      if (resume && view.mode === "top") {
+        await openList();
+        list.pos = list.handed = resumeIndex(
+          list.entries.findIndex((entry) => entry.id === resume.id),
+          list.entries.length,
         );
+      } else if (resume) {
+        const window = await nextWindow(resume.windowEnd || 0);
         if (window) {
-          const found = window.ids.indexOf(resume.id);
-          window.pos =
-            found >= 0
-              ? found
-              : Math.min(Math.max(0, resume.rank || 0), window.ids.length);
+          window.pos = resumeIndex(
+            window.ids.indexOf(resume.id),
+            window.ids.length,
+          );
           walk = window;
         }
       }
@@ -1900,28 +2027,35 @@
     void browse(false);
   }
 
-  // Browse needs the view's first window ready, or, for "Top of
-  // everything", the whole range stored. A window is ready once it holds a
-  // full window of posts, counted without reading them, or once the pull
-  // has passed the start of the range. An archive without a single post
-  // has nothing to browse.
+  // Browse needs something to show: the view's first window, ready once it
+  // holds a full window of posts, or, for "Top of what's stored", a single
+  // post of the range stored in full; the posts are counted without reading
+  // them. Either is ready once the pull has passed the start of the range.
+  // An archive without a single post has nothing to browse. The top order
+  // can be chosen whenever it could be browsed.
   async function syncBrowse() {
     if (!current) return;
     const request = ++browseRequest;
     const { record } = current;
     const view = record.view;
     const range = rangeBounds(view.range, Math.floor(Date.now() / 1000));
-    let ready = record.count > 0 && rangeComplete(record, range.start);
-    if (!ready && view.mode === "windows") {
-      const stored = await countRange(
+    const complete = record.count > 0 && rangeComplete(record, range.start);
+    let stored = 0;
+    if (!complete) {
+      const stretch = firstStretch(range, record);
+      stored = await countRange(
         db,
         record.name,
-        Math.max(range.start, record.bottom),
-        Math.min(range.end, record.top + 1),
+        stretch.start,
+        stretch.end,
       ).catch(() => 0);
-      ready = stored >= CONFIG.windowSize;
     }
     if (request !== browseRequest || current?.record !== record) return;
+    const topReady = complete || stored > 0;
+    const ready =
+      view.mode === "top" ? topReady : complete || stored >= CONFIG.windowSize;
+    const top = ui.orderInputs.find((input) => input.value === "top");
+    top.disabled = !topReady && !top.checked;
     ui.browse.disabled = ui.startOver.disabled = !ready;
     if (ready && autoOpen && !viewerShowing()) void browse(true);
   }
@@ -2081,13 +2215,20 @@
     ui.pause.textContent = record.paused ? "Resume" : "Pause";
     ui.refresh.disabled = !record.top || Boolean(record.refresh);
     ui.from.disabled = ui.to.disabled = record.view.range.preset !== "custom";
-    const complete = rangeComplete(record, range.start);
-    const top = ui.orderInputs.find((input) => input.value === "top");
-    top.disabled = !complete && !top.checked;
-    ui.orderHint.textContent = complete
-      ? "Top of everything ranks the whole range at once."
-      : "Top of everything is available once the whole range is pulled.";
+    ui.orderHint.textContent = orderHint(record, range);
     void syncBrowse();
+  }
+
+  // What "Top of what's stored" would rank if it opened now.
+  function orderHint(record, range) {
+    const stretch = firstStretch(range, record);
+    if (!(stretch.start < stretch.end)) {
+      return "Ranks everything stored so far, once the pull has stored posts from this date range.";
+    }
+    const text = `Ranks everything stored so far, back to ${formatMonth(stretch.start)}`;
+    return rangeComplete(record, range.start)
+      ? `${text} · complete`
+      : `${text}. The pull keeps running, and posts that arrive while you browse are slotted in by score among those you have not seen yet.`;
   }
 
   function createRow(name) {

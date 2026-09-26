@@ -2598,10 +2598,14 @@ suite("browser-extension archive ranking", () => {
       "rangeBounds",
       "viewKey",
       "rankEntries",
+      "rankedEntries",
+      "mergeRanked",
       "cutWindow",
       "advanceCursor",
       "windowReady",
       "rangeComplete",
+      "firstStretch",
+      "newStretch",
     ],
     "archive.js",
   );
@@ -2850,6 +2854,185 @@ suite("browser-extension archive ranking", () => {
     assert.strictEqual(
       ranking.rangeComplete({ done: true, bottom: 5000 }, 0),
       true,
+    );
+  });
+
+  test("top of what's stored opens on the range's posts stored in full, up to the newest", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const span = { top: 9000, bottom: 5000 };
+    const all = { start: 0, end: Infinity };
+    assert.deepStrictEqual(ranking.firstStretch(all, span), {
+      start: 5000,
+      end: 9001,
+    });
+    // The pull has passed the start of the range.
+    assert.deepStrictEqual(
+      ranking.firstStretch({ start: 6000, end: Infinity }, span),
+      { start: 6000, end: 9001 },
+    );
+    // A range that ends below the newest post.
+    assert.deepStrictEqual(
+      ranking.firstStretch({ start: 0, end: 7000 }, span),
+      { start: 5000, end: 7000 },
+    );
+    // The pull has not reached the range yet: nothing, and what arrives
+    // later stays inside the range.
+    assert.deepStrictEqual(
+      ranking.firstStretch({ start: 1000, end: 3000 }, span),
+      { start: 3000, end: 3000 },
+    );
+    // Nothing stored yet: all of the range is still to come.
+    assert.deepStrictEqual(
+      ranking.firstStretch(all, { top: 0, bottom: Infinity }),
+      { start: Infinity, end: Infinity },
+    );
+    assert.deepStrictEqual(
+      ranking.firstStretch(
+        { start: 0, end: 3000 },
+        { top: 0, bottom: Infinity },
+      ),
+      { start: 3000, end: 3000 },
+    );
+  });
+
+  test("top of what's stored takes in what the pull stored below it since", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    // The pull went on from 5000 down to 4000.
+    assert.deepStrictEqual(ranking.newStretch(0, 5000, 4000), {
+      start: 4000,
+      end: 5000,
+    });
+    // Down past the start of the range: the rest of the range.
+    assert.deepStrictEqual(ranking.newStretch(4500, 5000, 4000), {
+      start: 4500,
+      end: 5000,
+    });
+    // Nothing new: the pull has not moved, or the range was complete.
+    assert.strictEqual(ranking.newStretch(0, 5000, 5000), null);
+    assert.strictEqual(ranking.newStretch(5000, 5000, 4000), null);
+    assert.strictEqual(ranking.newStretch(6000, 6000, 4000), null);
+    // Nothing stored at all, then a first page.
+    assert.strictEqual(ranking.newStretch(0, Infinity, Infinity), null);
+    assert.deepStrictEqual(ranking.newStretch(0, Infinity, 4000), {
+      start: 4000,
+      end: Infinity,
+    });
+    // A range that the pull had not reached, and now has.
+    assert.deepStrictEqual(ranking.newStretch(1000, 3000, 2000), {
+      start: 2000,
+      end: 3000,
+    });
+  });
+
+  test("ranked entries keep their dates and scores, in the order of the ranked ids", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const entries = [
+      entry("low", 5, 10 * DAY),
+      entry("young", 99, DAY),
+      entry("top", 90, 30 * DAY),
+      entry("below", 1, 3 * DAY),
+    ];
+    const options = { nowSec: NOW, minScore: 5 };
+    const ranked = ranking.rankedEntries(entries, options);
+    assert.deepStrictEqual(ranked, [
+      entry("top", 90, 30 * DAY),
+      entry("low", 5, 10 * DAY),
+    ]);
+    assert.deepStrictEqual(
+      ranked.map((item) => item.id),
+      ranking.rankEntries(entries, options),
+    );
+    // The entries given stay as they were.
+    assert.deepStrictEqual(
+      entries.map((item) => item.id),
+      ["low", "young", "top", "below"],
+    );
+  });
+
+  test("two ranked lists merge into one, best first", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const a = [
+      entry("a90", 90, 3 * DAY),
+      entry("a50", 50, 4 * DAY),
+      entry("a10", 10, 5 * DAY),
+    ];
+    const b = [entry("b70", 70, 9 * DAY), entry("b30", 30, 9 * DAY)];
+    const ids = (list) => list.map((item) => item.id);
+    assert.deepStrictEqual(ids(ranking.mergeRanked(a, b)), [
+      "a90",
+      "b70",
+      "a50",
+      "b30",
+      "a10",
+    ]);
+    assert.deepStrictEqual(ids(ranking.mergeRanked(b, a)), [
+      "a90",
+      "b70",
+      "a50",
+      "b30",
+      "a10",
+    ]);
+    // Neither list changes.
+    assert.deepStrictEqual(ids(a), ["a90", "a50", "a10"]);
+    assert.deepStrictEqual(ids(b), ["b70", "b30"]);
+  });
+
+  test("a merge breaks equal scores as the ranking does, and keeps a full tie in order", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const ids = (list) => list.map((item) => item.id);
+    // Equal scores: the newer post first, then the smaller id.
+    assert.deepStrictEqual(
+      ids(
+        ranking.mergeRanked(
+          [entry("m", 50, 5 * DAY), entry("z", 50, 6 * DAY)],
+          [entry("new", 50, 3 * DAY), entry("a", 50, 5 * DAY)],
+        ),
+      ),
+      ["new", "a", "m", "z"],
+    );
+    // Entries that rank alike keep their lists' order, the first list's
+    // first, and each list keeps its own order.
+    const first = { id: "same", score: 50, created: NOW, from: "a" };
+    const second = { id: "same", score: 50, created: NOW, from: "b" };
+    assert.deepStrictEqual(
+      ranking.mergeRanked([first], [second]).map((item) => item.from),
+      ["a", "b"],
+    );
+    assert.deepStrictEqual(
+      ranking.mergeRanked([second], [first]).map((item) => item.from),
+      ["b", "a"],
+    );
+  });
+
+  test("a merge with an empty list is the other list", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const list = [entry("a", 9, 3 * DAY), entry("b", 8, 3 * DAY)];
+    assert.deepStrictEqual(ranking.mergeRanked(list, []), list);
+    assert.deepStrictEqual(ranking.mergeRanked([], list), list);
+    assert.deepStrictEqual(ranking.mergeRanked([], []), []);
+    // A new list, never one of the two given.
+    assert.notStrictEqual(ranking.mergeRanked(list, []), list);
+  });
+
+  test("merging ranked stretches ranks as ranking them together does", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const options = { nowSec: NOW, minScore: 10 };
+    // Scores and dates that repeat, so every tie-break is used.
+    const entries = Array.from({ length: 120 }, (_, index) =>
+      entry(
+        `p${(index * 7) % 120}`,
+        (index * 37) % 41,
+        DAY + (index % 9) * DAY,
+      ),
+    );
+    const older = entries.filter((item) => item.created < NOW - 5 * DAY);
+    const newer = entries.filter((item) => item.created >= NOW - 5 * DAY);
+    assert.deepStrictEqual(
+      ranking.mergeRanked(
+        ranking.rankedEntries(newer, options),
+        ranking.rankedEntries(older, options),
+      ),
+      ranking.rankedEntries(entries, options),
     );
   });
 });

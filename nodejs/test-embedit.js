@@ -839,9 +839,9 @@ suite("listingUrl", () => {
 // ---------------------------------------------------------------------------
 // DOM-free blocks of browser-extension/content.js
 //
-// The content script is one IIFE, but its grid layout math and its media
-// filter rules each sit between two markers and touch no DOM, so each block
-// can be evaluated here on its own.
+// The content script is one IIFE, but its grid layout math, its media filter
+// rules and its feed loading rules each sit between two markers and touch no
+// DOM, so each block can be evaluated here on its own.
 // ---------------------------------------------------------------------------
 
 // Evaluates the block between "// <name>:start" and "// <name>:end" and
@@ -1239,6 +1239,52 @@ suite("browser-extension media filter", () => {
     ].forEach(([settings, key]) => {
       assert.strictEqual(filter.lockedMediaType(settings), key, key);
     });
+  });
+});
+
+suite("browser-extension feed loading", () => {
+  const loading = loadContentScriptBlock("redditp-feed-loading", [
+    "loadVerdict",
+    "LOAD_NUDGE_MS",
+    "LOAD_IDLE_MS",
+    "FILTERED_MAX_ROUNDS",
+  ]);
+
+  test("feed loading helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      loading,
+      "did not find the redditp-feed-loading markers in content.js",
+    );
+  });
+
+  test("a load nudges Reddit every second and waits twelve seconds", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    assert.strictEqual(loading.LOAD_NUDGE_MS, 1000);
+    assert.strictEqual(loading.LOAD_IDLE_MS, 12000);
+    assert.strictEqual(loading.FILTERED_MAX_ROUNDS, 15);
+  });
+
+  test("a post to show ends the load whatever else happened", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    assert.strictEqual(loading.loadVerdict(1, 99, 99999), "matched");
+  });
+
+  test("fifteen batches without a match end a filtered load", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    assert.strictEqual(loading.loadVerdict(0, 15, 0), "rounds");
+  });
+
+  test("twelve seconds without a new post end the load", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    assert.strictEqual(loading.loadVerdict(0, 0, 12000), "idle");
+  });
+
+  test("otherwise the load keeps waiting", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    assert.strictEqual(loading.loadVerdict(0, 14, 11999), "wait");
+    assert.strictEqual(loading.loadVerdict(0, 0, 0), "wait");
   });
 });
 

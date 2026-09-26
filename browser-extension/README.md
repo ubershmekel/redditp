@@ -118,8 +118,9 @@ grid, and also while a filter hides every loaded post. With images only, a link
 post's preview picture does not count as an image. While a filter is on, the
 slide counter says so, as in `3 / 12 · images only`, and a dot marks the gear
 button, or the + button when the controls are collapsed. Loading more posts
-keeps scrolling Reddit until a matching post arrives, for up to about 12 seconds
-at a time. Search results that show only a thumbnail stay until their post is
+keeps scrolling Reddit until a matching post arrives, and gives up after 15
+batches of new posts without a match, or when Reddit adds nothing for 12
+seconds. Search results that show only a thumbnail stay until their post is
 read, then drop out if they do not match. The choice is saved with the other
 settings.
 
@@ -138,10 +139,13 @@ through to the browser, so Ctrl+F and friends keep working while presentation
 mode is open.
 
 Reaching the final slide automatically scrolls the underlying Reddit feed and
-preloads newly rendered posts. Pressing next while that load is still running
-queues the navigation; if Reddit has no more posts, it wraps to the first slide.
-Single-post `/comments/` pages do not trigger this feed-loading scroll. The
-slide counter shows `loading more` while this background preload is active.
+preloads newly rendered posts. A load scrolls Reddit to the end again about once
+a second and waits up to 12 seconds for new posts before treating the feed as
+ended, so a slow feed still gets through. Pressing next while that load is still
+running queues the navigation; if Reddit has no more posts, it wraps to the
+first slide. Single-post `/comments/` pages do not trigger this feed-loading
+scroll. The slide counter shows `loading more` while this background preload is
+active.
 
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 Firefox does it in `about:addons` under the gear menu's **Manage Extension

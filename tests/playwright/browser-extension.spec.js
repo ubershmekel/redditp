@@ -896,7 +896,9 @@ for (const expanded of [false, true]) {
     await page.addStyleTag({ path: extensionStyles });
     await page.addScriptTag({ path: extensionScript });
 
-    await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+    await expect(page.locator(".redditp__count")).toHaveText(
+      /^1 \/ 1( · loading more)?$/,
+    );
     for (let index = 0; index < oldGalleryIds.length; index += 1) {
       await expect(page.locator(".redditp__image")).toHaveAttribute(
         "src",
@@ -1014,6 +1016,8 @@ test("G skips only the current gallery and advances ordinary posts", async ({
 test("G at the final gallery waits for more posts and otherwise wraps", async ({
   page,
 }) => {
+  // A load gives up only after Reddit has added nothing for a while.
+  await page.clock.install();
   await page.route("https://preview.redd.it/**", (route) => route.abort());
   await startPresentation(page, oldGalleryPost());
   await page.keyboard.press("g");
@@ -1028,6 +1032,7 @@ test("G at the final gallery waits for more posts and otherwise wraps", async ({
   });
   await expect(page.locator(".redditp__title")).toHaveText("Newly loaded post");
   await page.keyboard.press("g");
+  await page.clock.runFor(13_000);
   await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
   await expect(page.locator(".redditp__gallery")).toHaveText("(1/5)");
   // Skipping a gallery with no next post must also wrap safely.
@@ -1037,6 +1042,11 @@ test("G at the final gallery waits for more posts and otherwise wraps", async ({
   );
   await page.evaluate(() => window.__redditpPresentation.toggle());
   await page.keyboard.press("g");
+  await page.clock.runFor(13_000);
+  await expect(page.locator(".redditp__gallery")).toHaveText("(1/5)");
+  // The wrap lands on the only post, which starts another load; that one
+  // gives up the same way.
+  await page.clock.runFor(13_000);
   await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
 });
 
@@ -1101,7 +1111,9 @@ test("old Reddit search enrichment recognizes cached galleries", async ({
     page,
     `<div class="search-result search-result-link" data-fullname="t3_1vy9ca0"><a class="search-title" href="${oldGalleryComments}">Apple pie gallery</a><a class="search-comments" href="${oldGalleryComments}">comments</a><a class="search-link" href="${oldGalleryUrl}">gallery</a></div>`,
   );
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 1( · loading more)?$/,
+  );
   await expect(page.locator(".redditp__gallery")).toHaveText("(1/5)");
 });
 
@@ -1116,7 +1128,9 @@ test("old Reddit galleries without usable cached media keep their link fallback"
     "href",
     oldGalleryUrl,
   );
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 1( · loading more)?$/,
+  );
 });
 
 test("extension expands lazy Reddit galleries in order without decorative duplicates", async ({
@@ -1145,7 +1159,9 @@ test("extension expands lazy Reddit galleries in order without decorative duplic
     `,
   );
 
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 1( · loading more)?$/,
+  );
   await expect(page.locator(".redditp__gallery")).toHaveText("(1/3)");
   await page.keyboard.press("ArrowRight");
   await expect(page.locator(".redditp__gallery")).toHaveText("(2/3)");
@@ -1406,7 +1422,9 @@ test("a subreddit link thumbnail upgrades to the direct post's large preview", a
   await page.addStyleTag({ path: extensionStyles });
   await page.addScriptTag({ path: extensionScript });
 
-  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 1( · loading more)?$/,
+  );
   await expect(page.getByRole("link", { name: "comments" })).toHaveAttribute(
     "href",
     postUrl,
@@ -1929,13 +1947,17 @@ function svgImage(width, height) {
   };
 }
 
+// The image post titled "Post <number>".
+function gridImagePost(number) {
+  return `<div class="thing link" data-url="https://i.redd.it/grid-${number}.jpg" data-permalink="/r/pics/comments/grid${number}/post/"><a class="title">Post ${number}</a></div>`;
+}
+
 // Image posts titled "Post 1" to "Post <count>", in three shapes so the
 // grid's columns fill unevenly.
 function gridImagePosts(count) {
-  return Array.from({ length: count }, (_, index) => {
-    const number = index + 1;
-    return `<div class="thing link" data-url="https://i.redd.it/grid-${number}.jpg" data-permalink="/r/pics/comments/grid${number}/post/"><a class="title">Post ${number}</a></div>`;
-  }).join("");
+  return Array.from({ length: count }, (_, index) =>
+    gridImagePost(index + 1),
+  ).join("");
 }
 
 function routeGridImages(page) {
@@ -2160,6 +2182,8 @@ test("the end of the grid loads more posts without rebuilding its tiles", async 
 }) => {
   await routeGridImages(page);
   const feedUrl = "https://www.reddit.com/r/gridfeed/";
+  // A load gives up only after Reddit has added nothing for a while.
+  await page.clock.install();
   await page.route(feedUrl, (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -2220,6 +2244,8 @@ test("the end of the grid loads more posts without rebuilding its tiles", async 
     gridScrollTop,
   );
   // A load that finds nothing ends the loading until the grid is shown again.
+  await expect(status).toHaveText("Loading more posts…");
+  await page.clock.runFor(13_000);
   await expect(status).toHaveText("No more posts right now");
   await expect(count).toHaveText("3 posts");
 });
@@ -2621,6 +2647,8 @@ test("a filtered load keeps scrolling past non-matching posts until one matches"
 test("a filter with no matches says so and the gear still changes it", async ({
   page,
 }) => {
+  // A load gives up only after Reddit has added nothing for a while.
+  await page.clock.install();
   await routeMediaMix(page);
   await openRoutedPage(
     page,
@@ -2632,6 +2660,8 @@ test("a filter with no matches says so and the gear still changes it", async ({
 
   const heading = page.locator(".redditp__empty h2");
   const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("0 posts · images only · loading more");
+  await page.clock.runFor(13_000);
   await expect(heading).toHaveText("Nothing here matches the filter");
   await expect(page.locator(".redditp__empty p")).toHaveText(
     "Only images are shown. Change that in the settings, or press O.",
@@ -2703,6 +2733,8 @@ async function routeFilterSearch(page) {
 test("an upgraded search thumbnail that turns out to be a video leaves the images-only grid", async ({
   page,
 }) => {
+  // A load gives up only after Reddit has added nothing for a while.
+  await page.clock.install();
   const { requests, results } = await routeFilterSearch(page);
   await openRoutedPage(page, filterSearchUrl, results, {
     openInGrid: true,
@@ -2727,6 +2759,7 @@ test("an upgraded search thumbnail that turns out to be a video leaves the image
   );
   // Focus followed the current tile as the tiles before it left.
   await expect(match).toBeFocused();
+  await page.clock.runFor(13_000);
   await expect(page.locator(".redditp__grid-status")).toHaveText(
     "No more images found",
   );
@@ -3054,4 +3087,180 @@ test("the media buttons stay on screen at phone width", async ({ page }) => {
     await page.getByRole("button", { name: "videos", exact: true }).click();
     await expect(page.locator(".redditp__title")).toHaveText("Opening clip");
   }
+});
+
+// Counts the extension's scrolls of the Reddit page in
+// window.__redditpScrollCalls. With a template, each scroll also renders it
+// at the end of the page, with {n} replaced by start, start + 1 and so on,
+// the way an infinite feed renders its next post.
+function instrumentScroll(page, { template = "", start = 1 } = {}) {
+  return page.evaluate(
+    ({ template, start }) => {
+      window.__redditpScrollCalls = 0;
+      const originalScrollTo = window.scrollTo.bind(window);
+      window.scrollTo = (...args) => {
+        const number = start + window.__redditpScrollCalls;
+        window.__redditpScrollCalls += 1;
+        originalScrollTo(...args);
+        if (template) {
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            template.replace(/\{n\}/g, String(number)),
+          );
+        }
+      };
+    },
+    { template, start },
+  );
+}
+
+function scrollCalls(page) {
+  return page.evaluate(() => window.__redditpScrollCalls);
+}
+
+// A paused clock fires the load's timers only when a test runs it on.
+async function pauseClock(page) {
+  await page.clock.install({ time: new Date("2026-08-25T12:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-08-25T12:00:01Z"));
+}
+
+test("a post that arrives six seconds after the scroll still joins", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/slowfeed/",
+    `${gridImagePosts(1)}<div style="height: 4000px"></div>`,
+    {},
+  );
+  await instrumentScroll(page);
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("Post 1");
+  await expect(count).toHaveText("1 / 1 · loading more");
+
+  // Reddit is slow to answer; the load keeps nudging it and waiting.
+  await page.clock.runFor(6000);
+  await expect(count).toHaveText("1 / 1 · loading more");
+  expect(await scrollCalls(page)).toBeGreaterThanOrEqual(6);
+
+  await insertPosts(page, gridImagePost(2));
+  await expect(count).toHaveText("1 / 2");
+  await expect(title).toHaveText("Post 1");
+});
+
+test("a feed that adds nothing ends the load after the idle window", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  const body = `${gridImagePosts(1)}<div style="height: 4000px"></div>`;
+  await openRoutedPage(page, "https://www.reddit.com/r/endedfeed/", body, {});
+  await instrumentScroll(page);
+  await injectExtension(page);
+  const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("1 / 1 · loading more");
+
+  await page.clock.runFor(11_000);
+  await expect(count).toHaveText("1 / 1 · loading more");
+  await page.clock.runFor(2000);
+  await expect(count).toHaveText("1 / 1");
+  const calls = await scrollCalls(page);
+  expect(calls).toBeGreaterThanOrEqual(12);
+  // The nudge timer stopped with the load.
+  await page.clock.runFor(5000);
+  expect(await scrollCalls(page)).toBe(calls);
+
+  // The grid's own load ends the same way.
+  await openRoutedPage(page, "https://www.reddit.com/r/endedgrid/", body, {
+    openInGrid: true,
+  });
+  await injectExtension(page);
+  const status = page.locator(".redditp__grid-status");
+  await expect(status).toHaveText("Loading more posts…");
+  await page.clock.runFor(13_000);
+  await expect(status).toHaveText("No more posts right now");
+  await expect(count).toHaveText("1 post");
+});
+
+test("a filtered load gives up after fifteen batches without a match", async ({
+  page,
+}) => {
+  // Paused, so only the posts rendered by each scroll drive the load.
+  await pauseClock(page);
+  await routeMediaMix(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/hiddenfeed/",
+    `${mixVideoPost("opening", "Opening clip")}<div style="height: 4000px"></div>`,
+    { showGifs: false, showVideos: false },
+  );
+  // Every scroll renders one more video post, which images only hides.
+  await instrumentScroll(page, {
+    template: mixVideoPost("round{n}", "Hidden clip {n}"),
+  });
+  await injectExtension(page);
+
+  await expect(page.locator(".redditp__empty h2")).toHaveText(
+    "Nothing here matches the filter",
+  );
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "0 posts · images only",
+  );
+  expect(await scrollCalls(page)).toBe(15);
+  await expect(page.locator(".thing")).toHaveCount(16);
+});
+
+test("closing or refiltering mid-load leaves no observer or timer running", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeMediaMix(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/watchfeed/",
+    `${mixVideoPost("opening", "Opening clip")}<div style="height: 4000px"></div>`,
+    { showGifs: false, showVideos: false },
+  );
+  await instrumentScroll(page);
+  // Counts connected observers of the page body: observe() calls minus
+  // disconnect() calls. Playwright's own injected script observes the
+  // document, so that one is left out.
+  await page.evaluate(() => {
+    window.__redditpObserving = 0;
+    const PageObserver = window.MutationObserver;
+    window.MutationObserver = class extends PageObserver {
+      observe(target, options) {
+        if (target === document.body) {
+          this.watchesBody = true;
+          window.__redditpObserving += 1;
+        }
+        return super.observe(target, options);
+      }
+      disconnect() {
+        if (this.watchesBody) window.__redditpObserving -= 1;
+        return super.disconnect();
+      }
+    };
+  });
+  await injectExtension(page);
+  const observing = () => page.evaluate(() => window.__redditpObserving);
+  const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("0 posts · images only · loading more");
+  expect(await observing()).toBe(1);
+
+  // GIFs only hides the clip as well, so a new load takes over.
+  await page.keyboard.press("o");
+  await expect(count).toHaveText("0 posts · GIFs only · loading more");
+  expect(await observing()).toBe(1);
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  expect(await observing()).toBe(0);
+  const calls = await scrollCalls(page);
+  await page.clock.runFor(5000);
+  expect(await scrollCalls(page)).toBe(calls);
 });

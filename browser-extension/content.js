@@ -212,6 +212,29 @@
   }
   // redditp-media-filter:end
 
+  // redditp-feed-loading:start
+  // When a load of more posts gives up. Like the blocks above, this stays
+  // DOM-free, so nodejs/test-embedit.js can evaluate it on its own. A load
+  // scrolls Reddit to the end of the page again every LOAD_NUDGE_MS and waits
+  // for new posts. Reddit marks no end of its feeds, so a feed that adds no
+  // post at all for LOAD_IDLE_MS counts as ended. With a filter on, the new
+  // posts may all be hidden; the load then stops after FILTERED_MAX_ROUNDS
+  // such batches.
+  const LOAD_NUDGE_MS = 1000;
+  const LOAD_IDLE_MS = 12000;
+  const FILTERED_MAX_ROUNDS = 15;
+
+  // "matched" once the load has a post to show, "rounds" after too many
+  // batches of posts the filter hides, "idle" once Reddit has added nothing
+  // for LOAD_IDLE_MS, and "wait" while it should keep going.
+  function loadVerdict(shown, rounds, idleMs) {
+    if (shown > 0) return "matched";
+    if (rounds >= FILTERED_MAX_ROUNDS) return "rounds";
+    if (idleMs >= LOAD_IDLE_MS) return "idle";
+    return "wait";
+  }
+  // redditp-feed-loading:end
+
   const state = {
     open: false,
     opening: false,
@@ -257,22 +280,25 @@
     gridEnrichActive: 0,
     // Failed upgrades in a row; the grid stops asking after a few.
     gridEnrichFailures: 0,
+    // Posts the running load has found so far, shown or not.
+    loadFound: 0,
   };
   // Grid tile -> { slide, height }, the height in column widths.
   const gridTileInfo = new WeakMap();
   // Watches the end of the grid and its thumbnail tiles, where supported.
   let gridObserver = null;
+  // The page watch of the load that is waiting for Reddit, if any.
+  let feedWatch = null;
+  // Post elements already read this open, so a load that looks again and
+  // again reads only the posts Reddit has added since.
+  let seenPostNodes = new WeakSet();
+  // What Reddit adds when it renders more posts: a post element, or a
+  // comments link that the fallback in selectPostNodes() would pick up.
+  const FEED_GROWTH_SELECTOR = POST_SELECTOR + ",a[href*='/comments/']";
   // Slides the grid has tried to upgrade: once each, per open.
   const gridEnrichTried = new WeakSet();
   const GRID_ENRICH_CONCURRENCY = 2;
   const GRID_ENRICH_MAX_FAILURES = 3;
-  // A load scrolls Reddit up to LOAD_ATTEMPTS times, 200 ms apart, until a
-  // post to show arrives. With a filter on, the new posts may all be hidden,
-  // so it keeps going for longer. Either way it stops once Reddit has added
-  // no post at all for LOAD_IDLE_ATTEMPTS scrolls in a row.
-  const LOAD_ATTEMPTS = 20;
-  const LOAD_IDLE_ATTEMPTS = 20;
-  const FILTERED_LOAD_ATTEMPTS = 60;
 
   function absoluteUrl(value) {
     if (!value || value === "#") return "";
@@ -861,6 +887,7 @@
     const seenPostMedia = new Set();
     const seenPosts = new Set();
     selectPostNodes().forEach((node) => {
+      if (seenPostNodes.has(node)) return;
       if (node.closest("#redditp-presentation")) return;
       const comments = commentsUrl(node);
       const postKey =
@@ -878,6 +905,9 @@
       if (!explicitPostNode && !postKey && !comments) return;
       if (postKey && seenPosts.has(postKey)) return;
       if (postKey) seenPosts.add(postKey);
+      // A node without a post identity yet, such as a placeholder, is looked
+      // at again next time; this one is done.
+      seenPostNodes.add(node);
       const source = contentUrl(node, comments);
       const base = {
         title: postTitle(node),
@@ -1948,6 +1978,7 @@
       if (state.loadingMore) {
         heading = `No ${shownMediaLabel(state.settings, "or")} here yet`;
         text = "Loading more posts…";
+        if (state.loadFound) text += ` ${state.loadFound} checked`;
       } else {
         heading = "Nothing here matches the filter";
         text = `Only ${shownMediaLabel(state.settings, "and")} are shown. Change that in the settings, or press O.`;
@@ -2209,6 +2240,88 @@
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 
+  // Reddit renders more posts when its page is scrolled to the end.
+  function scrollToFeedEnd() {
+    const scrollingElement = document.scrollingElement;
+    window.scrollTo(0, scrollingElement?.scrollHeight || 0);
+  }
+
+  // Whether a page change added something that may be a new post. The
+  // presentation's own elements never count.
+  function addsPostCandidate(record) {
+    return Array.prototype.some.call(
+      record.addedNodes,
+      (node) =>
+        node.nodeType === 1 &&
+        !root.contains(node) &&
+        (node.matches(FEED_GROWTH_SELECTOR) ||
+          Boolean(node.querySelector(FEED_GROWTH_SELECTOR))),
+    );
+  }
+
+  // Watches the page while a load waits for Reddit. New post elements wake
+  // the load straight away, where MutationObserver is available, and a timer
+  // scrolls Reddit to the end again every LOAD_NUDGE_MS and wakes it too.
+  // A wake-up that arrives while the load is busy is kept for its next wait.
+  // Only one watch runs at a time.
+  function startFeedWatch() {
+    stopFeedWatch(feedWatch);
+    const watch = {
+      stopped: false,
+      signalled: false,
+      waiter: null,
+      observer: null,
+      timer: null,
+    };
+    function signal() {
+      if (watch.stopped) return;
+      const waiter = watch.waiter;
+      watch.waiter = null;
+      if (waiter) waiter();
+      else watch.signalled = true;
+    }
+    if (typeof MutationObserver === "function") {
+      watch.observer = new MutationObserver((records) => {
+        if (records.some(addsPostCandidate)) signal();
+      });
+      watch.observer.observe(document.body || document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    }
+    watch.timer = setInterval(() => {
+      scrollToFeedEnd();
+      signal();
+    }, LOAD_NUDGE_MS);
+    feedWatch = watch;
+    return watch;
+  }
+
+  // Resolves at the watch's next wake-up, at once if one is waiting, and at
+  // once when the watch has stopped.
+  function waitForFeed(watch) {
+    if (watch.stopped || watch.signalled) {
+      watch.signalled = false;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      watch.waiter = resolve;
+    });
+  }
+
+  // Disconnects the observer and clears the timer. Safe to call twice; a
+  // load still waiting on the watch wakes up and sees that it stopped.
+  function stopFeedWatch(watch) {
+    if (!watch || watch.stopped) return;
+    watch.stopped = true;
+    if (watch.observer) watch.observer.disconnect();
+    clearInterval(watch.timer);
+    const waiter = watch.waiter;
+    watch.waiter = null;
+    if (waiter) waiter();
+    if (feedWatch === watch) feedWatch = null;
+  }
+
   async function loadMoreAtEnd(advanceWhenReady) {
     if (isSinglePostPage()) return;
     if (state.loadingMore) {
@@ -2231,6 +2344,7 @@
   // running.
   async function loadMorePosts() {
     state.loadingMore = true;
+    state.loadFound = 0;
     const request = ++state.loadRequest;
     updateCount(true);
     syncEmptyState();
@@ -2238,27 +2352,40 @@
 
     let scan = appendNewPosts();
     let added = scan.shown;
+    let verdict = added ? "matched" : "wait";
+    noteLoadProgress(scan);
     try {
       if (!added) {
         document.documentElement.style.overflow = state.oldOverflow;
-        const attempts = mediaFilterActive(state.settings)
-          ? FILTERED_LOAD_ATTEMPTS
-          : LOAD_ATTEMPTS;
-        let idle = 0;
-        for (
-          let attempt = 0;
-          attempt < attempts && idle < LOAD_IDLE_ATTEMPTS;
-          attempt += 1
-        ) {
-          const scrollingElement = document.scrollingElement;
-          window.scrollTo(0, scrollingElement?.scrollHeight || 0);
-          await wait(200);
-          if (!state.open || request !== state.loadRequest) return null;
-          scan = appendNewPosts();
-          added = scan.shown;
-          if (added) break;
-          // Posts the filter hides still show that Reddit is loading.
-          idle = scan.found ? 0 : idle + 1;
+        const watch = startFeedWatch();
+        let rounds = 0;
+        let lastGrowth = Date.now();
+        let wasHidden = false;
+        try {
+          scrollToFeedEnd();
+          while (verdict === "wait") {
+            await waitForFeed(watch);
+            if (watch.stopped || !state.open || request !== state.loadRequest)
+              return null;
+            // Time in a background tab, where Reddit renders nothing, does
+            // not count towards the idle window.
+            const hidden = Boolean(document.hidden);
+            if (hidden || wasHidden) lastGrowth = Date.now();
+            wasHidden = hidden;
+            scan = appendNewPosts();
+            added = scan.shown;
+            noteLoadProgress(scan);
+            if (scan.found) {
+              // Posts the filter hides still show that Reddit is loading.
+              lastGrowth = Date.now();
+              if (!added) rounds += 1;
+            }
+            verdict = loadVerdict(added, rounds, Date.now() - lastGrowth);
+            // Ask for the next batch now rather than at the next nudge.
+            if (verdict === "wait" && scan.found) scrollToFeedEnd();
+          }
+        } finally {
+          stopFeedWatch(watch);
         }
       }
     } finally {
@@ -2296,6 +2423,17 @@
     return added;
   }
 
+  // Counts the posts a load has looked at, for a filtered load's progress
+  // text.
+  function noteLoadProgress(scan) {
+    if (!scan.found) return;
+    state.loadFound += scan.found;
+    if (!scan.shown && mediaFilterActive(state.settings)) {
+      syncEmptyState();
+      syncGridStatus();
+    }
+  }
+
   // Scrolling near the end of the grid loads more posts the way the last
   // slide does, without moving to them.
   function loadMoreFromGrid() {
@@ -2316,6 +2454,7 @@
     state.loadRequest += 1;
     state.loadingMore = false;
     state.advanceAfterLoad = false;
+    stopFeedWatch(feedWatch);
     document.documentElement.style.overflow = "hidden";
   }
 
@@ -2407,6 +2546,10 @@
         text = filtering
           ? `Looking for more ${shownLabel}…`
           : "Loading more posts…";
+        const checked = state.loadFound;
+        if (filtering && checked) {
+          text += ` ${checked} ${checked === 1 ? "post" : "posts"} checked`;
+        }
       } else if (state.gridExhausted) {
         text = filtering
           ? `No more ${shownLabel} found`
@@ -2780,6 +2923,7 @@
     state.advanceAfterLoad = false;
     state.loadRequest += 1;
     state.openRequest += 1;
+    stopFeedWatch(feedWatch);
     state.settingsOpen = false;
     settingsOverlay.hidden = true;
     clearTimeout(state.autoTimer);
@@ -2834,6 +2978,8 @@
     await waitForAdaptivePlayer(request);
     if (!state.open || request !== state.openRequest) return;
     state.preparing = false;
+    // Every post is read afresh on each open.
+    seenPostNodes = new WeakSet();
     state.allSlides = extractSlides();
     state.slides = state.allSlides.filter((slide) =>
       slideMatchesFilter(slide, state.settings),

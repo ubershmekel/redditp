@@ -1,0 +1,46 @@
+/* The archive icon that auto-activate.js shows at the bottom right of a
+   subreddit's pages. The manifest injects this file into every reddit.com
+   page, so every rule targets the icon alone. Reddit styles buttons
+   globally, so the icon starts from nothing, and it stays under the
+   presentation overlay (z-index 2147483647). */
+.redditp-launcher {
+  all: initial;
+  position: fixed;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 2147483646;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.redditp-launcher:hover {
+  opacity: 1;
+}
+
+.redditp-launcher:focus-visible {
+  opacity: 1;
+  outline: 2px solid #5ff;
+  outline-offset: 2px;
+}
+
+.redditp-launcher[hidden] {
+  display: none !important;
+}
+
+.redditp-launcher svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  pointer-events: none;
+}

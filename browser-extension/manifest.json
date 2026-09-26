@@ -24,6 +24,9 @@
       "js": [
         "auto-activate.js"
       ],
+      "css": [
+        "launcher.css"
+      ],
       "run_at": "document_idle"
     }
   ],

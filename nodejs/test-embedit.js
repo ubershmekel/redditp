@@ -1691,6 +1691,37 @@ suite("browser-extension dead media", () => {
   });
 });
 
+// Subreddit listings, each with the subreddit it names.
+const SUBREDDIT_LISTING_PATHS = [
+  ["/r/pics/", "pics"],
+  ["/r/pics", "pics"],
+  ["/r/Pics/top/", "Pics"],
+  ["/r/pics/new/", "pics"],
+  ["/r/pics/search/", "pics"],
+  ["/r/de/", "de"],
+  ["/r/pics_2/", "pics_2"],
+];
+
+// Post pages, multireddits, the front pages that gather many subreddits, and
+// other pages, none of which names a subreddit.
+const NON_SUBREDDIT_PATHS = [
+  "/r/pics/comments/abc/title/",
+  "/r/pics/comments/abc",
+  "/r/a+b/",
+  "/r/all/",
+  "/r/popular/",
+  "/r/Friends/",
+  "/r/mod/",
+  "/r/random/",
+  "/r/x/",
+  `/r/${"a".repeat(22)}/`,
+  "/user/someone/",
+  "/",
+  "/search/",
+  "",
+  undefined,
+];
+
 suite("browser-extension subreddit path", () => {
   const paths = loadContentScriptBlock("redditp-subreddit-path", [
     "ARCHIVE_PSEUDO_SUBS",
@@ -1708,38 +1739,14 @@ suite("browser-extension subreddit path", () => {
 
   test("a subreddit listing names its subreddit, spelled as in the path", () => {
     assert.ok(paths, "subreddit path helpers not loaded");
-    [
-      ["/r/pics/", "pics"],
-      ["/r/pics", "pics"],
-      ["/r/Pics/top/", "Pics"],
-      ["/r/pics/new/", "pics"],
-      ["/r/pics/search/", "pics"],
-      ["/r/de/", "de"],
-      ["/r/pics_2/", "pics_2"],
-    ].forEach(([pathname, sub]) => {
+    SUBREDDIT_LISTING_PATHS.forEach(([pathname, sub]) => {
       assert.strictEqual(paths.subredditFromPath(pathname), sub, pathname);
     });
   });
 
   test("post pages, multireddits, front pages and other pages name none", () => {
     assert.ok(paths, "subreddit path helpers not loaded");
-    [
-      "/r/pics/comments/abc/title/",
-      "/r/pics/comments/abc",
-      "/r/a+b/",
-      "/r/all/",
-      "/r/popular/",
-      "/r/Friends/",
-      "/r/mod/",
-      "/r/random/",
-      "/r/x/",
-      `/r/${"a".repeat(22)}/`,
-      "/user/someone/",
-      "/",
-      "/search/",
-      "",
-      undefined,
-    ].forEach((pathname) => {
+    NON_SUBREDDIT_PATHS.forEach((pathname) => {
       assert.strictEqual(
         paths.subredditFromPath(pathname),
         "",
@@ -1763,6 +1770,210 @@ suite("browser-extension subreddit path", () => {
       "mod",
       "random",
     ]);
+  });
+});
+
+// auto-activate.js shows the archive icon from its own copy of the block, so
+// the icon must appear exactly where content.js enables the archive button.
+suite("subreddit path parity", () => {
+  const inContent = loadContentScriptBlock("redditp-subreddit-path", [
+    "subredditFromPath",
+  ]);
+  const inLauncher = loadContentScriptBlock(
+    "redditp-subreddit-path",
+    ["subredditFromPath"],
+    "auto-activate.js",
+  );
+
+  test("both copies could be loaded", () => {
+    assert.ok(
+      inContent,
+      "did not find the redditp-subreddit-path markers in content.js",
+    );
+    assert.ok(
+      inLauncher,
+      "did not find the redditp-subreddit-path markers in auto-activate.js",
+    );
+  });
+
+  test("the archive button and the archive icon name the same subreddit", () => {
+    assert.ok(inContent && inLauncher, "subreddit path helpers not loaded");
+    const longest = "a".repeat(21);
+    [
+      ...SUBREDDIT_LISTING_PATHS,
+      [`/r/${longest}/`, longest],
+      ...NON_SUBREDDIT_PATHS.map((pathname) => [pathname, ""]),
+    ].forEach(([pathname, sub]) => {
+      const fromContent = inContent.subredditFromPath(pathname);
+      assert.strictEqual(
+        inLauncher.subredditFromPath(pathname),
+        fromContent,
+        String(pathname),
+      );
+      assert.strictEqual(fromContent, sub, String(pathname));
+    });
+  });
+
+  test("auto-activate.js carries the block of content.js word for word", () => {
+    const fs = require("fs");
+    const path = require("path");
+    function block(file) {
+      const source = fs
+        .readFileSync(
+          path.join(__dirname, "../browser-extension", file),
+          "utf8",
+        )
+        .replace(/\r\n/g, "\n");
+      return source.slice(
+        source.indexOf("// redditp-subreddit-path:start"),
+        source.indexOf("// redditp-subreddit-path:end"),
+      );
+    }
+    assert.ok(block("content.js").length > 0, "block not found");
+    assert.strictEqual(block("auto-activate.js"), block("content.js"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// browser-extension/background.js messages
+//
+// background.js runs whole, against a stand-in for the extension API that
+// records what it is asked to do.
+// ---------------------------------------------------------------------------
+
+function loadBackground() {
+  const fs = require("fs");
+  const path = require("path");
+  const source = fs.readFileSync(
+    path.join(__dirname, "../browser-extension/background.js"),
+    "utf8",
+  );
+  const calls = { create: [], insertCSS: [], executeScript: [] };
+  const listeners = {};
+  const record = (name) => (details) => {
+    calls[name].push(details);
+    return Promise.resolve({ id: 99 });
+  };
+  const fakeApi = {
+    action: {
+      onClicked: { addListener: (listener) => (listeners.clicked = listener) },
+      setBadgeBackgroundColor: () => Promise.resolve(),
+      setBadgeText: () => Promise.resolve(),
+      setTitle: () => Promise.resolve(),
+    },
+    commands: {
+      onCommand: { addListener: (listener) => (listeners.command = listener) },
+    },
+    runtime: {
+      getURL: (file) => "chrome-extension://test/" + file,
+      onMessage: { addListener: (listener) => (listeners.message = listener) },
+    },
+    scripting: {
+      insertCSS: record("insertCSS"),
+      executeScript: record("executeScript"),
+    },
+    tabs: {
+      create: record("create"),
+      query: () => Promise.resolve([]),
+    },
+  };
+  // With globalThis shadowed, globalThis.browser is undefined, so the script
+  // takes the stand-in as chrome.
+  new Function("chrome", "globalThis", source)(fakeApi, {});
+  return { calls, listeners };
+}
+
+suite("browser-extension background messages", () => {
+  let loaded = null;
+  try {
+    loaded = loadBackground();
+  } catch (_error) {
+    // The first test reports it.
+  }
+
+  test("background.js could be loaded with a stand-in extension API", () => {
+    assert.ok(loaded, "background.js threw while loading");
+    assert.strictEqual(typeof loaded.listeners.message, "function");
+    assert.strictEqual(typeof loaded.listeners.clicked, "function");
+    assert.strictEqual(typeof loaded.listeners.command, "function");
+  });
+
+  test("open-archive opens the archive page in a new tab next to the asking tab", () => {
+    const { calls, listeners } = loadBackground();
+    const answer = listeners.message(
+      { type: "open-archive", sub: "pics" },
+      { tab: { id: 7, index: 2 } },
+    );
+    assert.strictEqual(answer, undefined);
+    assert.deepStrictEqual(calls.create, [
+      {
+        url: "chrome-extension://test/archive.html#r/pics",
+        index: 3,
+        openerTabId: 7,
+      },
+    ]);
+    assert.deepStrictEqual(calls.insertCSS, []);
+  });
+
+  test("the new tab opens in the window of the asking tab, with the name as sent", () => {
+    const { calls, listeners } = loadBackground();
+    listeners.message(
+      { type: "open-archive", sub: "Pics_2" },
+      { tab: { id: 7, index: 0, windowId: 4 } },
+    );
+    listeners.message({ type: "open-archive", sub: "pics" }, {});
+    assert.deepStrictEqual(calls.create, [
+      {
+        url: "chrome-extension://test/archive.html#r/Pics_2",
+        windowId: 4,
+        index: 1,
+        openerTabId: 7,
+      },
+      { url: "chrome-extension://test/archive.html#r/pics" },
+    ]);
+  });
+
+  test("a name that is not a subreddit name opens nothing", () => {
+    const { calls, listeners } = loadBackground();
+    [
+      "a+b",
+      "",
+      "x",
+      "a".repeat(22),
+      "pics/new",
+      "pics#top",
+      "../pics",
+      42,
+      null,
+      undefined,
+      ["pics"],
+      { toString: () => "pics" },
+    ].forEach((sub) => {
+      listeners.message(
+        { type: "open-archive", sub },
+        { tab: { id: 7, index: 2 } },
+      );
+    });
+    assert.deepStrictEqual(calls.create, []);
+  });
+
+  test("activate-from-url still starts presentation mode and opens no tab", () => {
+    const { calls, listeners } = loadBackground();
+    listeners.message(
+      { type: "activate-from-url" },
+      {
+        tab: {
+          id: 5,
+          index: 0,
+          url: "https://www.reddit.com/r/pics/?redditp=1",
+        },
+      },
+    );
+    // showPresentation asks for the styles before its first await.
+    assert.deepStrictEqual(calls.insertCSS, [
+      { target: { tabId: 5 }, files: ["presentation.css"] },
+    ]);
+    assert.deepStrictEqual(calls.create, []);
   });
 });
 

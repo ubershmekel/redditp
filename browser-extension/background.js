@@ -4,6 +4,9 @@
 const api = globalThis.browser || chrome;
 
 const REDDIT_HOST_RE = /(^|\.)reddit\.com$/i;
+// A subreddit name as Reddit spells one. Nothing else reaches the archive
+// page's address.
+const ARCHIVE_SUB_RE = /^[A-Za-z0-9_]{2,21}$/;
 
 async function flashHint(tabId, title) {
   await api.action.setBadgeBackgroundColor({
@@ -60,6 +63,19 @@ async function showPresentation(tab) {
   }
 }
 
+// Opens a subreddit's archive page in a new tab next to the tab that asked.
+// Always a new tab: the page opens its viewer by itself only when it loads
+// with #r/<sub> in its address, not when an open page's hash changes. Opening
+// an extension page this way needs no permission.
+function openArchive(sub, tab) {
+  if (typeof sub !== "string" || !ARCHIVE_SUB_RE.test(sub)) return undefined;
+  const properties = { url: api.runtime.getURL(`archive.html#r/${sub}`) };
+  if (Number.isInteger(tab?.windowId)) properties.windowId = tab.windowId;
+  if (Number.isInteger(tab?.index)) properties.index = tab.index + 1;
+  if (Number.isInteger(tab?.id)) properties.openerTabId = tab.id;
+  return api.tabs.create(properties);
+}
+
 api.action.onClicked.addListener(showPresentation);
 
 api.commands.onCommand.addListener(async (command) => {
@@ -69,6 +85,16 @@ api.commands.onCommand.addListener(async (command) => {
 });
 
 api.runtime.onMessage.addListener((message, sender) => {
+  // From the archive button and H in presentation mode, and from the archive
+  // icon on a subreddit's pages.
+  if (message?.type === "open-archive") {
+    void Promise.resolve(openArchive(message.sub, sender.tab)).catch(
+      (error) => {
+        console.error("Unable to open the archive", error);
+      },
+    );
+    return;
+  }
   if (message?.type !== "activate-from-url" || !sender.tab) return;
   void showPresentation(sender.tab);
 });

@@ -508,7 +508,10 @@ test("a rate-limited request backs off, and uses the reset header when the brows
   await page.clock.runFor(59000);
   expect(searches("pics")).toHaveLength(2);
   await expect(status(page)).toHaveText(/retrying in 1 s\)$/);
-  await page.clock.runFor(2000);
+  // Exactly the last second: the retry goes out, while the request after it,
+  // due a second after the retry, stays out of reach however fast the retry
+  // is answered.
+  await page.clock.runFor(1000);
   await expect.poll(() => searches("pics").length).toBe(3);
   expect(searches("pics")[2].before).toBe(searches("pics")[1].before);
 
@@ -646,7 +649,8 @@ test("the library lists archives and deletes one", async ({ page }) => {
   await mockArchive(page, datasets);
   await openArchiveQuietly(page, "aww");
   await expect(status(page)).toHaveText(/^Complete back to Sep 2026$/);
-  await page.getByLabel("Subreddit").fill("pics");
+  // Exact: the viewer's settings also have a checkbox that mentions subreddits.
+  await page.getByLabel("Subreddit", { exact: true }).fill("pics");
   await page.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page).toHaveURL(/#r\/pics$/);
   await expect(status(page)).toHaveText("Complete back to Jul 2026");

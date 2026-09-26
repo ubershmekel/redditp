@@ -54,6 +54,9 @@
     showControls: true,
     sound: false,
     openInGrid: false,
+    // The archive icon on a subreddit's pages, which auto-activate.js shows
+    // and reads this setting for. The archive button and H ignore it.
+    showArchiveLauncher: true,
     // The Show filter: which media types the slideshow and the grid show.
     showImages: true,
     showGifs: true,
@@ -355,11 +358,11 @@
   // redditp-dead-media:end
 
   // redditp-subreddit-path:start
-  // The subreddit whose archive the archive button opens: the one that a
-  // listing page's path names, spelled as in the path. Like the blocks above,
-  // this stays DOM-free, so nodejs/test-embedit.js can evaluate it on its
-  // own. Post pages, multireddits and the front pages that gather many
-  // subreddits have none.
+  // The subreddit whose archive the archive button and the archive icon open:
+  // the one that a listing page's path names, spelled as in the path. Post
+  // pages, multireddits and the front pages that gather many subreddits have
+  // none. content.js and auto-activate.js carry this block word for word, and
+  // it stays DOM-free, so nodejs/test-embedit.js can check both copies.
   const ARCHIVE_PSEUDO_SUBS = ["all", "popular", "friends", "mod", "random"];
 
   function subredditFromPath(pathname) {
@@ -1687,6 +1690,10 @@
     ),
     checkboxSetting("showControls", "Show the bottom panel"),
     checkboxSetting("openInGrid", "Open in grid view"),
+    checkboxSetting(
+      "showArchiveLauncher",
+      "Show the archive icon on subreddit pages",
+    ),
     shortcutHelp,
   );
   settingsOverlay.append(settingsPanel);

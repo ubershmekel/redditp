@@ -14,6 +14,10 @@ const autoActivateScript = path.resolve(
   __dirname,
   "../../browser-extension/auto-activate.js",
 );
+const launcherStyles = path.resolve(
+  __dirname,
+  "../../browser-extension/launcher.css",
+);
 const linkPreviewFeedFixture = fs.readFileSync(
   path.resolve(
     __dirname,
@@ -4174,4 +4178,252 @@ test("a host page's viewer has no archive button", async ({ page }) => {
   await expect(page.locator(".redditp__title")).toHaveText("Source 1");
   await expect(page.locator(".redditp__archive")).toHaveCount(1);
   await expect(page.locator(".redditp__archive")).toBeHidden();
+});
+
+// Stands in for the installed extension from the page's first script on: its
+// messaging, and chrome.storage.local holding `stored` as the saved settings.
+// A write reaches the storage listeners, as it does in the extension.
+function stubExtension(page, stored = null) {
+  return page.addInitScript((settings) => {
+    const key = "redditpPresentationSettings";
+    window.__redditpMessages = [];
+    window.__storageListeners = [];
+    window.__stored = settings;
+    window.chrome = {
+      runtime: {
+        sendMessage(message) {
+          window.__redditpMessages.push(message);
+          return Promise.resolve();
+        },
+      },
+      storage: {
+        local: {
+          get(name, callback) {
+            callback({ [name]: window.__stored });
+          },
+          set(items, callback) {
+            const change = { oldValue: window.__stored, newValue: items[key] };
+            window.__stored = items[key];
+            window.__storageListeners.forEach((listener) =>
+              listener({ [key]: change }, "local"),
+            );
+            if (callback) callback();
+          },
+        },
+        onChanged: {
+          addListener(listener) {
+            window.__storageListeners.push(listener);
+          },
+        },
+      },
+    };
+  }, stored);
+}
+
+// A Reddit page with the archive icon's script and styles, which the manifest
+// injects into every reddit.com page.
+async function openLauncherPage(
+  page,
+  url,
+  { stored, body = "<main>Reddit</main>" } = {},
+) {
+  await page.route("https://www.reddit.com/**", (route) =>
+    route.fulfill({ contentType: "text/html", body }),
+  );
+  await stubExtension(page, stored);
+  await page.goto(url);
+  await page.addStyleTag({ path: launcherStyles });
+  await page.addScriptTag({ path: autoActivateScript });
+  return page.locator(".redditp-launcher");
+}
+
+// What chrome.storage.onChanged reports when the saved settings change.
+function changeStoredSettings(page, newValue, areaName = "local") {
+  return page.evaluate(
+    ([value, area]) =>
+      window.__storageListeners.forEach((listener) =>
+        listener({ redditpPresentationSettings: { newValue: value } }, area),
+      ),
+    [newValue, areaName],
+  );
+}
+
+test("a floating archive icon on subreddit listings follows Reddit's navigation", async ({
+  page,
+}) => {
+  const launcher = await openLauncherPage(
+    page,
+    "https://www.reddit.com/r/pics/",
+  );
+  // Reddit styles buttons globally; none of that reaches the icon.
+  await page.addStyleTag({
+    content:
+      "button { width: 300px; height: 80px; margin: 40px; padding: 20px; background: red; }",
+  });
+  const icon = page.getByRole("button", { name: "Open the r/pics archive" });
+  for (const [width, height] of [
+    [360, 780],
+    [1920, 1080],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await expect(icon).toBeVisible();
+    await expect(icon).toBeInViewport();
+    const box = await icon.boundingBox();
+    expect(box.width).toBe(36);
+    expect(box.height).toBe(36);
+    expect(box.x + box.width).toBeGreaterThanOrEqual(width - 60);
+    expect(box.y + box.height).toBeGreaterThanOrEqual(height - 60);
+  }
+  await expect(icon).toHaveAttribute(
+    "title",
+    "Browse r/pics's full history, ranked by score",
+  );
+
+  await icon.click();
+  await expect
+    .poll(() => sentMessages(page))
+    .toEqual([{ type: "open-archive", sub: "pics" }]);
+  await icon.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await sentMessages(page)).length).toBe(2);
+
+  await page.evaluate(() =>
+    history.pushState({}, "", "/r/pics/comments/abc/post/"),
+  );
+  await expect(launcher).toBeHidden();
+  await page.evaluate(() => history.pushState({}, "", "/r/aww/"));
+  await expect(launcher).toBeVisible();
+  await expect(launcher).toHaveAttribute(
+    "aria-label",
+    "Open the r/aww archive",
+  );
+  await page.evaluate(() => history.pushState({}, "", "/"));
+  await expect(launcher).toBeHidden();
+  await page.evaluate(() => history.back());
+  await expect(launcher).toBeVisible();
+  await expect(launcher).toHaveAttribute(
+    "aria-label",
+    "Open the r/aww archive",
+  );
+  await expect(launcher).toHaveCount(1);
+  expect(await sentMessages(page)).toHaveLength(2);
+});
+
+test("without the Navigation API the icon still follows Reddit within a second", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "navigation", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+  const launcher = await openLauncherPage(
+    page,
+    "https://www.reddit.com/r/pics/",
+  );
+  expect(await page.evaluate(() => window.navigation)).toBeUndefined();
+  await expect(launcher).toBeVisible();
+
+  // pushState fires no event of its own, so the icon waits for its check.
+  await page.evaluate(() =>
+    history.pushState({}, "", "/r/pics/comments/abc/post/"),
+  );
+  await expect(launcher).toBeVisible();
+  await page.clock.runFor(1000);
+  await expect(launcher).toBeHidden();
+});
+
+test("the icon setting hides it right away", async ({ page }) => {
+  const launcher = await openLauncherPage(
+    page,
+    "https://www.reddit.com/r/pics/",
+    { stored: { showArchiveLauncher: false } },
+  );
+  expect(await page.evaluate(() => window.__storageListeners.length)).toBe(1);
+  await expect(launcher).toHaveCount(0);
+
+  await changeStoredSettings(page, { showArchiveLauncher: true });
+  await expect(launcher).toBeVisible();
+  // Only the local storage area holds the setting.
+  await changeStoredSettings(page, { showArchiveLauncher: false }, "sync");
+  await expect(launcher).toBeVisible();
+  await changeStoredSettings(page, { showArchiveLauncher: false });
+  await expect(launcher).toBeHidden();
+  // Cleared settings mean the default, which shows the icon.
+  await changeStoredSettings(page, undefined);
+  await expect(launcher).toBeVisible();
+});
+
+test("the settings panel has the archive icon setting", async ({ page }) => {
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/pics/",
+    gridImagePost(1),
+    {},
+  );
+  await injectExtension(page);
+  const openSettings = page.getByRole("button", {
+    name: "Open presentation settings",
+  });
+  await openSettings.click();
+  const setting = page.getByLabel("Show the archive icon on subreddit pages");
+  await expect(setting).toBeChecked();
+  await setting.uncheck();
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("redditpPresentationSettings")),
+  );
+  expect(saved.showArchiveLauncher).toBe(false);
+
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await openSettings.click();
+  await expect(setting).not.toBeChecked();
+});
+
+test("unticking the icon setting in presentation mode hides the icon at once", async ({
+  page,
+}) => {
+  const launcher = await openLauncherPage(
+    page,
+    "https://www.reddit.com/r/pics/",
+    { body: gridImagePost(1) },
+  );
+  await expect(launcher).toBeVisible();
+  await injectExtension(page);
+  await expect(page.locator(".redditp__title")).toHaveText("Post 1");
+  // The presentation covers the icon.
+  const box = await launcher.boundingBox();
+  expect(
+    await page.evaluate(
+      ([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest(".redditp")),
+      [box.x + box.width / 2, box.y + box.height / 2],
+    ),
+  ).toBe(true);
+
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  const setting = page.getByLabel("Show the archive icon on subreddit pages");
+  await expect(setting).toBeChecked();
+  await setting.uncheck();
+  await expect(launcher).toBeHidden();
+  expect(await page.evaluate(() => window.__stored.showArchiveLauncher)).toBe(
+    false,
+  );
+  await setting.check();
+  await expect(launcher).toBeVisible();
+  // The archive button does not depend on the setting.
+  await setting.uncheck();
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "archive", exact: true }),
+  ).toBeEnabled();
 });

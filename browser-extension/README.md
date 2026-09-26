@@ -69,6 +69,8 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - V: switch between the slideshow and a grid of all loaded posts (the same as
   the **grid** button)
 - O: cycle the media shown: everything, images only, GIFs only, videos only
+- H: open this subreddit's archive in a new tab (the same as the **archive**
+  button); only on a subreddit's listing pages
 - Escape: close, or return to the grid when the slideshow was opened from it
 - F: enter or leave browser fullscreen, when available
 - M: toggle video sound; the choice is remembered for the next presentation
@@ -139,11 +141,12 @@ Open the gear button's settings panel for a keyboard shortcut reference. Use the
 gear button in the bottom-left controls to choose the auto-advance duration and
 which media types to show (the images, GIFs, and videos buttons beside it change
 the same setting), hide the title panel, navigation arrows, or close button,
-show or hide the bottom panel, and open in grid view. The gear is part of the
-expandable panel, so compact mode leaves only a small expand button. If the
-close button is hidden, press Escape from the slideshow to close presentation
-mode. These preferences are saved by your browser and used the next time
-presentation mode opens. The **redditp** link opens this README on GitHub.
+show or hide the bottom panel, open in grid view, and show or hide the archive
+icon on subreddit pages. The gear is part of the expandable panel, so compact
+mode leaves only a small expand button. If the close button is hidden, press
+Escape from the slideshow to close presentation mode. These preferences are
+saved by your browser and used the next time presentation mode opens. The
+**redditp** link opens this README on GitHub.
 
 These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation
@@ -176,7 +179,12 @@ archive into the browser's own storage (IndexedDB) and shows them in the same
 slideshow and grid as presentation mode, with the same keys, buttons, and Show
 filter.
 
-Open a subreddit with the form at the top of the page, or with
+Open it with the **archive** button or H in presentation mode, or with the small
+round icon at the bottom right of a subreddit's listing pages. Either one opens
+that subreddit's archive in a new tab. The button is disabled, and the icon
+hidden, on post pages, multireddits, and front pages such as r/all. Hide the
+icon with **Show the archive icon on subreddit pages** in the settings. On the
+page itself, open any subreddit with the form at the top, or with
 `archive.html#r/<subreddit>`. The pull starts at once:
 
 - It asks for the newest posts first, up to 1,000 posts a request, about once a

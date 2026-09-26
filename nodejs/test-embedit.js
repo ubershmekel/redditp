@@ -1618,7 +1618,11 @@ suite("browser-extension dead media", () => {
       ["https://i.imgur.com/gone.jpg", 161, 81, true],
       ["https://imgur.com/gone", 161, 81, true],
       ["https://i.imgur.com/gone.jpg", 161, 80, false],
-      ["https://preview.redd.it/gone.jpg", 130, 60, false],
+      ["https://preview.redd.it/gone.jpg", 130, 60, true],
+      ["https://external-preview.redd.it/gone.jpg", 130, 60, true],
+      ["https://preview.redd.it/gone.jpg", 130, 59, false],
+      ["https://example.com/gone.jpg", 130, 60, false],
+      ["https://v.redd.it/gone.jpg", 130, 60, false],
       ["https://i.imgur.com/gone.jpg", 130, 60, false],
       ["https://i.redd.it/gone.jpg", 161, 81, false],
       ["not a url", 130, 60, false],
@@ -1679,7 +1683,7 @@ suite("browser-extension dead media", () => {
     });
   });
 
-  test("two placeholders are known, one per host", () => {
+  test("two placeholders are known, Reddit's and imgur's", () => {
     assert.ok(dead, "dead media helpers not loaded");
     assert.deepStrictEqual(
       dead.PLACEHOLDER_IMAGES.map(({ width, height }) => [width, height]),

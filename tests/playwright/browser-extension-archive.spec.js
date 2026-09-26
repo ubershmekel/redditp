@@ -109,9 +109,11 @@ test.beforeEach(async ({ page, context }) => {
   await context.route(`${ORIGIN}/**`, serveExtensionFile);
   await context.route(
     /^https:\/\/(?:i|preview|external-preview)\.redd\.it\//,
+    // A picture named dead-… is gone: its host answers with Reddit's
+    // placeholder.
     (route) =>
       route.fulfill(
-        /^https:\/\/i\.redd\.it\/dead-/.test(route.request().url())
+        /^https:\/\/[^/]+\/dead-/.test(route.request().url())
           ? svgImage(130, 60)
           : svgImage(800, 600),
       ),
@@ -955,42 +957,74 @@ test("archive mode never contacts reddit.com", async ({ page }) => {
   expect(pageLog(page).reddit).toEqual([]);
 });
 
-test("a dead archive picture is skipped on the next visit", async ({
+test("dead archive pictures, a gallery's among them, are skipped on the next visit", async ({
   page,
 }) => {
   await page.clock.setFixedTime(NOW);
-  // The best post's picture is gone: its host answers with a placeholder.
+  // The best post's picture is gone, and so is the middle picture of the
+  // third post's gallery, on Reddit's preview host: both hosts answer with
+  // Reddit's placeholder.
+  const gallery = clone(
+    require("../../test-data/gallery-feature.json").data.children[1].data,
+  );
+  gallery.media_metadata.galimg2.s.u =
+    "https://preview.redd.it/dead-gallery.png?width=1080";
   const posts = archivePosts("pics", {
     count: 5,
     templates: [imagePost],
     scoreOf: (index) => 100 - index,
-    overrides: (index) => ({
-      url: index
-        ? `https://i.redd.it/pics-${index + 1}.jpg`
-        : "https://i.redd.it/dead-1.jpg",
-    }),
+    overrides: (index) =>
+      index === 2
+        ? {
+            url: "https://www.reddit.com/gallery/as2",
+            is_gallery: true,
+            gallery_data: gallery.gallery_data,
+            media_metadata: gallery.media_metadata,
+          }
+        : {
+            url: index
+              ? `https://i.redd.it/pics-${index + 1}.jpg`
+              : "https://i.redd.it/dead-1.jpg",
+          },
   });
   let deadRequests = 0;
-  await page.route("https://i.redd.it/dead-1.jpg", (route) => {
-    deadRequests += 1;
-    return route.fulfill(svgImage(130, 60));
-  });
+  await page.route(
+    /^https:\/\/(?:i\.redd\.it\/dead-1\.jpg|preview\.redd\.it\/dead-gallery\.png)/,
+    (route) => {
+      deadRequests += 1;
+      return route.fulfill(svgImage(130, 60));
+    },
+  );
   await mockArchive(page, { pics: posts });
   await openArchive(page, "#r/pics", { windowSize: 100 });
   await expect(viewerCount(page)).toHaveText("1 / 4 · 1 unavailable");
   await expect(viewerTitle(page)).toHaveText("Archive post 2");
+  const galleryNumber = page.locator(".redditp__gallery");
+  await page.keyboard.press("ArrowRight");
+  await expect(viewerTitle(page)).toHaveText("Archive post 3");
+  await expect(galleryNumber).toHaveText("(1/3)");
+  await page.keyboard.press("ArrowRight");
+  await expect(galleryNumber).toHaveText("(3/3)");
+  await expect(viewerCount(page)).toHaveText("2 / 4 · 2 unavailable");
   await expect
     .poll(async () => (await readArchive(page, "pics")).dead)
-    .toEqual([{ sub: "pics", id: "as0", keys: ["i.redd.it/dead-1.jpg"] }]);
+    .toEqual([
+      { sub: "pics", id: "as0", keys: ["i.redd.it/dead-1.jpg"] },
+      { sub: "pics", id: "as2", keys: ["preview.redd.it/dead-gallery.png"] },
+    ]);
   const requests = deadRequests;
-  expect(requests).toBeGreaterThan(0);
+  expect(requests).toBeGreaterThan(1);
 
   await page.keyboard.press("Escape");
   await expect(page.locator("#redditp-presentation")).toBeHidden();
   await page.locator("#redditp-archive-start-over").click();
   await expect(viewerTitle(page)).toHaveText("Archive post 2");
   // Counted from the archive's own record of dead media.
-  await expect(viewerCount(page)).toHaveText("1 / 4 · 1 unavailable");
+  await expect(viewerCount(page)).toHaveText("1 / 4 · 2 unavailable");
+  await page.keyboard.press("ArrowRight");
+  await expect(galleryNumber).toHaveText("(1/3)");
+  await page.keyboard.press("ArrowRight");
+  await expect(galleryNumber).toHaveText("(3/3)");
   expect(deadRequests).toBe(requests);
 });
 

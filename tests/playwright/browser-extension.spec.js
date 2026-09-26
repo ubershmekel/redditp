@@ -3879,13 +3879,14 @@ test("a picture that fails to load is dropped, counted, and skipped after reopen
   expect(deadRequests).toBe(requestsBefore);
 });
 
-test("deleted i.redd.it and imgur pictures are recognised by their placeholder size", async ({
+test("deleted Reddit-hosted and imgur pictures are recognised by their placeholder size", async ({
   page,
 }) => {
   for (const [url, width, height] of [
     ["https://i.redd.it/gone.jpg", 130, 60],
     ["https://i.imgur.com/kept.jpg", 161, 80],
     ["https://i.imgur.com/removed1.jpg", 161, 81],
+    ["https://preview.redd.it/gone-preview.jpg", 130, 60],
     ["https://i.redd.it/last.jpg", 800, 600],
   ]) {
     await page.route(url, (route) => route.fulfill(svgImage(width, height)));
@@ -3896,16 +3897,17 @@ test("deleted i.redd.it and imgur pictures are recognised by their placeholder s
       ["Gone", "https://i.redd.it/gone.jpg"],
       ["Kept", "https://i.imgur.com/kept.jpg"],
       ["Removed", "https://i.imgur.com/removed1.jpg"],
+      ["Preview gone", "https://preview.redd.it/gone-preview.jpg"],
       ["Last", "https://i.redd.it/last.jpg"],
     ]),
   );
   const title = page.locator(".redditp__title");
   const count = page.locator(".redditp__count");
   await expect(title).toHaveText("Kept");
-  await expect(count).toHaveText(/^1 \/ 3 · 1 unavailable/);
+  await expect(count).toHaveText(/^1 \/ 4 · 1 unavailable/);
   await page.keyboard.press("ArrowRight");
   await expect(title).toHaveText("Last");
-  await expect(count).toHaveText(/^2 \/ 2 · 2 unavailable( · loading more)?$/);
+  await expect(count).toHaveText(/^2 \/ 2 · 3 unavailable( · loading more)?$/);
   await expect(page.locator(".redditp__link-card")).toHaveCount(0);
 });
 

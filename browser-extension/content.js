@@ -311,11 +311,16 @@
   // redditp-dead-media:start
   // Which media that fails to load leaves the presentation. Like the blocks
   // above, this stays DOM-free, so nodejs/test-embedit.js can evaluate it on
-  // its own. Reddit's picture for a missing i.redd.it image and imgur's
-  // removed.png both load successfully, so those two are told by their host
-  // and their size.
+  // its own. The picture that Reddit serves for a deleted image, on i.redd.it
+  // and on its preview hosts alike, and imgur's removed.png both load as
+  // pictures (Reddit's with an HTTP 404), so they are told by their host and
+  // their size.
   const PLACEHOLDER_IMAGES = [
-    { host: /^i\.redd\.it$/i, width: 130, height: 60 },
+    {
+      host: /^(?:i|preview|external-preview)\.redd\.it$/i,
+      width: 130,
+      height: 60,
+    },
     { host: /^(?:i\.)?imgur\.com$/i, width: 161, height: 81 },
   ];
 

@@ -1,0 +1,280 @@
+/* The archive page (archive.html). Every rule is scoped under
+   .redditp-archive, the page's body. The viewer's overlay,
+   #redditp-presentation, is a sibling of body with its own stylesheet, so
+   neither styles the other. */
+
+.redditp-archive {
+  margin: 0;
+  background: #000;
+  color: #eee;
+  font:
+    16px/1.5 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.redditp-archive *,
+.redditp-archive *::before,
+.redditp-archive *::after {
+  box-sizing: border-box;
+}
+
+/* Several elements below set a display value, which would otherwise beat the
+   hidden attribute. */
+.redditp-archive [hidden] {
+  display: none !important;
+}
+
+.redditp-archive a {
+  color: #5dd;
+}
+
+.redditp-archive :focus-visible {
+  outline: 2px solid #5ff;
+  outline-offset: 2px;
+}
+
+.redditp-archive h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.redditp-archive__header,
+.redditp-archive__main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.redditp-archive__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding-top: 0;
+}
+
+/* The panel and the library side by side on wide screens. Alone, the
+   library takes the full width. */
+@media (min-width: 1000px) {
+  .redditp-archive__main {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .redditp-archive__panel[hidden] + .redditp-archive__library {
+    grid-column: 1 / -1;
+  }
+}
+
+.redditp-archive__title {
+  margin: 0;
+  font-size: 26px;
+}
+
+.redditp-archive__intro {
+  margin: 4px 0 12px;
+  color: #aaa;
+}
+
+.redditp-archive__label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.redditp-archive__open-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.redditp-archive__prefix {
+  color: #aaa;
+}
+
+.redditp-archive__input {
+  min-height: 44px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #111;
+  color: #eee;
+  font: inherit;
+  font-size: 16px;
+  color-scheme: dark;
+}
+
+.redditp-archive__open-row .redditp-archive__input {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 320px;
+}
+
+.redditp-archive__input:disabled {
+  color: #777;
+  border-color: #2a2a2a;
+}
+
+.redditp-archive__button {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #222;
+  color: #eee;
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.redditp-archive__button--primary {
+  border-color: #5dd;
+  background: #0b3b3b;
+}
+
+.redditp-archive__button:disabled {
+  border-color: #333;
+  background: #151515;
+  color: #777;
+  cursor: default;
+}
+
+.redditp-archive__error {
+  margin: 12px 0 0;
+  color: #f99;
+  overflow-wrap: anywhere;
+}
+
+.redditp-archive__panel,
+.redditp-archive__library {
+  min-width: 0;
+  padding: 16px;
+  border-radius: 8px;
+  background: #171717;
+}
+
+.redditp-archive__name {
+  overflow-wrap: anywhere;
+}
+
+.redditp-archive__stats {
+  margin: 0 0 8px;
+  color: #ccc;
+}
+
+.redditp-archive__progress {
+  display: block;
+  width: 100%;
+  height: 12px;
+  accent-color: #5dd;
+}
+
+.redditp-archive__status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0;
+}
+
+.redditp-archive__status {
+  flex: 1 1 12em;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.redditp-archive__fieldset {
+  min-width: 0;
+  margin: 12px 0;
+  padding: 4px 12px 12px;
+  border: 1px solid #333;
+  border-radius: 6px;
+}
+
+.redditp-archive__choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.redditp-archive__choice input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #5dd;
+}
+
+.redditp-archive__dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.redditp-archive__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.redditp-archive__score .redditp-archive__input {
+  width: 10em;
+}
+
+.redditp-archive__hint {
+  margin: 4px 0 0;
+  color: #aaa;
+  font-size: 14px;
+}
+
+.redditp-archive__actions,
+.redditp-archive__item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.redditp-archive__actions {
+  margin-top: 16px;
+}
+
+.redditp-archive__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.redditp-archive__item {
+  padding: 12px 0;
+  border-top: 1px solid #2a2a2a;
+}
+
+.redditp-archive__item--selected .redditp-archive__item-name {
+  font-weight: bold;
+}
+
+.redditp-archive__item-name {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.redditp-archive__item-facts {
+  margin: 4px 0 8px;
+  color: #ccc;
+  overflow-wrap: anywhere;
+}
+
+.redditp-archive__item-facts > span + span::before {
+  content: "·";
+  margin: 0 6px;
+  color: #777;
+}
+
+.redditp-archive__note {
+  margin: 12px 0 0;
+  color: #aaa;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}

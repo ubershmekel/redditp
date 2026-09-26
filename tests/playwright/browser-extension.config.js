@@ -2,7 +2,7 @@ const { defineConfig, devices } = require("@playwright/test");
 
 module.exports = defineConfig({
   testDir: ".",
-  testMatch: "browser-extension.spec.js",
+  testMatch: /browser-extension(?:-archive)?\.spec\.js/,
   timeout: 30 * 1000,
   expect: {
     timeout: 10 * 1000,

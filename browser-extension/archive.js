@@ -728,4 +728,1226 @@
     return Math.min(1, Math.max(0, (top - bottom) / (top - floor)));
   }
   // archive-format:end
+
+  // Everything below runs on the page: it stores the archives, pulls them
+  // and shows them.
+
+  // Knobs for the Playwright suite, which shrinks the windows and speeds up
+  // the pull and the saving of resume positions. The page never sets them.
+  const CONFIG = archiveConfig(window.__redditpArchiveConfig);
+
+  function archiveConfig(overrides) {
+    const config = {
+      windowSize: WINDOW_SIZE,
+      requestIntervalMs: 1000,
+      resumeSaveMs: 2000,
+    };
+    if (overrides && typeof overrides === "object") {
+      Object.keys(config).forEach((key) => {
+        const value = Number(overrides[key]);
+        const least = key === "windowSize" ? 1 : 0;
+        if (Number.isFinite(value) && value >= least) config[key] = value;
+      });
+    }
+    return config;
+  }
+
+  // IndexedDB holds each archive's record ("subs"), its posts, and the media
+  // of its posts that failed to load ("dead"). Posts and dead media are
+  // keyed by [sub, id], so deleting an archive is one range delete. Each
+  // index of the posts ends in a third field, so a key cursor reads
+  // { id, created, score } without loading a single post: that, and never
+  // the posts themselves, is all the ranking holds in memory.
+  const DB_NAME = "redditp-archive";
+  const DB_VERSION = 1;
+
+  // Every [name, id] key, since arrays sort after strings.
+  function subRange(name) {
+    return IDBKeyRange.bound([name], [name, []]);
+  }
+
+  function requestDone(request) {
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  function transactionDone(transaction) {
+    return new Promise((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () =>
+        reject(transaction.error || new Error("The change was not saved."));
+    });
+  }
+
+  function openDb(onBlocked) {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains("subs")) {
+          db.createObjectStore("subs", { keyPath: "name" });
+        }
+        if (!db.objectStoreNames.contains("posts")) {
+          const posts = db.createObjectStore("posts", {
+            keyPath: ["sub", "id"],
+          });
+          posts.createIndex("bySubCreated", ["sub", "created_utc", "score"]);
+          posts.createIndex("bySubScore", ["sub", "score", "created_utc"]);
+        }
+        if (!db.objectStoreNames.contains("dead")) {
+          db.createObjectStore("dead", { keyPath: ["sub", "id"] });
+        }
+      };
+      request.onblocked = () => onBlocked();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  function getSub(db, name) {
+    return requestDone(
+      db.transaction("subs").objectStore("subs").get(name),
+    ).then((record) => record || null);
+  }
+
+  function listSubs(db) {
+    return requestDone(db.transaction("subs").objectStore("subs").getAll());
+  }
+
+  // An archive's record, created as `fresh` when there is none yet.
+  // Resolves to { record, created }.
+  function openSub(db, fresh) {
+    const transaction = db.transaction("subs", "readwrite");
+    const store = transaction.objectStore("subs");
+    let record = null;
+    let created = false;
+    store.get(fresh.name).onsuccess = (event) => {
+      record = event.target.result || null;
+      if (record) return;
+      record = fresh;
+      created = true;
+      store.add(fresh);
+    };
+    return transactionDone(transaction).then(() => ({ record, created }));
+  }
+
+  // Writes some fields of an archive's record. Every write goes through
+  // here or storePage, which read the stored record in the same
+  // transaction, so a change never undoes another one made meanwhile, in
+  // this tab or another. Resolves to the stored record, or to null when
+  // the archive is gone.
+  function patchSub(db, name, changes) {
+    const transaction = db.transaction("subs", "readwrite");
+    const store = transaction.objectStore("subs");
+    let record = null;
+    store.get(name).onsuccess = (event) => {
+      if (!event.target.result) return;
+      record = { ...event.target.result, ...changes };
+      store.put(record);
+    };
+    return transactionDone(transaction).then(() => record);
+  }
+
+  // Stores a page of posts and moves the archive's record on in ONE
+  // transaction, so after a crash or a reload the cursor never points past
+  // posts that were not stored. A post stored before is replaced, which is
+  // how a refresh brings in matured scores; only new posts add to the
+  // count. Resolves to the stored record, or to null when the archive was
+  // deleted meanwhile.
+  function storePage(db, name, changes, posts) {
+    const transaction = db.transaction(["posts", "subs"], "readwrite");
+    const postStore = transaction.objectStore("posts");
+    const subStore = transaction.objectStore("subs");
+    let record = null;
+    let missing = false;
+    let inserted = 0;
+    let pending = posts.length;
+    const finish = () => {
+      record = {
+        ...record,
+        ...changes,
+        count: (record.count || 0) + inserted,
+      };
+      subStore.put(record);
+    };
+    const settle = () => {
+      pending -= 1;
+      if (!pending) finish();
+    };
+    subStore.get(name).onsuccess = (event) => {
+      record = event.target.result;
+      if (!record) {
+        missing = true;
+        transaction.abort();
+        return;
+      }
+      if (!posts.length) finish();
+      posts.forEach((post) => {
+        const add = postStore.add(post);
+        add.onsuccess = () => {
+          inserted += 1;
+          settle();
+        };
+        add.onerror = (event) => {
+          if (add.error?.name !== "ConstraintError") return;
+          // Stored before: replace it rather than fail the page.
+          event.preventDefault();
+          event.stopPropagation();
+          postStore.put(post);
+          settle();
+        };
+      });
+    };
+    return transactionDone(transaction).then(
+      () => record,
+      (error) => {
+        if (missing) return null;
+        throw error;
+      },
+    );
+  }
+
+  // Deletes an archive: its record, its posts and its dead media, at once.
+  function deleteSub(db, name) {
+    const transaction = db.transaction(["subs", "posts", "dead"], "readwrite");
+    transaction.objectStore("subs").delete(name);
+    transaction.objectStore("posts").delete(subRange(name));
+    transaction.objectStore("dead").delete(subRange(name));
+    return transactionDone(transaction);
+  }
+
+  // The { id, created, score } of a sub's posts created from lowerSec up to
+  // (not including) endSec, newest first. With a finite `size` it stops as
+  // soon as cutWindow would.
+  function readEntries(db, sub, lowerSec, endSec, size) {
+    return new Promise((resolve, reject) => {
+      const entries = [];
+      if (!(lowerSec < endSec)) {
+        resolve(entries);
+        return;
+      }
+      // A key is [sub, created, score], so [sub, endSec] as the upper bound
+      // leaves second endSec out, and Infinity is a valid bound.
+      const request = db
+        .transaction("posts")
+        .objectStore("posts")
+        .index("bySubCreated")
+        .openKeyCursor(
+          IDBKeyRange.bound([sub, lowerSec], [sub, endSec]),
+          "prev",
+        );
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(entries);
+          return;
+        }
+        const created = cursor.key[1];
+        if (
+          entries.length >= size &&
+          created !== entries[entries.length - 1].created
+        ) {
+          resolve(entries);
+          return;
+        }
+        entries.push({
+          id: cursor.primaryKey[1],
+          created,
+          score: cursor.key[2],
+        });
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // The window that ends (exclusively) at endSec, read no lower than
+  // lowerSec.
+  function readWindow(db, sub, endSec, lowerSec, size) {
+    return readEntries(db, sub, lowerSec, endSec, size).then((entries) =>
+      cutWindow(entries, size),
+    );
+  }
+
+  // Every post of a range, for "Top of everything".
+  function readRange(db, sub, startSec, endSec) {
+    return readEntries(db, sub, startSec, endSec, Infinity);
+  }
+
+  // How many posts a range holds, counted without reading them.
+  function countRange(db, sub, lowerSec, endSec) {
+    if (!(lowerSec < endSec)) return Promise.resolve(0);
+    return requestDone(
+      db
+        .transaction("posts")
+        .objectStore("posts")
+        .index("bySubCreated")
+        .count(IDBKeyRange.bound([sub, lowerSec], [sub, endSec])),
+    );
+  }
+
+  // Posts by id, in the order asked for; a post that is gone is undefined.
+  function getPosts(db, sub, ids) {
+    const store = db.transaction("posts").objectStore("posts");
+    return Promise.all(ids.map((id) => requestDone(store.get([sub, id]))));
+  }
+
+  // A sub's media that failed to load: post id -> Set of media keys.
+  function getDead(db, sub) {
+    return requestDone(
+      db.transaction("dead").objectStore("dead").getAll(subRange(sub)),
+    ).then(
+      (entries) =>
+        new Map(entries.map((entry) => [entry.id, new Set(entry.keys)])),
+    );
+  }
+
+  function addDead(db, sub, id, key) {
+    const transaction = db.transaction("dead", "readwrite");
+    const store = transaction.objectStore("dead");
+    store.get([sub, id]).onsuccess = (event) => {
+      const keys = event.target.result?.keys || [];
+      if (!keys.includes(key)) store.put({ sub, id, keys: [...keys, key] });
+    };
+    return transactionDone(transaction);
+  }
+
+  function storageErrorText(error) {
+    return error?.name === "QuotaExceededError"
+      ? "Storage is full: delete an archive or free disk space."
+      : `The archive could not be stored (${error?.message || error}).`;
+  }
+
+  // The pull: one sub's posts, newest first, into IndexedDB, about once a
+  // second (CONFIG.requestIntervalMs), until the chosen range is stored. It
+  // waits while paused, while the tab is hidden and while another tab
+  // pulls the same sub, and it goes on from its stored cursor after a
+  // reload. A refresh pulls the newest posts again first. Only the selected
+  // sub pulls.
+  const REDDIT_FIRST_SECOND = Date.UTC(2005, 5, 1) / 1000;
+  // What another tab's pull changes in a record.
+  const PULL_FIELDS = [
+    "display",
+    "earliest",
+    "count",
+    "top",
+    "bottom",
+    "done",
+    "cursorMs",
+    "narrow",
+    "refresh",
+    "refreshedAt",
+    "lastPullAt",
+    "error",
+  ];
+
+  function createPuller(db, record, onChange) {
+    // phase: starting, pulling, refreshing, idle (the range is stored),
+    // paused, hidden, elsewhere (another tab pulls), failed (stopped on an
+    // error until Retry), limited, offline, server, narrowing (waiting
+    // until `until` before asking again) or stopped.
+    const state = { phase: "starting", until: 0, detail: "" };
+    const attempts = { limited: 0, network: 0, server: 0 };
+    let hold = { until: 0, phase: "", detail: "" };
+    let stopped = false;
+    let wakeUp = null;
+    let waiters = [];
+    let lockRequest = null;
+    let poll = null;
+
+    function notify() {
+      const resolved = waiters;
+      waiters = [];
+      resolved.forEach((resolve) => resolve());
+      onChange();
+    }
+
+    function setPhase(phase, until = 0, detail = "") {
+      if (
+        state.phase === phase &&
+        state.until === until &&
+        state.detail === detail
+      ) {
+        return;
+      }
+      Object.assign(state, { phase, until, detail });
+      notify();
+    }
+
+    // Sleeps until the time is up, or until the page wakes the pull: a new
+    // range, a pause, the tab shown again, a stop.
+    function sleep(ms) {
+      return new Promise((resolve) => {
+        let timer = null;
+        const done = () => {
+          clearTimeout(timer);
+          if (wakeUp === done) wakeUp = null;
+          resolve();
+        };
+        if (Number.isFinite(ms)) timer = setTimeout(done, Math.max(0, ms));
+        wakeUp = done;
+      });
+    }
+
+    function wake() {
+      if (wakeUp) wakeUp();
+    }
+
+    function holdFor(phase, ms, detail = "") {
+      hold = { until: Date.now() + ms, phase, detail };
+    }
+
+    async function save(changes) {
+      Object.assign(record, changes);
+      if (!(await patchSub(db, record.name, changes))) stop();
+    }
+
+    // A refresh until it is done, then the pull back in time until it has
+    // passed the start of the range or reached the sub's first post.
+    function pickJob() {
+      if (record.refresh) return "refresh";
+      if (record.done) return "";
+      const range = rangeBounds(
+        normalView(record.view).range,
+        Math.floor(Date.now() / 1000),
+      );
+      return record.bottom > range.start ? "backfill" : "";
+    }
+
+    async function run() {
+      while (!stopped) {
+        if (record.paused) {
+          setPhase("paused");
+          await sleep(Infinity);
+          continue;
+        }
+        if (document.hidden) {
+          setPhase("hidden");
+          await sleep(Infinity);
+          continue;
+        }
+        if (record.error) {
+          setPhase("failed");
+          await sleep(Infinity);
+          continue;
+        }
+        const job = pickJob();
+        if (!job) {
+          setPhase("idle");
+          await sleep(Infinity);
+          continue;
+        }
+        const wait = hold.until - Date.now();
+        if (wait > 0) {
+          if (hold.phase) setPhase(hold.phase, hold.until, hold.detail);
+          await sleep(wait);
+          continue;
+        }
+        setPhase(job === "refresh" ? "refreshing" : "pulling");
+        // The next request waits out the rest of the interval.
+        hold = {
+          until: Date.now() + CONFIG.requestIntervalMs,
+          phase: "",
+          detail: "",
+        };
+        try {
+          await step(job === "refresh");
+        } catch (error) {
+          if (stopped) break;
+          record.error = storageErrorText(error);
+          patchSub(db, record.name, { error: record.error }).catch(() => {});
+        }
+        if (!stopped) notify();
+      }
+    }
+
+    // One request, and what its answer means for the record.
+    async function step(refresh) {
+      // A cursor of 0 starts at now. That now stays for this page's retries,
+      // though only in memory: after a reload the pull starts at a new now.
+      const cursor = refresh ? record.refresh : record;
+      if (!cursor.cursorMs) cursor.cursorMs = Date.now();
+      const beforeMs = cursor.cursorMs;
+      const narrow = record.narrow;
+      let response = null;
+      let body = null;
+      try {
+        response = await fetch(searchUrl(record.name, beforeMs, narrow), {
+          credentials: "omit",
+        });
+        body = await response.json().catch(() => null);
+      } catch (_error) {
+        holdFor("offline", backoffMs(attempts.network++));
+        return;
+      }
+      if (stopped) return;
+      attempts.network = 0;
+      const outcome = pageOutcome(response.status, body);
+      if (outcome !== "limited") attempts.limited = 0;
+      if (outcome !== "failed") attempts.server = 0;
+      if (outcome === "data") {
+        await storeData(refresh, beforeMs, body.data);
+      } else if (outcome === "empty") {
+        await storeEmpty(refresh, beforeMs, narrow);
+      } else if (outcome === "timeout") {
+        await save({ narrow: Math.min(3, narrow + 1) });
+        holdFor("narrowing", 2000);
+      } else if (outcome === "limited") {
+        // The reset headers stay unreadable unless the API exposes them to
+        // pages, so the backoff is what usually applies.
+        holdFor(
+          "limited",
+          rateLimitDelayMs(
+            response.headers.get("x-ratelimit-reset"),
+            response.headers.get("x-ratelimit-reset-at"),
+            Date.now(),
+            attempts.limited++,
+          ),
+        );
+      } else if (response.status >= 400 && response.status < 500) {
+        await save({ error: body?.error || `HTTP ${response.status}` });
+      } else {
+        // A server error, or an answer that is not a list of posts: the
+        // service may be having a bad moment, so it is asked again later.
+        holdFor(
+          "server",
+          backoffMs(attempts.server++),
+          body?.error || `HTTP ${response.status}`,
+        );
+      }
+    }
+
+    function refreshDone(newTop) {
+      return {
+        refresh: null,
+        top: Math.max(record.top, newTop || 0),
+        refreshedAt: Date.now(),
+      };
+    }
+
+    async function storeData(refresh, beforeMs, raw) {
+      const times = raw
+        .map((post) => Math.floor(numberOf(post?.created_utc)))
+        .filter(Number.isFinite);
+      if (!times.length) {
+        holdFor("server", backoffMs(attempts.server++), "posts without dates");
+        return;
+      }
+      const oldest = Math.min(...times);
+      const newest = Math.max(...times);
+      const posts = raw
+        .map((post) => trimPost(post, record.name))
+        .filter((post) => post && post.subreddit.toLowerCase() === record.name);
+      const next = advanceCursor(beforeMs, oldest);
+      const changes = { narrow: 0, lastPullAt: Date.now() };
+      if (refresh) {
+        const newTop = record.refresh.newTop || newest;
+        if (oldest <= record.refresh.stopAt) {
+          Object.assign(changes, refreshDone(newTop));
+        } else {
+          changes.refresh = {
+            ...record.refresh,
+            cursorMs: next.cursorMs,
+            newTop,
+          };
+        }
+      } else {
+        if (!record.top) {
+          changes.top = newest;
+          // The sub's own spelling of its name.
+          if (posts[0]) changes.display = posts[0].subreddit;
+        }
+        changes.cursorMs = next.cursorMs;
+        changes.bottom = Math.min(record.bottom, next.bottom);
+      }
+      const stored = await storePage(db, record.name, changes, posts);
+      if (!stored) {
+        stop();
+        return;
+      }
+      Object.assign(record, changes, { count: stored.count });
+    }
+
+    async function storeEmpty(refresh, beforeMs, narrow) {
+      const afterMs = narrowedAfterMs(beforeMs, narrow);
+      const afterSec = Math.floor(afterMs / 1000);
+      const changes = { lastPullAt: Date.now() };
+      // A narrowed query that found nothing moves the cursor down to its
+      // `after`, asking for that second again, since the API may leave it
+      // out.
+      if (refresh) {
+        if (afterMs && afterSec > record.refresh.stopAt) {
+          changes.refresh = { ...record.refresh, cursorMs: afterMs + 1000 };
+        } else {
+          Object.assign(changes, refreshDone(record.refresh.newTop));
+        }
+      } else if (
+        afterMs &&
+        afterSec + 1 > (record.earliest || REDDIT_FIRST_SECOND)
+      ) {
+        changes.cursorMs = afterMs + 1000;
+        changes.bottom = Math.min(record.bottom, afterSec + 1);
+      } else {
+        changes.done = true;
+        changes.bottom = Math.min(
+          record.bottom,
+          record.earliest || record.bottom,
+        );
+      }
+      await save(changes);
+    }
+
+    // The date of the sub's first post, for the progress bar. A failure is
+    // tried again the next time the archive opens.
+    async function fetchEarliest() {
+      if (record.earliest || record.done) return;
+      try {
+        const response = await fetch(earliestUrl(record.name), {
+          credentials: "omit",
+        });
+        const body = await response.json();
+        const seconds = Math.floor(Date.parse(body?.data) / 1000);
+        if (!response.ok || !(seconds > 0) || stopped) return;
+        await save({ earliest: seconds });
+        notify();
+      } catch (_error) {
+        // Unknown for now: the progress bar waits.
+      }
+    }
+
+    // The pull's fields as another tab stored them.
+    async function adoptStored() {
+      const stored = await getSub(db, record.name).catch(() => null);
+      if (!stored || stopped) return;
+      PULL_FIELDS.forEach((key) => {
+        record[key] = stored[key];
+      });
+      notify();
+    }
+
+    // Pulls while this tab holds the sub's lock, where the browser has Web
+    // Locks. When another tab holds it, this one shows that tab's progress
+    // and takes over once it lets go.
+    async function start() {
+      void fetchEarliest();
+      const locks = navigator.locks;
+      if (!locks || typeof locks.request !== "function") {
+        await run();
+        return;
+      }
+      const name = `redditp-archive:${record.name}`;
+      let held = false;
+      try {
+        await locks.request(name, { ifAvailable: true }, async (lock) => {
+          if (!lock) return;
+          held = true;
+          await run();
+        });
+        if (held || stopped) return;
+        setPhase("elsewhere");
+        lockRequest = new AbortController();
+        poll = setInterval(() => void adoptStored(), 5000);
+        await locks.request(name, { signal: lockRequest.signal }, async () => {
+          clearInterval(poll);
+          await adoptStored();
+          await run();
+        });
+      } catch (error) {
+        if (error?.name !== "AbortError") throw error;
+      } finally {
+        clearInterval(poll);
+      }
+    }
+
+    function stop() {
+      if (stopped) return;
+      stopped = true;
+      lockRequest?.abort();
+      clearInterval(poll);
+      wake();
+      setPhase("stopped");
+    }
+
+    return {
+      state,
+      start,
+      stop,
+      wake,
+      // Resolves at the pull's next step or change of phase.
+      waitForChange: () => new Promise((resolve) => waiters.push(resolve)),
+      // Whether more posts are on their way: not while paused, failed,
+      // stopped, or pulled by another tab.
+      isPulling: () =>
+        !stopped &&
+        !record.paused &&
+        !record.error &&
+        state.phase !== "elsewhere",
+    };
+  }
+
+  // The page's controls.
+  const viewer = window.__redditpPresentation;
+  const byId = (id) => document.getElementById(`redditp-archive-${id}`);
+  const ui = {
+    form: byId("open"),
+    subInput: byId("sub"),
+    error: byId("error"),
+    panel: byId("panel"),
+    name: byId("name"),
+    stats: byId("stats"),
+    progress: byId("progress"),
+    status: byId("status"),
+    retry: byId("retry"),
+    rangeInputs: Array.from(
+      document.querySelectorAll("input[name='redditp-archive-range']"),
+    ),
+    from: byId("from"),
+    to: byId("to"),
+    minScore: byId("min-score"),
+    orderInputs: Array.from(
+      document.querySelectorAll("input[name='redditp-archive-order']"),
+    ),
+    orderHint: byId("order-hint"),
+    browse: byId("browse"),
+    startOver: byId("start-over"),
+    pause: byId("pause"),
+    refresh: byId("refresh"),
+    remove: byId("delete"),
+    empty: byId("empty"),
+    list: byId("list"),
+    storage: byId("storage"),
+  };
+  // The status line counts these waits down.
+  const COUNTDOWN_PHASES = ["limited", "offline", "server", "narrowing"];
+
+  let db = null;
+  // The selected archive: { record, puller }.
+  let current = null;
+  let selectRequest = 0;
+  // An archive whose library row asked for a refresh before it was selected.
+  let pendingRefresh = "";
+  let renderQueued = false;
+  let tickTimer = null;
+  let libraryRequest = 0;
+  let storageRequest = 0;
+  // Archive name -> its library row.
+  const rows = new Map();
+
+  function element(tag, className, text) {
+    const result = document.createElement(tag);
+    if (className) result.className = className;
+    if (text) result.textContent = text;
+    return result;
+  }
+
+  function button(text, label) {
+    const result = element("button", "redditp-archive__button", text);
+    result.type = "button";
+    if (label) result.setAttribute("aria-label", label);
+    return result;
+  }
+
+  function showError(text) {
+    ui.error.textContent = text;
+    ui.error.hidden = !text;
+  }
+
+  function postCount(count) {
+    return `${formatCount(count)} ${count === 1 ? "post" : "posts"}`;
+  }
+
+  function newRecord(name, display) {
+    return {
+      name,
+      display: display || name,
+      createdAt: Date.now(),
+      // The sub's first post, in seconds; 0 while unknown.
+      earliest: 0,
+      count: 0,
+      // Everything from bottom up to top (seconds) is stored.
+      top: 0,
+      bottom: Infinity,
+      // The pull reached the sub's first post.
+      done: false,
+      // The next request's `before`; 0 starts at now.
+      cursorMs: 0,
+      narrow: 0,
+      // A refresh in progress: { cursorMs, stopAt, newTop }.
+      refresh: null,
+      refreshedAt: 0,
+      lastPullAt: 0,
+      paused: false,
+      error: "",
+      view: normalView({}),
+      // Where browsing left off: { key, windowEnd, rank, id, at }.
+      resume: null,
+    };
+  }
+
+  // The archive the hash names: #r/<sub>, with an optional trailing slash.
+  function hashTarget() {
+    let text = location.hash.slice(1);
+    try {
+      text = decodeURIComponent(text);
+    } catch (_error) {
+      // Kept as it is.
+    }
+    text = text.trim();
+    const match = /^\/?r\/([^/]*)\/?$/i.exec(text);
+    return {
+      text,
+      key: match ? subKey(match[1]) : "",
+      display: match ? match[1] : "",
+    };
+  }
+
+  async function route() {
+    const target = hashTarget();
+    if (target.text && !target.key) {
+      showError(
+        `"${target.text}" does not name a subreddit. The address should end in #r/ and a name of 2 to 21 letters, digits or underscores.`,
+      );
+    } else {
+      showError("");
+    }
+    await select(target.key, target.display);
+  }
+
+  function showArchive(display) {
+    const hash = `#r/${display}`;
+    if (location.hash === hash) void route();
+    else location.hash = hash;
+  }
+
+  // Selects an archive, creating it when it is new, and starts its pull.
+  // The previous one stops pulling.
+  async function select(key, display) {
+    if (current && current.record.name === key) return;
+    const request = ++selectRequest;
+    if (current) {
+      viewer.close();
+      current.puller.stop();
+      current = null;
+    }
+    ui.panel.hidden = true;
+    scheduleRender();
+    if (!key) return;
+    let opened;
+    try {
+      opened = await openSub(db, newRecord(key, display));
+    } catch (error) {
+      showError(storageErrorText(error));
+      return;
+    }
+    if (request !== selectRequest) return;
+    const record = opened.record;
+    record.view = normalView(record.view);
+    if (opened.created) requestPersistence();
+    current = { record, puller: createPuller(db, record, scheduleRender) };
+    fillControls(record);
+    ui.panel.hidden = false;
+    current.puller.start().catch((error) => {
+      showError(storageErrorText(error));
+    });
+    if (pendingRefresh === key) startRefresh();
+    pendingRefresh = "";
+    scheduleRender();
+  }
+
+  // Without persistent storage, the browser may clear the archives when
+  // disk space runs low.
+  function requestPersistence() {
+    try {
+      const asked = navigator.storage?.persist?.();
+      if (asked && typeof asked.then === "function") {
+        asked.then(scheduleRender, () => {});
+      }
+    } catch (_error) {
+      // The footer says what the browser allows.
+    }
+  }
+
+  function fillControls(record) {
+    const view = record.view;
+    ui.rangeInputs.forEach((input) => {
+      input.checked = input.value === view.range.preset;
+    });
+    ui.from.value = view.range.from;
+    ui.to.value = view.range.to;
+    ui.minScore.value = String(view.minScore);
+    ui.orderInputs.forEach((input) => {
+      input.checked = input.value === view.mode;
+    });
+  }
+
+  // Applies changes to the selected archive's record, stores them, and
+  // wakes its pull, which may have more to do now.
+  function updateRecord(changes) {
+    if (!current) return;
+    Object.assign(current.record, changes);
+    patchSub(db, current.record.name, changes).catch((error) => {
+      showError(storageErrorText(error));
+    });
+    current.puller.wake();
+    scheduleRender();
+  }
+
+  // A new range, minimum score or order. A resume position saved in
+  // another view no longer applies.
+  function changeView(changes) {
+    if (!current) return;
+    const old = current.record.view;
+    const view = normalView({
+      ...old,
+      ...changes,
+      range: { ...old.range, ...changes.range },
+    });
+    const update = { view };
+    const resume = current.record.resume;
+    if (resume && resume.key !== viewKey(view)) update.resume = null;
+    updateRecord(update);
+  }
+
+  function startRefresh() {
+    if (!current || !current.record.top) return;
+    updateRecord({
+      refresh: {
+        cursorMs: 0,
+        stopAt: current.record.top - REFRESH_OVERLAP_SECONDS,
+        newTop: 0,
+      },
+      paused: false,
+      error: "",
+    });
+  }
+
+  function refreshArchive(record) {
+    if (current?.record.name === record.name) {
+      startRefresh();
+      return;
+    }
+    pendingRefresh = record.name;
+    showArchive(record.display);
+  }
+
+  async function removeArchive(name) {
+    const record =
+      current?.record.name === name
+        ? current.record
+        : await getSub(db, name).catch(() => null);
+    if (!record) return;
+    if (
+      !window.confirm(
+        `Delete the r/${record.display} archive and its ${formatCount(record.count)} stored ${record.count === 1 ? "post" : "posts"}?`,
+      )
+    ) {
+      return;
+    }
+    if (current?.record.name === name) {
+      viewer.close();
+      current.puller.stop();
+      current = null;
+      selectRequest += 1;
+      ui.panel.hidden = true;
+      // Clearing the hash this way fires no hashchange.
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    try {
+      await deleteSub(db, name);
+    } catch (error) {
+      showError(storageErrorText(error));
+    }
+    scheduleRender();
+  }
+
+  function onOpenSubmit(event) {
+    event.preventDefault();
+    const display = ui.subInput.value.trim().replace(/^\/?r\//i, "");
+    if (!subKey(display)) {
+      showError(
+        "A subreddit's name has 2 to 21 letters, digits or underscores.",
+      );
+      return;
+    }
+    showError("");
+    showArchive(display.replace(/\/+$/, ""));
+  }
+
+  function bindControls() {
+    ui.form.addEventListener("submit", onOpenSubmit);
+    ui.rangeInputs.forEach((input) => {
+      input.addEventListener("change", () => {
+        changeView({ range: { preset: input.value } });
+      });
+    });
+    [ui.from, ui.to].forEach((input) => {
+      input.addEventListener("change", () => {
+        changeView({ range: { from: ui.from.value, to: ui.to.value } });
+      });
+    });
+    ui.minScore.addEventListener("change", () => {
+      changeView({ minScore: ui.minScore.value });
+      ui.minScore.value = String(current?.record.view.minScore ?? 0);
+    });
+    ui.orderInputs.forEach((input) => {
+      input.addEventListener("change", () => changeView({ mode: input.value }));
+    });
+    ui.retry.addEventListener("click", () => updateRecord({ error: "" }));
+    ui.pause.addEventListener("click", () => {
+      if (current) updateRecord({ paused: !current.record.paused });
+    });
+    ui.refresh.addEventListener("click", startRefresh);
+    ui.remove.addEventListener("click", () => {
+      if (current) void removeArchive(current.record.name);
+    });
+  }
+
+  function statusText(record, state, now) {
+    const seconds = Math.max(1, Math.ceil((state.until - now) / 1000));
+    switch (state.phase) {
+      case "elsewhere":
+        return "Pulling in another tab";
+      case "paused":
+        return "Paused";
+      case "hidden":
+        return "Paused while this tab is hidden";
+      case "failed":
+        return `Stopped: the archive answered "${record.error}"`;
+      case "limited":
+        return `Waiting: the archive asked us to slow down (retrying in ${seconds} s)`;
+      case "offline":
+        return `Offline or unreachable, retrying in ${seconds} s`;
+      case "server":
+        return `The archive is having trouble (${state.detail}), retrying in ${seconds} s`;
+      case "narrowing":
+        return `The archive took too long, asking for less in ${seconds} s`;
+      case "refreshing":
+        return "Refreshing the newest posts…";
+      case "pulling":
+        return Number.isFinite(record.bottom)
+          ? `Pulling… back to ${formatMonth(record.bottom)}`
+          : "Pulling…";
+      case "idle":
+        if (!record.done) {
+          return `This date range is stored, back to ${formatMonth(record.bottom)}`;
+        }
+        return record.count
+          ? `Complete back to ${formatMonth(record.bottom)}`
+          : `Arctic Shift has no posts for r/${record.display}`;
+      default:
+        return "Starting…";
+    }
+  }
+
+  // The library row's word for how far the pull is.
+  function progressText(record, now) {
+    if (record.error) return "stopped by an error";
+    if (record.paused) return "paused";
+    const range = rangeBounds(
+      normalView(record.view).range,
+      Math.floor(now / 1000),
+    );
+    const progress = pullProgress(record, range.start);
+    if (progress === 1) return "complete";
+    if (progress === null) return record.top ? "in progress" : "not started";
+    return `${Math.floor(progress * 100)}%`;
+  }
+
+  function renderPanel(now) {
+    if (!current) return;
+    const { record, puller } = current;
+    const range = rangeBounds(record.view.range, Math.floor(now / 1000));
+    ui.name.textContent = `r/${record.display}`;
+    ui.stats.textContent = [
+      postCount(record.count),
+      formatSpan(record.bottom, record.top),
+      `refreshed ${formatAgo(record.refreshedAt || record.createdAt, now)}`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const progress = pullProgress(record, range.start);
+    if (progress === null) ui.progress.removeAttribute("value");
+    else ui.progress.value = progress;
+    ui.status.textContent = statusText(record, puller.state, now);
+    ui.retry.hidden = puller.state.phase !== "failed";
+    ui.pause.textContent = record.paused ? "Resume" : "Pause";
+    ui.refresh.disabled = !record.top || Boolean(record.refresh);
+    ui.from.disabled = ui.to.disabled = record.view.range.preset !== "custom";
+    const complete = rangeComplete(record, range.start);
+    const top = ui.orderInputs.find((input) => input.value === "top");
+    top.disabled = !complete && !top.checked;
+    ui.orderHint.textContent = complete
+      ? "Top of everything ranks the whole range at once."
+      : "Top of everything is available once the whole range is pulled.";
+  }
+
+  function createRow(name) {
+    const row = {
+      item: element("li", "redditp-archive__item"),
+      link: element("a", "redditp-archive__item-name"),
+      count: element("span", "redditp-archive__item-count"),
+      span: element("span", "redditp-archive__item-span"),
+      refreshed: element("span", "redditp-archive__item-refreshed"),
+      progress: element("span", "redditp-archive__item-progress"),
+      open: button("Open"),
+      refresh: button("Refresh"),
+      pause: button("Pause"),
+      remove: button("Delete"),
+      record: null,
+    };
+    const facts = element("p", "redditp-archive__item-facts");
+    facts.append(row.count, row.span, row.refreshed, row.progress);
+    const actions = element("div", "redditp-archive__item-actions");
+    actions.append(row.open, row.refresh, row.pause, row.remove);
+    row.item.append(row.link, facts, actions);
+    row.open.addEventListener("click", () => showArchive(row.record.display));
+    row.refresh.addEventListener("click", () => refreshArchive(row.record));
+    row.pause.addEventListener("click", () => {
+      if (current?.record.name === name) {
+        updateRecord({ paused: !current.record.paused });
+      }
+    });
+    row.remove.addEventListener("click", () => void removeArchive(name));
+    rows.set(name, row);
+    return row;
+  }
+
+  function fillRow(row, record, now) {
+    const name = `r/${record.display}`;
+    const selected = current?.record.name === record.name;
+    row.record = record;
+    row.item.classList.toggle("redditp-archive__item--selected", selected);
+    row.link.href = `#r/${record.display}`;
+    row.link.textContent = name;
+    row.count.textContent = postCount(record.count);
+    row.span.textContent = formatSpan(record.bottom, record.top);
+    row.span.hidden = !row.span.textContent;
+    row.refreshed.textContent = `refreshed ${formatAgo(record.refreshedAt || record.createdAt, now)}`;
+    row.progress.textContent = progressText(record, now);
+    row.pause.hidden = !selected;
+    row.pause.textContent = record.paused ? "Resume" : "Pause";
+    row.refresh.disabled = !record.top || Boolean(record.refresh);
+    row.open.setAttribute("aria-label", `Open ${name}`);
+    row.refresh.setAttribute("aria-label", `Refresh ${name}`);
+    row.pause.setAttribute("aria-label", `${row.pause.textContent} ${name}`);
+    row.remove.setAttribute("aria-label", `Delete ${name}`);
+  }
+
+  // The library: every stored archive, most recently pulled first. Rows are
+  // updated in place, so a focused button keeps its focus.
+  async function renderLibrary(now) {
+    const request = ++libraryRequest;
+    let records;
+    try {
+      records = await listSubs(db);
+    } catch (_error) {
+      return;
+    }
+    if (request !== libraryRequest) return;
+    if (current) {
+      // This tab's copy of the selected archive is the newest.
+      const index = records.findIndex(
+        (record) => record.name === current.record.name,
+      );
+      if (index >= 0) records[index] = current.record;
+    }
+    const recent = (record) => record.lastPullAt || record.createdAt || 0;
+    records.sort((a, b) => recent(b) - recent(a) || (a.name < b.name ? -1 : 1));
+    const names = new Set(records.map((record) => record.name));
+    rows.forEach((row, name) => {
+      if (names.has(name)) return;
+      row.item.remove();
+      rows.delete(name);
+    });
+    records.forEach((record, index) => {
+      const row = rows.get(record.name) || createRow(record.name);
+      fillRow(row, record, now);
+      if (ui.list.children[index] !== row.item) {
+        ui.list.insertBefore(row.item, ui.list.children[index] || null);
+      }
+    });
+    ui.empty.hidden = records.length > 0;
+    void renderStorage();
+  }
+
+  async function renderStorage() {
+    const storage = navigator.storage;
+    if (!storage || typeof storage.estimate !== "function") return;
+    const request = ++storageRequest;
+    try {
+      const estimate = await storage.estimate();
+      const persisted =
+        typeof storage.persisted === "function"
+          ? await storage.persisted()
+          : true;
+      if (request !== storageRequest) return;
+      ui.storage.textContent =
+        `Stored on this device: ${formatBytes(estimate.usage)}, of ${formatBytes(estimate.quota)} the browser allows this page.` +
+        (persisted
+          ? ""
+          : " The browser may clear archives when disk space runs low.");
+      ui.storage.hidden = false;
+    } catch (_error) {
+      ui.storage.hidden = true;
+    }
+  }
+
+  // Repaints once per turn of the event loop, however many changes asked
+  // for it: about once per request, and once a second while a countdown
+  // shows.
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    Promise.resolve().then(() => {
+      renderQueued = false;
+      const now = Date.now();
+      renderPanel(now);
+      void renderLibrary(now);
+      clearTimeout(tickTimer);
+      tickTimer = null;
+      const state = current?.puller.state;
+      if (
+        state &&
+        COUNTDOWN_PHASES.includes(state.phase) &&
+        state.until > now
+      ) {
+        tickTimer = setTimeout(scheduleRender, 1000);
+      }
+    });
+  }
+
+  async function init() {
+    if (!viewer || typeof viewer.open !== "function" || !viewer.media) {
+      showError("The viewer did not load.");
+      return;
+    }
+    if (typeof indexedDB === "undefined" || !indexedDB) {
+      showError("This browser does not let the page store archives.");
+      return;
+    }
+    try {
+      db = await openDb(() => {
+        showError("Close this page's other tabs so its storage can update.");
+      });
+    } catch (error) {
+      showError(storageErrorText(error));
+      return;
+    }
+    db.onversionchange = () => {
+      db.close();
+      current?.puller.stop();
+      showError("The archive was updated in another tab. Reload this page.");
+    };
+    bindControls();
+    window.addEventListener("hashchange", () => void route());
+    document.addEventListener("visibilitychange", () => {
+      current?.puller.wake();
+    });
+    await route();
+    scheduleRender();
+  }
+
+  void init();
 })();

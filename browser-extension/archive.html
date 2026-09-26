@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Tells content.js to wait for archive.js to hand it a source of posts,
+         rather than open on this page. -->
+    <meta name="redditp-host" content="archive" />
+    <title>Archive · Presentation Mode for Reddit</title>
+    <link rel="icon" href="favicon.png" />
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="archive.css" />
+  </head>
+  <body class="redditp-archive">
+    <header class="redditp-archive__header">
+      <h1 class="redditp-archive__title">Reddit archive</h1>
+      <p class="redditp-archive__intro">
+        Browse a subreddit's whole history, ranked by score.
+      </p>
+      <form class="redditp-archive__open" id="redditp-archive-open">
+        <label class="redditp-archive__label" for="redditp-archive-sub"
+          >Subreddit</label
+        >
+        <div class="redditp-archive__open-row">
+          <span class="redditp-archive__prefix" aria-hidden="true">r/</span>
+          <input
+            class="redditp-archive__input"
+            id="redditp-archive-sub"
+            name="sub"
+            type="text"
+            required
+            pattern="[A-Za-z0-9_]{2,21}"
+            maxlength="21"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="pics"
+          />
+          <button class="redditp-archive__button" type="submit">Open</button>
+        </div>
+      </form>
+      <p
+        class="redditp-archive__error"
+        id="redditp-archive-error"
+        role="alert"
+        hidden
+      ></p>
+    </header>
+    <main class="redditp-archive__main">
+      <section
+        class="redditp-archive__panel"
+        id="redditp-archive-panel"
+        aria-labelledby="redditp-archive-name"
+        hidden
+      >
+        <h2 class="redditp-archive__name" id="redditp-archive-name"></h2>
+        <p class="redditp-archive__stats" id="redditp-archive-stats"></p>
+        <progress
+          class="redditp-archive__progress"
+          id="redditp-archive-progress"
+          max="1"
+          aria-label="Pull progress"
+        ></progress>
+        <div class="redditp-archive__status-row">
+          <p
+            class="redditp-archive__status"
+            id="redditp-archive-status"
+            role="status"
+          ></p>
+          <button
+            class="redditp-archive__button"
+            id="redditp-archive-retry"
+            type="button"
+            hidden
+          >
+            Retry
+          </button>
+        </div>
+        <fieldset class="redditp-archive__fieldset">
+          <legend>Date range</legend>
+          <label class="redditp-archive__choice"
+            ><input type="radio" name="redditp-archive-range" value="all" />
+            All</label
+          >
+          <label class="redditp-archive__choice"
+            ><input type="radio" name="redditp-archive-range" value="year" />
+            Past year</label
+          >
+          <label class="redditp-archive__choice"
+            ><input type="radio" name="redditp-archive-range" value="month" />
+            Past month</label
+          >
+          <label class="redditp-archive__choice"
+            ><input type="radio" name="redditp-archive-range" value="custom" />
+            Custom</label
+          >
+          <div class="redditp-archive__dates">
+            <label class="redditp-archive__field"
+              >From
+              <input
+                class="redditp-archive__input"
+                id="redditp-archive-from"
+                type="date"
+            /></label>
+            <label class="redditp-archive__field"
+              >To
+              <input
+                class="redditp-archive__input"
+                id="redditp-archive-to"
+                type="date"
+            /></label>
+          </div>
+        </fieldset>
+        <label class="redditp-archive__field redditp-archive__score"
+          >Minimum score
+          <input
+            class="redditp-archive__input"
+            id="redditp-archive-min-score"
+            type="number"
+            min="0"
+            step="1"
+            inputmode="numeric"
+        /></label>
+        <fieldset class="redditp-archive__fieldset">
+          <legend>Order</legend>
+          <label class="redditp-archive__choice"
+            ><input type="radio" name="redditp-archive-order" value="windows" />
+            Newest windows first</label
+          >
+          <label class="redditp-archive__choice"
+            ><input type="radio" name="redditp-archive-order" value="top" /> Top
+            of everything</label
+          >
+          <p class="redditp-archive__hint" id="redditp-archive-order-hint"></p>
+        </fieldset>
+        <div class="redditp-archive__actions">
+          <button
+            class="redditp-archive__button redditp-archive__button--primary"
+            id="redditp-archive-browse"
+            type="button"
+            disabled
+          >
+            Browse
+          </button>
+          <button
+            class="redditp-archive__button"
+            id="redditp-archive-start-over"
+            type="button"
+            disabled
+          >
+            Start over
+          </button>
+          <button
+            class="redditp-archive__button"
+            id="redditp-archive-pause"
+            type="button"
+          >
+            Pause
+          </button>
+          <button
+            class="redditp-archive__button"
+            id="redditp-archive-refresh"
+            type="button"
+          >
+            Refresh
+          </button>
+          <button
+            class="redditp-archive__button"
+            id="redditp-archive-delete"
+            type="button"
+          >
+            Delete
+          </button>
+        </div>
+      </section>
+      <section
+        class="redditp-archive__library"
+        aria-labelledby="redditp-archive-library-title"
+      >
+        <h2 id="redditp-archive-library-title">Your archives</h2>
+        <p class="redditp-archive__empty" id="redditp-archive-empty">
+          No archives yet. Open a subreddit to start one.
+        </p>
+        <ul class="redditp-archive__list" id="redditp-archive-list"></ul>
+        <p
+          class="redditp-archive__note"
+          id="redditp-archive-storage"
+          hidden
+        ></p>
+        <p class="redditp-archive__note">
+          Posts come from the public Arctic Shift archive
+          (arctic-shift.photon-reddit.com). Pictures and videos still load from
+          their hosts.
+        </p>
+      </section>
+    </main>
+    <script src="content.js"></script>
+    <script src="archive.js"></script>
+  </body>
+</html>

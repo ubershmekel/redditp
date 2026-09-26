@@ -36,11 +36,38 @@ const staleVideoOverlayFixture = fs.readFileSync(
   "utf8",
 );
 
+// A short clip for the video URLs a test lets play. The presentation starts
+// every video muted.
+const silentVideo = fs.readFileSync(
+  path.resolve(__dirname, "../../test-data/browser-extension-sound.webm"),
+);
+
+function fulfillSilentVideo(route) {
+  return route.fulfill({ contentType: "video/webm", body: silentVideo });
+}
+
 async function startPresentation(page, html) {
   await page.setContent(`<base href="https://www.reddit.com/">${html}`);
   await page.addStyleTag({ path: extensionStyles });
   await page.addScriptTag({ path: extensionScript });
 }
+
+// The media hosts answer every URL a test does not route itself: video paths
+// with the clip, everything else with a picture. Made-up URLs would otherwise
+// reach the real hosts, which answer with a placeholder picture or an error.
+const DEFAULT_MEDIA_RE =
+  /^https:\/\/(?:i\.redd\.it|preview\.redd\.it|external-preview\.redd\.it|i\.imgur\.com|v\.redd\.it)\//;
+
+// Page routes, and context routes a test adds later, still win.
+test.beforeEach(async ({ context }) => {
+  await context.route(DEFAULT_MEDIA_RE, (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname === "v.redd.it" || /\.(?:mp4|webm)$/i.test(url.pathname)) {
+      return fulfillSilentVideo(route);
+    }
+    return route.fulfill(svgImage(800, 600));
+  });
+});
 
 test("extension presents old Reddit image posts and supports keyboard navigation", async ({
   page,
@@ -3498,4 +3525,313 @@ test("next on the last slide wraps at once when the feed has ended", async ({
   await expect(title).toHaveText("Post 1");
   await expect(count).toHaveText("1 / 2");
   expect(await scrollCalls(page)).toBe(calls);
+});
+
+// A page that hosts the viewer says so in a meta tag, so the viewer waits
+// for the page to hand it a source of posts. window.makeTestSource({ total,
+// batch, urls }) builds one that hands over `total` image posts, `batch` at a
+// time, and records what the viewer asks of it: its `calls`, the posts the
+// slideshow showed (`shown`) and dropped (`dead`), and how often the viewer
+// closed (`closes`).
+async function hostPage(page) {
+  await page.setContent(
+    '<meta name="redditp-host" content="test"><base href="https://www.reddit.com/">',
+  );
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+  await page.evaluate(() => {
+    window.makeTestSource = ({ total, batch, urls }) => {
+      let given = 0;
+      function nextBatch() {
+        const slides = [];
+        while (slides.length < batch && given < total) {
+          given += 1;
+          slides.push({
+            kind: "image",
+            url: urls?.[given - 1] || `https://i.redd.it/source-${given}.jpg`,
+            title: `Source ${given}`,
+            postKey: `t3_source${given}`,
+            commentsUrl: `https://www.reddit.com/r/sourcetest/comments/source${given}/post/`,
+            author: "u/tester",
+            community: "r/sourcetest",
+          });
+        }
+        return Promise.resolve({ slides });
+      }
+      const source = {
+        kind: "test",
+        calls: [],
+        shown: [],
+        dead: [],
+        closes: 0,
+        start() {
+          source.calls.push("start");
+          return nextBatch();
+        },
+        loadMore() {
+          source.calls.push("loadMore");
+          return nextBatch();
+        },
+        hasMore: () => given < total,
+        onDead(slide) {
+          source.dead.push(slide.postKey);
+        },
+        onShow(slide) {
+          source.shown.push(slide.postKey);
+        },
+        onClose() {
+          source.closes += 1;
+        },
+      };
+      return source;
+    };
+  });
+}
+
+// Opens the hosted viewer on a test source, kept as window.testSource.
+function openTestSource(page, options) {
+  return page.evaluate((value) => {
+    window.testSource = window.makeTestSource(value);
+    window.__redditpPresentation.open(window.testSource);
+  }, options);
+}
+
+// What the test source has recorded so far.
+function testSourceLog(page) {
+  return page.evaluate(() => {
+    const { calls, shown, dead, closes } = window.testSource;
+    return { calls, shown, dead, closes };
+  });
+}
+
+test("a page that hosts the viewer keeps it closed until it hands over a source", async ({
+  page,
+}) => {
+  await hostPage(page);
+  await expect(page.locator("#redditp-presentation")).toHaveCount(1);
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  await instrumentScroll(page);
+
+  await openTestSource(page, { total: 30, batch: 10 });
+  const count = page.locator(".redditp__count");
+  await expect(page.locator(".redditp__title")).toHaveText("Source 1");
+  await expect(count).toHaveText("1 / 10");
+  for (let press = 0; press < 3; press += 1) {
+    await page.keyboard.press("ArrowRight");
+  }
+  await expect(page.locator(".redditp__title")).toHaveText("Source 4");
+  await expect(count).toHaveText("4 / 20");
+  // The source hands its posts over; nothing scrolls the page to find more.
+  expect(await scrollCalls(page)).toBe(0);
+  expect((await testSourceLog(page)).calls).toEqual(["start", "loadMore"]);
+});
+
+test("a finished source never waits: next on the last slide wraps at once", async ({
+  page,
+}) => {
+  // Paused, so any wait for more posts would never end.
+  await pauseClock(page);
+  await hostPage(page);
+  await openTestSource(page, { total: 3, batch: 3 });
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("1 / 3");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Source 3");
+  await expect(count).toHaveText("3 / 3");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Source 1");
+  await expect(count).toHaveText("1 / 3");
+
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__grid-status")).toHaveText(
+    "No more posts right now",
+  );
+  await expect(count).toHaveText("3 posts");
+  expect((await testSourceLog(page)).calls).toEqual(["start"]);
+});
+
+test("posts from another source open their Reddit links in a new tab", async ({
+  page,
+}) => {
+  const communityUrl = "https://www.reddit.com/r/sourcetest/?redditp=1";
+  await page
+    .context()
+    .route(communityUrl, (route) =>
+      route.fulfill({ contentType: "text/html", body: "<main>Feed</main>" }),
+    );
+  await hostPage(page);
+  await openTestSource(page, { total: 3, batch: 3 });
+  const communityLink = page.getByRole("link", {
+    name: "r/sourcetest",
+    exact: true,
+  });
+  const authorLink = page.getByRole("link", { name: "u/tester", exact: true });
+  await expect(communityLink).toHaveAttribute("href", communityUrl);
+  await expect(communityLink).toHaveAttribute("target", "_blank");
+  await expect(authorLink).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/user/tester/?redditp=1",
+  );
+  await expect(authorLink).toHaveAttribute("target", "_blank");
+
+  const [feedPage] = await Promise.all([
+    page.context().waitForEvent("page"),
+    communityLink.click(),
+  ]);
+  await feedPage.waitForLoadState();
+  expect(feedPage.url()).toBe(communityUrl);
+  await feedPage.close();
+  // The page that hosts the viewer stays where it was.
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+  await expect(page.locator(".redditp__title")).toHaveText("Source 1");
+});
+
+test("a source hears which slide shows and when the viewer closes", async ({
+  page,
+}) => {
+  await hostPage(page);
+  await openTestSource(page, { total: 3, batch: 3 });
+  const title = page.locator(".redditp__title");
+  await expect(title).toHaveText("Source 1");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Source 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Source 3");
+  expect(await testSourceLog(page)).toMatchObject({
+    shown: ["t3_source1", "t3_source2", "t3_source3"],
+    closes: 0,
+  });
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  expect((await testSourceLog(page)).closes).toBe(1);
+});
+
+test("links a source cannot vouch for are dropped", async ({ page }) => {
+  await hostPage(page);
+  await page.evaluate(() =>
+    window.__redditpPresentation.open({
+      kind: "test",
+      start: () =>
+        Promise.resolve({
+          slides: [
+            {
+              kind: "link",
+              url: "javascript:alert(1)",
+              commentsUrl: "javascript:alert(2)",
+              sourceUrl: "/r/sourcetest/comments/unsafe/post/",
+              title: "Unsafe link",
+              postKey: "t3_unsafe",
+            },
+          ],
+        }),
+      loadMore: () => Promise.resolve({ slides: [] }),
+      hasMore: () => false,
+    }),
+  );
+  await expect(page.locator(".redditp__title")).toHaveText("Unsafe link");
+  await expect(page.locator(".redditp__title-link")).toHaveCount(0);
+  const card = page.locator(".redditp__link-card");
+  await expect(card).toBeVisible();
+  // Neither the javascript: URLs nor the relative one survive.
+  await expect(card).toHaveAttribute("href", "");
+  await expect(page.locator("a[href^='javascript:' i]")).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "comments", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "media", exact: true }),
+  ).toHaveCount(0);
+});
+
+// Opens the hosted viewer on a source whose batches wait until the test
+// releases them, in order, with window.releaseBatch(slides).
+// window.pendingBatches() says how many loads are waiting.
+function openHeldSource(page, { first, text }) {
+  return page.evaluate(
+    ({ first, text }) => {
+      const waiting = [];
+      window.pendingBatches = () => waiting.length;
+      window.releaseBatch = (slides) => waiting.shift()({ slides });
+      const held = () => new Promise((resolve) => waiting.push(resolve));
+      window.__redditpPresentation.open({
+        kind: "test",
+        text,
+        start: () => (first ? Promise.resolve({ slides: first }) : held()),
+        loadMore: held,
+        hasMore: () => true,
+      });
+    },
+    { first, text },
+  );
+}
+
+test("a batch that arrives after a filter change still joins and shows", async ({
+  page,
+}) => {
+  await hostPage(page);
+  await openHeldSource(page, {
+    first: [
+      {
+        kind: "video",
+        url: "https://v.redd.it/heldclip/DASH_480.mp4",
+        title: "Opening clip",
+        postKey: "t3_heldclip",
+      },
+    ],
+  });
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("Opening clip");
+  // The only slide is the last one, so a load is already waiting.
+  await expect.poll(() => page.evaluate(() => window.pendingBatches())).toBe(1);
+
+  // Images only hides the clip; a new load takes over from the first.
+  await page.keyboard.press("o");
+  await expect(page.locator(".redditp__empty h2")).toHaveText(
+    "No images here yet",
+  );
+  await expect.poll(() => page.evaluate(() => window.pendingBatches())).toBe(2);
+
+  // The first load's batch still arrives, with the first picture to show.
+  await page.evaluate(() =>
+    window.releaseBatch([
+      {
+        kind: "image",
+        url: "https://i.redd.it/held-picture.jpg",
+        postMedia: true,
+        title: "Late picture",
+        postKey: "t3_heldpicture",
+      },
+    ]),
+  );
+  await expect(title).toHaveText("Late picture");
+  await expect(count).toHaveText("1 / 1 · images only · loading more");
+
+  // The newer load finds nothing more and ends.
+  await page.evaluate(() => window.releaseBatch([]));
+  await expect(count).toHaveText("1 / 1 · images only");
+  await expect(title).toHaveText("Late picture");
+});
+
+test("a source can put the empty stage in its own words", async ({ page }) => {
+  await hostPage(page);
+  await openHeldSource(page, {
+    text: {
+      preparing: ["Opening the archive", "Reading the first posts…"],
+      empty: ["Nothing archived yet", "Try a wider date range."],
+    },
+  });
+  const heading = page.locator(".redditp__empty h2");
+  const text = page.locator(".redditp__empty p");
+  await expect(heading).toHaveText("Opening the archive");
+  await expect(text).toHaveText("Reading the first posts…");
+
+  // The first batch is empty; the next load finds nothing either.
+  await page.evaluate(() => window.releaseBatch([]));
+  await expect(heading).toHaveText("Nothing archived yet");
+  await expect(text).toHaveText("Try a wider date range.");
 });

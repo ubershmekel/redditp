@@ -837,21 +837,24 @@ suite("listingUrl", () => {
 });
 
 // ---------------------------------------------------------------------------
-// DOM-free blocks of browser-extension/content.js
+// DOM-free blocks of the browser extension's scripts
 //
 // The content script is one IIFE, but its grid layout math, its media filter
-// rules and its feed loading rules each sit between two markers and touch no
-// DOM, so each block can be evaluated here on its own.
+// rules, its feed loading rules and its media URL rules each sit between two
+// markers and touch no DOM, so each block can be evaluated here on its own.
+// Other scripts in browser-extension/ can mark blocks the same way.
 // ---------------------------------------------------------------------------
 
-// Evaluates the block between "// <name>:start" and "// <name>:end" and
-// returns the named functions. Returns null if the markers are gone, which
-// each suite's first test asserts on rather than silently skipping its checks.
-function loadContentScriptBlock(name, exportNames) {
+// Evaluates the block between "// <name>:start" and "// <name>:end" in a
+// script of browser-extension/, content.js unless another file is named, and
+// returns the named functions and constants. Returns null if the markers are
+// gone, which each suite's first test asserts on rather than silently
+// skipping its checks.
+function loadContentScriptBlock(name, exportNames, file = "content.js") {
   const fs = require("fs");
   const path = require("path");
   const source = fs.readFileSync(
-    path.join(__dirname, "../browser-extension/content.js"),
+    path.join(__dirname, "../browser-extension", file),
     "utf8",
   );
   const start = source.indexOf(`// ${name}:start`);
@@ -1255,6 +1258,7 @@ suite("browser-extension feed loading", () => {
     "PREFETCH_ROUNDS",
     "PRELOAD_AHEAD",
     "PRELOAD_CACHE_SIZE",
+    "sourceVerdict",
   ]);
 
   test("feed loading helpers could be loaded", () => {
@@ -1292,6 +1296,16 @@ suite("browser-extension feed loading", () => {
     assert.ok(loading, "feed loading helpers not loaded");
     assert.strictEqual(loading.loadVerdict(0, 14, 11999), "wait");
     assert.strictEqual(loading.loadVerdict(0, 0, 0), "wait");
+  });
+
+  test("a load from another source ends at once when it has nothing new", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const verdict = loading.sourceVerdict;
+    assert.strictEqual(verdict(1, 0, 0, true), "matched");
+    assert.strictEqual(verdict(0, 0, 0, true), "idle");
+    assert.strictEqual(verdict(0, 5, 0, false), "idle");
+    assert.strictEqual(verdict(0, 5, 15, true), "rounds");
+    assert.strictEqual(verdict(0, 5, 14, true), "wait");
   });
 
   test("the slideshow loads within eight slides, up to four loads in a row", () => {
@@ -1421,6 +1435,160 @@ suite("browser-extension feed loading", () => {
     });
     assert.deepStrictEqual(loading.rememberBounded(map, "a", "A", 3), []);
     assert.deepStrictEqual([...map.keys()], ["b", "c", "a"]);
+  });
+});
+
+suite("browser-extension media URLs", () => {
+  const urls = loadContentScriptBlock("redditp-media-urls", [
+    "IMAGE_URL_RE",
+    "VIDEO_URL_RE",
+    "isVideoUrl",
+    "canonicalMediaKey",
+    "externalMedia",
+    "embedUrl",
+    "youtubeStartSeconds",
+  ]);
+
+  test("media URL helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      urls,
+      "did not find the redditp-media-urls markers in content.js",
+    );
+  });
+
+  test("imgur GIFs and GIFVs play as the MP4 the host converts them to", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    ["https://i.imgur.com/a1.gifv", "https://i.imgur.com/a1.gif"].forEach(
+      (url) => {
+        assert.deepStrictEqual(
+          urls.externalMedia(url),
+          { kind: "video", url: "https://i.imgur.com/a1.mp4", fromGif: true },
+          url,
+        );
+      },
+    );
+  });
+
+  test("an imgur page stands for its picture", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    assert.deepStrictEqual(urls.externalMedia("https://imgur.com/a1"), {
+      kind: "image",
+      url: "https://i.imgur.com/a1.jpg",
+    });
+  });
+
+  test("imgur albums and galleries have no single picture", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    ["https://imgur.com/a/a1", "https://imgur.com/gallery/a1"].forEach(
+      (url) => {
+        assert.strictEqual(urls.externalMedia(url), null, url);
+      },
+    );
+  });
+
+  test("YouTube links become the player that answers the sound toggle", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    [
+      [
+        "https://www.youtube.com/watch?v=abc&t=1m5s",
+        "https://www.youtube.com/embed/abc?start=65&enablejsapi=1",
+      ],
+      [
+        "https://youtu.be/abc",
+        "https://www.youtube.com/embed/abc?enablejsapi=1",
+      ],
+      [
+        "https://m.youtube.com/watch?v=abc",
+        "https://www.youtube.com/embed/abc?enablejsapi=1",
+      ],
+      [
+        "https://www.youtube.com/shorts/abc",
+        "https://www.youtube.com/embed/abc?enablejsapi=1",
+      ],
+    ].forEach(([url, embed]) => {
+      assert.deepStrictEqual(
+        urls.externalMedia(url),
+        { kind: "embed", url: embed },
+        url,
+      );
+    });
+  });
+
+  test("a /watch/<id> page becomes the same host's /ifr/<id> frame", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    assert.deepStrictEqual(
+      urls.externalMedia("https://videohost.example/watch/abc-1"),
+      { kind: "embed", url: "https://videohost.example/ifr/abc-1" },
+    );
+  });
+
+  test("other links have no media of their own", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    ["https://example.com", "https://example.com/story", "not a url"].forEach(
+      (url) => {
+        assert.strictEqual(urls.externalMedia(url), null, url);
+      },
+    );
+  });
+
+  test("video files are told from pictures", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    [
+      "https://v.redd.it/a/DASH_480.mp4",
+      "https://i.imgur.com/a1.webm",
+      "https://v.redd.it/a/HLSPlaylist.m3u8",
+      "https://external-preview.redd.it/a.gif?format=mp4&s=x",
+    ].forEach((url) => {
+      assert.strictEqual(urls.isVideoUrl(url), true, url);
+    });
+    ["https://i.redd.it/a.jpg", "not a url"].forEach((url) => {
+      assert.strictEqual(urls.isVideoUrl(url), false, url);
+    });
+    assert.ok(urls.IMAGE_URL_RE.test("https://i.redd.it/a.webp?width=640"));
+    assert.ok(!urls.IMAGE_URL_RE.test("https://i.redd.it/a.mp4"));
+    assert.ok(urls.VIDEO_URL_RE.test("https://v.redd.it/a/DASH_480.mp4#t=1"));
+  });
+
+  test("two URLs of the same file share a key", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    assert.strictEqual(
+      urls.canonicalMediaKey("https://I.REDD.IT/Some/Photo.JPG?width=640&s=x"),
+      "i.redd.it/some/photo.jpg",
+    );
+    assert.strictEqual(
+      urls.canonicalMediaKey("https://i.redd.it/some/photo.jpg"),
+      "i.redd.it/some/photo.jpg",
+    );
+    assert.strictEqual(urls.canonicalMediaKey("not a url"), "not a url");
+  });
+
+  test("a player frame is asked to autoplay, muted unless sound is on", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    const embed = "https://www.youtube.com/embed/abc?enablejsapi=1";
+    assert.strictEqual(
+      urls.embedUrl(embed, true),
+      `${embed}&autoplay=1&muted=1&mute=1&sound=false`,
+    );
+    assert.strictEqual(
+      urls.embedUrl(embed, false),
+      `${embed}&autoplay=1&sound=true`,
+    );
+  });
+
+  test("YouTube start times read as seconds", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    [
+      ["90", 90],
+      ["1m5s", 65],
+      ["1h2m3s", 3723],
+      ["", 0],
+      [null, 0],
+      ["soon", 0],
+    ].forEach(([value, seconds]) => {
+      assert.strictEqual(urls.youtubeStartSeconds(value), seconds, value);
+    });
   });
 });
 

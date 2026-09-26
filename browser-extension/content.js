@@ -22,6 +22,11 @@
     staleRoot.remove();
   });
 
+  // A page that hosts the viewer says so with <meta name="redditp-host">. It
+  // opens the viewer itself, on a source of posts it hands over, rather than
+  // having the viewer read the page as a Reddit feed.
+  const EMBEDDED = Boolean(document.querySelector("meta[name='redditp-host']"));
+
   const SPECIFIC_POST_SELECTOR = [
     "shreddit-post",
     ".thing.link",
@@ -33,8 +38,6 @@
   const POST_SELECTOR = `${SPECIFIC_POST_SELECTOR},article`;
   const FOCUSABLE_SELECTOR =
     "a[href], button:not([disabled]), input:not([disabled]), video[controls], iframe";
-  const IMAGE_URL_RE = /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i;
-  const VIDEO_URL_RE = /\.(?:m3u8|mp4|webm)(?:$|[?#])/i;
   const MIN_EXPAND_IMAGE_LONG_EDGE = 1000;
   const MIN_EXPAND_IMAGE_SHORT_EDGE = 600;
   const SETTINGS_KEY = "redditpPresentationSettings";
@@ -231,6 +234,18 @@
     if (shown > 0) return "matched";
     if (rounds >= FILTERED_MAX_ROUNDS) return "rounds";
     if (idleMs >= LOAD_IDLE_MS) return "idle";
+    return "wait";
+  }
+
+  // How a load from a source other than the page ends. Such a source hands
+  // its posts over itself, so there is no idle window to wait out:
+  // "matched" once the load has a post to show, "idle" once the source hands
+  // over nothing or has nothing more, "rounds" after too many batches that
+  // the filter hides, and "wait" while the load should ask it again.
+  function sourceVerdict(shown, found, rounds, hasMore) {
+    if (shown > 0) return "matched";
+    if (!found || !hasMore) return "idle";
+    if (rounds >= FILTERED_MAX_ROUNDS) return "rounds";
     return "wait";
   }
 
@@ -529,6 +544,15 @@
     return community.startsWith("r/") ? community : "";
   }
 
+  // redditp-media-urls:start
+  // Which URLs are pictures or videos, the key that two URLs of the same file
+  // share, and the player frame for a link to a video host. Like the blocks
+  // above, this stays DOM-free, so nodejs/test-embedit.js can evaluate it on
+  // its own. A page that hosts the viewer reads the same rules from
+  // window.__redditpPresentation.media.
+  const IMAGE_URL_RE = /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i;
+  const VIDEO_URL_RE = /\.(?:m3u8|mp4|webm)(?:$|[?#])/i;
+
   function isVideoUrl(url) {
     if (VIDEO_URL_RE.test(url)) return true;
     try {
@@ -652,6 +676,7 @@
       (Number(match[3]) || 0)
     );
   }
+  // redditp-media-urls:end
 
   function packagedVideoUrl(player) {
     const raw = player.getAttribute("packaged-media-json");
@@ -1038,9 +1063,111 @@
     return slides;
   }
 
+  // Where the posts come from. By default that is the Reddit page
+  // underneath: extractSlides reads it, and loadMorePosts scrolls it and
+  // waits for more, so the progress text can count posts as they arrive. A
+  // page that hosts the viewer hands open() a source of its own instead:
+  //
+  //   start({ wants }) resolves to the first batch, { slides, index }, where
+  //     index is the slide to open at. Meanwhile the stage shows the
+  //     source's preparing text.
+  //   loadMore({ wants }) resolves to the next batch, { slides }, with no
+  //     slides once the source is finished, paused or failing. It may be
+  //     called again before its last batch has arrived.
+  //   hasMore() says at once, without waiting, whether a load could find
+  //     more. False ends every load straight away.
+  //   onShow(slide) and onClose(), both optional, hear that the slideshow
+  //     shows a slide and that the viewer closed.
+  //   text, optional, holds a [heading, text] pair for the empty stage in
+  //     text.preparing, while start is pending, and in text.empty, when
+  //     there are no posts.
+  //
+  // A source's slides take extractSlides' shape (see sourceSlide). A picture
+  // that is the post's own media needs postMedia: true; without it, it
+  // counts as the preview of a link, which any filter hides. wants(slide)
+  // says whether the Show filter would show a slide, so a source can size
+  // its batches.
+  const liveSource = {
+    kind: "live",
+    hasMore: () => true,
+  };
+  let activeSource = liveSource;
+
+  // Whether the source may have more posts. The page always may; a source
+  // whose answer throws has none.
+  function sourceHasMore() {
+    try {
+      return Boolean(activeSource.hasMore());
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  const SOURCE_SLIDE_KINDS = ["image", "video", "embed", "link"];
+
+  // A link from another source ends up in an href, or in an img or iframe
+  // source, so only an absolute http(s) URL survives. A relative,
+  // javascript: or data: URL becomes "".
+  function absoluteHttpUrl(value) {
+    return typeof value === "string" && /^https?:\/\//i.test(value)
+      ? absoluteUrl(value)
+      : "";
+  }
+
+  // Another source's slide in the shape extractSlides gives, with every
+  // field the viewer reads. Fields the viewer does not read pass through
+  // untouched.
+  function sourceSlide(slide) {
+    const result = Object.assign(
+      {
+        title: "",
+        body: "",
+        author: "",
+        community: "",
+        commentsUrl: "",
+        sourceUrl: "",
+        postKey: "",
+        poster: "",
+        postMedia: false,
+        fromGif: false,
+        galleryItem: 0,
+        galleryTotal: 0,
+      },
+      slide,
+      { postNode: null, needsEnrichment: false, mediaUnknown: false },
+    );
+    ["title", "body", "author", "community", "postKey"].forEach((key) => {
+      result[key] = result[key] == null ? "" : String(result[key]);
+    });
+    if (!SOURCE_SLIDE_KINDS.includes(result.kind)) result.kind = "link";
+    ["url", "poster", "sourceUrl", "commentsUrl"].forEach((key) => {
+      result[key] = absoluteHttpUrl(result[key]);
+    });
+    result.media = mediaCategory(result.kind, result.url, result.fromGif);
+    return result;
+  }
+
+  // Whether the Show filter would show one of a source's slides.
+  function sourceWants(slide) {
+    return slideMatchesFilter(sourceSlide(slide), state.settings);
+  }
+
+  // Adds a batch that another source handed over, the way appendNewPosts
+  // adds the page's new posts. A missing or malformed batch adds nothing.
+  function appendSourceResult(result) {
+    const slides = Array.isArray(result?.slides) ? result.slides : [];
+    return appendSlides(
+      slides
+        .filter((slide) => slide && typeof slide === "object")
+        .map(sourceSlide),
+    );
+  }
+
   // Resolves to true when the slide was upgraded, false when the fetch failed,
   // and undefined when there was nothing to do or another request owns it.
   async function enrichSlide(slide) {
+    // Only the page's own posts are ever read from Reddit.
+    if (activeSource !== liveSource) return;
     if (!slide.needsEnrichment || !slide.commentsUrl) return;
     const key = slide.postKey || slide.commentsUrl;
     if (state.enrichments.has(key)) return;
@@ -2054,13 +2181,16 @@
 
   // The empty stage says why it is empty: Reddit's player is still being
   // prepared, the page has no posts, or the Show filter hides them all.
+  // Another source can say the first two in its own words.
   function syncEmptyState() {
     let heading = "No posts found on this page";
     let text =
       "Scroll Reddit to load some posts, then try presentation mode again.";
+    let ownWords = null;
     if (state.preparing) {
       heading = "Preparing Reddit video…";
       text = "Waiting for Reddit's full-quality player.";
+      ownWords = sourceText("preparing");
     } else if (mediaFilterActive(state.settings)) {
       if (state.loadingMore) {
         heading = `No ${shownMediaLabel(state.settings, "or")} here yet`;
@@ -2070,9 +2200,21 @@
         heading = "Nothing here matches the filter";
         text = `Only ${shownMediaLabel(state.settings, "and")} are shown. Change that in the settings, or press O.`;
       }
+    } else {
+      ownWords = sourceText("empty");
     }
+    if (ownWords) [heading, text] = ownWords;
     emptyTitle.textContent = heading;
     emptyText.textContent = text;
+  }
+
+  // A source's own [heading, text] for the empty stage, if it gives one.
+  function sourceText(name) {
+    if (activeSource === liveSource) return null;
+    const words = activeSource.text?.[name];
+    return Array.isArray(words) && words.length === 2
+      ? words.map((part) => String(part))
+      : null;
   }
 
   function render() {
@@ -2107,13 +2249,13 @@
     if (slide.community) {
       const communityLink = element("a", "redditp__meta-link", slide.community);
       communityLink.href = redditPageUrl(slide.community, "community");
-      communityLink.addEventListener("click", navigateToPresentation);
+      followMetaLink(communityLink);
       metaItems.push(communityLink);
     }
     if (slide.author) {
       const authorLink = element("a", "redditp__meta-link", slide.author);
       authorLink.href = redditPageUrl(slide.author, "user");
-      authorLink.addEventListener("click", navigateToPresentation);
+      followMetaLink(authorLink);
       metaItems.push(authorLink);
     }
     meta.replaceChildren();
@@ -2224,6 +2366,13 @@
     // pictures before they show.
     prefetchIfLow();
     preloadAhead();
+    if (activeSource !== liveSource) {
+      try {
+        activeSource.onShow?.(slide);
+      } catch (_error) {
+        // A source's own bookkeeping never stops the slideshow.
+      }
+    }
   }
 
   function move(delta) {
@@ -2311,12 +2460,12 @@
     return `fallback:${slide.title}|${slide.sourceUrl}`;
   }
 
-  // Adds the posts Reddit has rendered since the last look. Every new slide
-  // joins allSlides; the ones the filter lets through also join slides.
-  // Returns how many new slides were found and how many of them show.
-  function appendNewPosts() {
+  // Adds the slides of posts not seen before. Every new slide joins
+  // allSlides; the ones the filter lets through also join slides. Returns how
+  // many new slides were found and how many of them show.
+  function appendSlides(slides) {
     const existingPosts = new Set(state.allSlides.map(postIdentity));
-    const additions = extractSlides().filter(
+    const additions = slides.filter(
       (slide) => !existingPosts.has(postIdentity(slide)),
     );
     const shown = additions.filter((slide) =>
@@ -2329,6 +2478,14 @@
       if (state.gridBuilt) placeGridTiles(shown);
     }
     return { found: additions.length, shown: shown.length };
+  }
+
+  // Adds the posts Reddit has rendered since the last look. Another source
+  // hands its posts to loadMorePosts itself.
+  function appendNewPosts() {
+    return activeSource === liveSource
+      ? appendSlides(extractSlides())
+      : { found: 0, shown: 0 };
   }
 
   function wait(milliseconds) {
@@ -2433,15 +2590,20 @@
   }
 
   // Scrolls the Reddit page underneath so it renders more posts, and adds
-  // them as slides. Resolves to the number of added slides the filter shows,
-  // or null when the presentation closed or a newer request took over.
+  // them as slides; another source is asked for its next batch instead.
+  // Resolves to the number of added slides the filter shows, or null when
+  // the presentation closed or a newer request took over.
   // Callers check their own preconditions first; loadingMore is set before
   // the first await, so a second caller sees the load that is already
   // running.
   async function loadMorePosts() {
+    // A source with nothing more ends the load at once. Only Reddit's feed,
+    // which never says that it has ended, waits out LOAD_IDLE_MS.
+    if (!sourceHasMore()) return endFinishedLoad();
     state.loadingMore = true;
     state.loadFound = 0;
     const request = ++state.loadRequest;
+    const openRequest = state.openRequest;
     updateCount(loadingSuffixShown());
     syncEmptyState();
     syncGridStatus();
@@ -2453,7 +2615,7 @@
     let verdict = added ? "matched" : "wait";
     noteLoadProgress(scan);
     try {
-      if (!added) {
+      if (!added && activeSource === liveSource) {
         document.documentElement.style.overflow = state.oldOverflow;
         const watch = startFeedWatch();
         let rounds = 0;
@@ -2485,6 +2647,35 @@
           }
         } finally {
           stopFeedWatch(watch);
+        }
+      } else if (!added) {
+        // Another source hands its posts over itself: there is no page to
+        // scroll and no idle window to wait out.
+        let rounds = 0;
+        while (verdict === "wait") {
+          if (!sourceHasMore()) {
+            verdict = "idle";
+            break;
+          }
+          let result = null;
+          try {
+            result = await activeSource.loadMore({ wants: sourceWants });
+          } catch (_error) {
+            // A batch that failed counts as an empty one.
+          }
+          if (!state.open || openRequest !== state.openRequest) return null;
+          // The source has moved past this batch, so it joins even when a
+          // newer load took over, as after a filter change.
+          scan = appendSourceResult(result);
+          if (request !== state.loadRequest) {
+            showLateSlides(scan);
+            return null;
+          }
+          added = scan.shown;
+          found += scan.found;
+          noteLoadProgress(scan);
+          if (scan.found && !added) rounds += 1;
+          verdict = sourceVerdict(added, scan.found, rounds, sourceHasMore());
         }
       }
     } finally {
@@ -2532,6 +2723,38 @@
       continuePrefetch(found);
     }
     return added;
+  }
+
+  // A load from a source that has nothing more. The feed has ended, so the
+  // grid stops loading and a move queued on the last slide wraps at once.
+  function endFinishedLoad() {
+    state.feedExhausted = true;
+    state.gridExhausted = true;
+    state.prefetchLoads = 0;
+    const shouldAdvance = state.advanceAfterLoad && state.view === "slideshow";
+    state.advanceAfterLoad = false;
+    syncGridStatus();
+    syncEmptyState();
+    if (shouldAdvance) {
+      state.index = 0;
+      render();
+    } else {
+      updateCount(loadingSuffixShown());
+    }
+    return 0;
+  }
+
+  // A batch from a load that a newer one took over still joins, and it may
+  // hold the first slides the filter shows. The newer load settles the rest.
+  function showLateSlides(scan) {
+    if (!scan.shown) return;
+    if (state.slides.length === scan.shown) {
+      state.index = 0;
+      render();
+      refocusIfLost();
+    } else {
+      updateCount(loadingSuffixShown());
+    }
   }
 
   // Starts loading more posts in the background once the slideshow is low,
@@ -3078,6 +3301,18 @@
     video.blur();
   }
 
+  // On Reddit, a community or author link leaves this presentation for the
+  // one on that page. A page that hosts the viewer stays put, and the link
+  // opens Reddit in a new tab instead.
+  function followMetaLink(link) {
+    if (activeSource === liveSource) {
+      link.addEventListener("click", navigateToPresentation);
+    } else {
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+  }
+
   function navigateToPresentation(event) {
     if (
       event.defaultPrevented ||
@@ -3097,6 +3332,7 @@
   function close() {
     if (!state.open && !state.opening) return;
     const wasOpen = state.open;
+    const source = activeSource;
     state.open = false;
     state.opening = false;
     state.preparing = false;
@@ -3123,6 +3359,13 @@
     // Loads scrolled Reddit to its end; the page goes back to where it was.
     if (wasOpen) window.scrollTo(0, state.pageScrollY);
     document.removeEventListener("keydown", onKeyDown, true);
+    if (wasOpen && source !== liveSource) {
+      try {
+        source.onClose?.();
+      } catch (_error) {
+        // A source's own bookkeeping never keeps the viewer open.
+      }
+    }
   }
 
   function retire() {
@@ -3132,8 +3375,11 @@
     window.removeEventListener("message", onEmbedMessage);
   }
 
-  async function open() {
+  // Opens on the Reddit page underneath, or on the source that a page
+  // hosting the viewer hands over.
+  async function open(source) {
     if (state.open || state.opening) return;
+    activeSource = source || liveSource;
     const request = ++state.openRequest;
     state.opening = true;
     await loadSettings();
@@ -3165,6 +3411,10 @@
     state.slides = [];
     state.preparing = true;
     render();
+    if (activeSource !== liveSource) {
+      await openSource(request);
+      return;
+    }
     await waitForAdaptivePlayer(request);
     if (!state.open || request !== state.openRequest) return;
     state.preparing = false;
@@ -3178,6 +3428,33 @@
     render();
     focusInitialControl();
     // A filter that hides every post here goes looking for more.
+    loadForEmptyFilter();
+  }
+
+  // Opens on the first batch another source hands over, where the page's
+  // posts would be read. Until it arrives, the stage shows the source's
+  // preparing text.
+  async function openSource(request) {
+    let first = null;
+    try {
+      first = await activeSource.start({ wants: sourceWants });
+    } catch (_error) {
+      // A source that fails to start leaves the stage empty.
+    }
+    if (!state.open || request !== state.openRequest) return;
+    state.preparing = false;
+    appendSourceResult(first);
+    // The slide to open at, or the next one the filter shows.
+    const startIndex = Math.min(
+      Math.max(0, Math.floor(Number(first?.index) || 0)),
+      state.allSlides.length - 1,
+    );
+    state.index = state.allSlides.length
+      ? shownIndexFor(state.allSlides[startIndex])
+      : 0;
+    state.feedExhausted = !sourceHasMore();
+    render();
+    focusInitialControl();
     loadForEmptyFilter();
   }
 
@@ -3413,6 +3690,17 @@
       if (state.open || state.opening) close();
       else open();
     },
+    // For a page that hosts the viewer: open it on a source of posts (see
+    // liveSource for the shape), close it, and read its media URL rules.
+    open: (source) => open(source),
+    close: () => close(),
+    media: {
+      IMAGE_URL_RE,
+      VIDEO_URL_RE,
+      isVideoUrl,
+      canonicalMediaKey,
+      externalMedia,
+    },
   };
-  open();
+  if (!EMBEDDED) open();
 })();

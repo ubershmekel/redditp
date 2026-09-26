@@ -1767,6 +1767,1089 @@ suite("browser-extension subreddit path", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The archive page's DOM-free blocks (browser-extension/archive.js)
+// ---------------------------------------------------------------------------
+
+const archiveFixturePosts =
+  require("../test-data/reddit.com.json").data.children.map(
+    (child) => child.data,
+  );
+const archiveFixture = Object.fromEntries(
+  archiveFixturePosts.map((post) => [post.id, post]),
+);
+
+// The gallery-feature fixture's gallery, with the id and date its listing
+// leaves out; without them, trimPost rightly stores nothing.
+function archiveGalleryPost() {
+  const post = JSON.parse(
+    JSON.stringify(
+      require("../test-data/gallery-feature.json").data.children[1].data,
+    ),
+  );
+  return { ...post, id: "galtest", created_utc: 1700000000 };
+}
+
+// The fields a stored record may have.
+const ARCHIVE_RECORD_KEYS = [
+  "sub",
+  "id",
+  "name",
+  "subreddit",
+  "created_utc",
+  "score",
+  "title",
+  "author",
+  "permalink",
+  "is_self",
+  "selftext",
+  "over_18",
+  "is_video",
+  "is_gallery",
+  "post_hint",
+  "domain",
+  "url",
+  "media",
+  "preview",
+  "gallery_data",
+  "media_metadata",
+  "crosspost_parent_list",
+];
+// The fields a crosspost's original keeps.
+const ARCHIVE_MEDIA_KEYS = [
+  "is_video",
+  "is_gallery",
+  "post_hint",
+  "domain",
+  "url",
+  "media",
+  "preview",
+  "gallery_data",
+  "media_metadata",
+];
+
+const decodedPreview = (post) =>
+  post.preview.images[0].source.url.replace(/&amp;/g, "&");
+
+suite("browser-extension archive records", () => {
+  const records = loadContentScriptBlock(
+    "archive-records",
+    [
+      "REDDIT_ORIGIN",
+      "BODY_LIMIT",
+      "decodeEntities",
+      "decodeUrl",
+      "safeUrl",
+      "subKey",
+      "trimMedia",
+      "trimPost",
+    ],
+    "archive.js",
+  );
+
+  test("archive record helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      records,
+      "did not find the archive-records markers in archive.js",
+    );
+  });
+
+  test("text entities are decoded once, &amp; last", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    assert.strictEqual(
+      records.decodeEntities("Tom &amp; Jerry &lt;3"),
+      "Tom & Jerry <3",
+    );
+    assert.strictEqual(records.decodeEntities("&amp;lt;"), "&lt;");
+    assert.strictEqual(
+      records.decodeEntities("&quot;a&quot; &#39;b&#39; &#x27;c&#x27; &gt;"),
+      `"a" 'b' 'c' >`,
+    );
+    [undefined, null, 5].forEach((value) => {
+      assert.strictEqual(records.decodeEntities(value), "", String(value));
+    });
+  });
+
+  test("URLs lose every &amp;", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    assert.strictEqual(
+      records.decodeUrl("https://a.example/x?a=1&amp;b=2&amp;c=3"),
+      "https://a.example/x?a=1&b=2&c=3",
+    );
+    assert.strictEqual(records.decodeUrl(null), "");
+  });
+
+  test("only http(s) URLs are kept, and Reddit's paths become absolute", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    assert.strictEqual(records.REDDIT_ORIGIN, "https://www.reddit.com");
+    assert.strictEqual(records.safeUrl("javascript:alert(1)"), "");
+    assert.strictEqual(records.safeUrl("data:text/html,hi"), "");
+    assert.strictEqual(
+      records.safeUrl("/r/pics/comments/x/"),
+      "https://www.reddit.com/r/pics/comments/x/",
+    );
+    assert.strictEqual(
+      records.safeUrl("https://i.redd.it/a.jpg?x=1&amp;y=2"),
+      "https://i.redd.it/a.jpg?x=1&y=2",
+    );
+    ["", "   ", null, undefined, 3].forEach((value) => {
+      assert.strictEqual(records.safeUrl(value), "", String(value));
+    });
+  });
+
+  test("a subreddit's name becomes its lowercase key", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    [
+      ["r/Pics", "pics"],
+      ["/r/Pics/", "pics"],
+      ["Pics", "pics"],
+      ["de", "de"],
+      ["pics_2", "pics_2"],
+      ["a".repeat(21), "a".repeat(21)],
+    ].forEach(([name, key]) => {
+      assert.strictEqual(records.subKey(name), key, name);
+    });
+    ["a+b", "x", "a".repeat(22), "", "r/", "pics/new", null].forEach((name) => {
+      assert.strictEqual(records.subKey(name), "", String(name));
+    });
+  });
+
+  test("removed posts, and posts without an id or a date, are not stored", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    const post = { id: "abc", created_utc: 1600000000, title: "Post" };
+    ["moderator", "reddit", "deleted", "automod_filtered"].forEach(
+      (category) => {
+        assert.strictEqual(
+          records.trimPost({ ...post, removed_by_category: category }, "x"),
+          null,
+          category,
+        );
+      },
+    );
+    [null, "", undefined].forEach((category) => {
+      assert.ok(
+        records.trimPost({ ...post, removed_by_category: category }, "x"),
+        String(category),
+      );
+    });
+    [
+      ["no id", { ...post, id: undefined }],
+      ["bad id", { ...post, id: "a-b" }],
+      ["no date", { ...post, created_utc: null }],
+      ["bad date", { ...post, created_utc: "soon" }],
+    ].forEach(([name, value]) => {
+      assert.strictEqual(records.trimPost(value, "x"), null, name);
+    });
+    [null, "post", 5, []].forEach((value) => {
+      assert.strictEqual(records.trimPost(value, "x"), null, String(value));
+    });
+  });
+
+  test("dates and scores are always numbers, so every post is indexed", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    const record = records.trimPost(
+      { id: "t3_abc", created_utc: "1600000000.5", score: "12.7" },
+      "x",
+    );
+    assert.strictEqual(record.id, "abc");
+    assert.strictEqual(record.name, "t3_abc");
+    assert.strictEqual(record.created_utc, 1600000000);
+    assert.strictEqual(record.score, 12);
+    assert.strictEqual(
+      records.trimPost({ id: "abc", created_utc: 1600000000 }, "x").score,
+      0,
+    );
+  });
+
+  test("every fixture post keeps only the fields the archive reads", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    archiveFixturePosts.forEach((post) => {
+      const record = records.trimPost(post, "archivekey");
+      assert.ok(record, post.id);
+      Object.keys(record).forEach((key) => {
+        assert.ok(ARCHIVE_RECORD_KEYS.includes(key), `${post.id}: ${key}`);
+      });
+      assert.strictEqual(record.sub, "archivekey", post.id);
+      assert.strictEqual(record.subreddit, post.subreddit, post.id);
+      assert.ok(Number.isInteger(record.created_utc), post.id);
+      assert.ok(Number.isInteger(record.score), post.id);
+      assert.ok(
+        record.permalink.startsWith("https://www.reddit.com/r/"),
+        `${post.id}: ${record.permalink}`,
+      );
+      if (post.preview) {
+        assert.deepStrictEqual(
+          record.preview,
+          {
+            images: [
+              {
+                source: {
+                  url: decodedPreview(post),
+                  width: post.preview.images[0].source.width,
+                  height: post.preview.images[0].source.height,
+                },
+              },
+            ],
+          },
+          post.id,
+        );
+      } else {
+        assert.strictEqual(record.preview, undefined, post.id);
+      }
+      const size = JSON.stringify(record).length;
+      assert.ok(size < 1500, `${post.id}: ${size} characters`);
+    });
+  });
+
+  test("a crosspost keeps its original's video, decoded", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    const post = archiveFixture.kg84kl;
+    const record = records.trimPost(post, "x");
+    assert.strictEqual(record.media, null);
+    assert.strictEqual(record.crosspost_parent_list.length, 1);
+    const parent = record.crosspost_parent_list[0];
+    Object.keys(parent).forEach((key) => {
+      assert.ok(ARCHIVE_MEDIA_KEYS.includes(key), key);
+    });
+    assert.strictEqual(
+      parent.media.reddit_video.fallback_url,
+      "https://v.redd.it/clkrb6upg4661/DASH_240.mp4?source=fallback",
+    );
+    assert.strictEqual(
+      parent.preview.images[0].source.url,
+      decodedPreview(post.crosspost_parent_list[0]),
+    );
+    // A post with a video of its own keeps no original.
+    assert.strictEqual(
+      records.trimPost(archiveFixture.kgepby, "x").crosspost_parent_list,
+      undefined,
+    );
+  });
+
+  test("a gallery keeps each item's largest size only", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    const post = archiveGalleryPost();
+    Object.values(post.media_metadata).forEach((entry) => {
+      entry.s.u += "&amp;s=x";
+      entry.p = [{ u: entry.s.u, x: 108, y: 108 }];
+    });
+    const record = records.trimPost(post, "aww");
+    assert.deepStrictEqual(record.gallery_data, {
+      items: [
+        { media_id: "galimg1" },
+        { media_id: "galimg2" },
+        { media_id: "galimg3" },
+      ],
+    });
+    assert.deepStrictEqual(record.media_metadata.galimg1, {
+      status: "valid",
+      e: "Image",
+      m: "image/png",
+      s: {
+        u: "https://preview.redd.it/galimg1.png?width=1080&s=x",
+        x: 1080,
+        y: 1080,
+      },
+    });
+    Object.values(record.media_metadata).forEach((entry) => {
+      assert.deepStrictEqual(Object.keys(entry), ["status", "e", "m", "s"]);
+    });
+    assert.strictEqual(record.is_gallery, true);
+  });
+
+  test("a self post's text is decoded and cut to 1000 characters", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    assert.strictEqual(records.BODY_LIMIT, 1000);
+    const long = records.trimPost(
+      {
+        id: "abc",
+        created_utc: 1,
+        is_self: true,
+        selftext: `a &amp; b ${"x".repeat(2000)}`,
+      },
+      "x",
+    );
+    assert.strictEqual(long.selftext.length, 1000);
+    assert.ok(long.selftext.startsWith("a & b x"));
+    const link = records.trimPost(
+      { id: "abc", created_utc: 1, is_self: false, selftext: "Hidden" },
+      "x",
+    );
+    assert.strictEqual(link.selftext, "");
+  });
+
+  test("titles are decoded", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    assert.ok(
+      records
+        .trimPost(archiveFixture.kgjc2i, "x")
+        .title.includes("Westfall & Yarkoni"),
+    );
+  });
+});
+
+suite("browser-extension archive media", () => {
+  const media = loadContentScriptBlock(
+    "archive-media",
+    ["mediaFromPost", "postSlides"],
+    "archive.js",
+  );
+  const records = loadContentScriptBlock(
+    "archive-records",
+    ["trimPost"],
+    "archive.js",
+  );
+  const urls = loadContentScriptBlock("redditp-media-urls", [
+    "IMAGE_URL_RE",
+    "VIDEO_URL_RE",
+    "isVideoUrl",
+    "canonicalMediaKey",
+    "externalMedia",
+  ]);
+  const one = (post) => {
+    const items = media.mediaFromPost(post, urls);
+    assert.strictEqual(items.length, 1, JSON.stringify(items));
+    return items[0];
+  };
+  const post = (fields) => ({
+    id: "syn1",
+    created_utc: 1600000000,
+    title: "Synthetic",
+    subreddit: "pics",
+    permalink: "/r/pics/comments/syn1/synthetic/",
+    ...fields,
+  });
+
+  test("archive media helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(media, "did not find the archive-media markers in archive.js");
+    assert.ok(records, "did not find the archive-records markers");
+    assert.ok(urls, "did not find the redditp-media-urls markers");
+  });
+
+  test("pictures, Reddit videos and crossposted videos", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    assert.deepStrictEqual(one(archiveFixture.kgl8vc), {
+      kind: "image",
+      url: "https://i.redd.it/y8nbh6y019661.jpg",
+      poster: "",
+      postMedia: true,
+      fromGif: false,
+    });
+    assert.deepStrictEqual(one(archiveFixture.kgepby), {
+      kind: "video",
+      url: "https://v.redd.it/h57x3pgw57661/DASH_360.mp4?source=fallback",
+      poster: decodedPreview(archiveFixture.kgepby),
+      postMedia: true,
+      fromGif: false,
+    });
+    assert.deepStrictEqual(one(archiveFixture.kg84kl), {
+      kind: "video",
+      url: "https://v.redd.it/clkrb6upg4661/DASH_240.mp4?source=fallback",
+      poster: decodedPreview(archiveFixture.kg84kl.crosspost_parent_list[0]),
+      postMedia: true,
+      fromGif: false,
+    });
+  });
+
+  test("imgur GIFVs play as MP4s, and YouTube links as players", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    assert.deepStrictEqual(one(archiveFixture.kgcs19), {
+      kind: "video",
+      url: "https://i.imgur.com/RCtmQG7.mp4",
+      poster: decodedPreview(archiveFixture.kgcs19),
+      postMedia: true,
+      fromGif: true,
+    });
+    assert.strictEqual(
+      one(archiveFixture.kgc3gb).url,
+      "https://i.imgur.com/oWjg3Wv.mp4",
+    );
+    assert.strictEqual(one(archiveFixture.kgc3gb).fromGif, true);
+    assert.deepStrictEqual(one(archiveFixture.kgifs8), {
+      kind: "embed",
+      url: "https://www.youtube.com/embed/zb_oMA-v_wI?enablejsapi=1",
+      poster: "",
+      postMedia: true,
+      fromGif: false,
+    });
+    assert.strictEqual(
+      one(archiveFixture.kgjtiu).url,
+      "https://www.youtube.com/embed/GXzLx-UjNNg?enablejsapi=1",
+    );
+  });
+
+  test("a link shows its preview picture, which is not the post's own media", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    assert.deepStrictEqual(one(archiveFixture.kgkkid), {
+      kind: "image",
+      url: decodedPreview(archiveFixture.kgkkid),
+      poster: "",
+      postMedia: false,
+      fromGif: false,
+    });
+  });
+
+  test("links without a picture, and text posts, become link slides", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    assert.deepStrictEqual(one(archiveFixture.kghink), {
+      kind: "link",
+      url: "https://en.wikipedia.org/wiki/List_of_longest_prison_sentences",
+      poster: "",
+      postMedia: false,
+      fromGif: false,
+    });
+    assert.deepStrictEqual(one(archiveFixture.kgfnzg), {
+      kind: "link",
+      url: archiveFixture.kgfnzg.url,
+      poster: "",
+      postMedia: false,
+      fromGif: false,
+    });
+    // A text post's preview picture is not shown in place of its text.
+    assert.strictEqual(one(archiveFixture.kg9s5v).kind, "link");
+    const [slide] = media.postSlides(
+      records.trimPost(archiveFixture.kgjlvd, "jokes"),
+      urls,
+    ).slides;
+    assert.strictEqual(slide.body, archiveFixture.kgjlvd.selftext);
+    assert.strictEqual(
+      media.postSlides(archiveFixture.kgl8vc, urls).slides[0].body,
+      "",
+    );
+  });
+
+  test("a gallery becomes one slide per picture, numbered n of N", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const { slides, unavailable } = media.postSlides(
+      records.trimPost(archiveGalleryPost(), "aww"),
+      urls,
+    );
+    assert.strictEqual(unavailable, 0);
+    assert.deepStrictEqual(
+      slides.map((slide) => [
+        slide.kind,
+        slide.url,
+        slide.galleryItem,
+        slide.galleryTotal,
+        slide.postKey,
+        slide.postMedia,
+      ]),
+      [1, 2, 3].map((number) => [
+        "image",
+        `https://preview.redd.it/galimg${number}.png?width=1080`,
+        number,
+        3,
+        "t3_galtest",
+        true,
+      ]),
+    );
+  });
+
+  test("watch pages, animations, failed items and unsafe links", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    assert.deepStrictEqual(
+      one(post({ url: "https://videohost.example/watch/abc" })),
+      {
+        kind: "embed",
+        url: "https://videohost.example/ifr/abc",
+        poster: "",
+        postMedia: true,
+        fromGif: false,
+      },
+    );
+    const animated = media.mediaFromPost(
+      post({
+        is_gallery: true,
+        gallery_data: {
+          items: [
+            { media_id: "a1" },
+            { media_id: "gone" },
+            { media_id: "a2" },
+            { media_id: "missing" },
+            { media_id: "clip" },
+          ],
+        },
+        media_metadata: {
+          a1: {
+            status: "valid",
+            e: "AnimatedImage",
+            s: {
+              gif: "https://i.redd.it/a1.gif",
+              mp4: "https://i.redd.it/a1.mp4",
+            },
+          },
+          gone: { status: "failed" },
+          a2: {
+            status: "valid",
+            e: "AnimatedImage",
+            s: { gif: "https://i.redd.it/a2.gif" },
+          },
+          clip: { status: "valid", e: "RedditVideo", dashUrl: "x" },
+        },
+      }),
+      urls,
+    );
+    assert.deepStrictEqual(
+      animated.map((item) => [
+        item.kind,
+        item.url,
+        item.fromGif,
+        item.galleryItem,
+        item.galleryTotal,
+      ]),
+      [
+        ["video", "https://i.redd.it/a1.mp4", true, 1, 2],
+        ["image", "https://i.redd.it/a2.gif", true, 2, 2],
+      ],
+    );
+    assert.deepStrictEqual(one(post({ url: "javascript:alert(1)" })), {
+      kind: "link",
+      url: "https://www.reddit.com/r/pics/comments/syn1/synthetic/",
+      poster: "",
+      postMedia: false,
+      fromGif: false,
+    });
+  });
+
+  test("trimming never changes the slides", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    [...archiveFixturePosts, archiveGalleryPost()].forEach((raw) => {
+      assert.deepStrictEqual(
+        media.mediaFromPost(records.trimPost(raw, "x"), urls),
+        media.mediaFromPost(raw, urls),
+        raw.id,
+      );
+    });
+  });
+
+  test("dead media is skipped and counted, and galleries keep their numbers", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const gallery = records.trimPost(archiveGalleryPost(), "aww");
+    const dead = new Set([
+      urls.canonicalMediaKey("https://preview.redd.it/galimg2.png?width=1080"),
+    ]);
+    const { slides, unavailable } = media.postSlides(gallery, urls, dead);
+    assert.strictEqual(unavailable, 1);
+    assert.deepStrictEqual(
+      slides.map((slide) => `${slide.galleryItem}/${slide.galleryTotal}`),
+      ["1/3", "3/3"],
+    );
+    const single = records.trimPost(archiveFixture.kgl8vc, "pics");
+    assert.deepStrictEqual(
+      media.postSlides(
+        single,
+        urls,
+        new Set([urls.canonicalMediaKey(single.url)]),
+      ),
+      { slides: [], unavailable: 1 },
+    );
+  });
+
+  test("slides carry the post's details and where it came from", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const record = records.trimPost(archiveFixture.kgl8vc, "pics");
+    const [slide] = media.postSlides(record, urls).slides;
+    assert.strictEqual(slide.title, archiveFixture.kgl8vc.title);
+    assert.strictEqual(slide.author, `u/${archiveFixture.kgl8vc.author}`);
+    assert.strictEqual(slide.community, `r/${archiveFixture.kgl8vc.subreddit}`);
+    assert.strictEqual(
+      slide.commentsUrl,
+      `https://www.reddit.com${archiveFixture.kgl8vc.permalink}`,
+    );
+    assert.strictEqual(slide.sourceUrl, "https://i.redd.it/y8nbh6y019661.jpg");
+    assert.strictEqual(slide.postKey, "t3_kgl8vc");
+    assert.strictEqual(slide.galleryItem, 0);
+    assert.deepStrictEqual(slide.archive, {
+      id: "kgl8vc",
+      created: archiveFixture.kgl8vc.created_utc,
+      score: archiveFixture.kgl8vc.score,
+    });
+    const deleted = media.postSlides({ ...record, author: "[deleted]" }, urls);
+    assert.strictEqual(deleted.slides[0].author, "");
+    const untitled = media.postSlides({ ...record, title: "" }, urls);
+    assert.strictEqual(untitled.slides[0].title, "Reddit post");
+  });
+});
+
+suite("browser-extension archive ranking", () => {
+  const ranking = loadContentScriptBlock(
+    "archive-ranking",
+    [
+      "WINDOW_SIZE",
+      "DAY_SECONDS",
+      "SCORE_BLIND_SECONDS",
+      "REFRESH_OVERLAP_SECONDS",
+      "RANGE_PRESETS",
+      "normalView",
+      "rangeBounds",
+      "viewKey",
+      "rankEntries",
+      "cutWindow",
+      "advanceCursor",
+      "windowReady",
+      "rangeComplete",
+    ],
+    "archive.js",
+  );
+  const NOW = Date.UTC(2026, 8, 25, 12) / 1000;
+  const DAY = 86400;
+  const entry = (id, score, ageSeconds) => ({
+    id,
+    score,
+    created: NOW - ageSeconds,
+  });
+
+  test("archive ranking helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      ranking,
+      "did not find the archive-ranking markers in archive.js",
+    );
+  });
+
+  test("windows hold 5,000 posts; two days are both left unranked and pulled again", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    assert.strictEqual(ranking.WINDOW_SIZE, 5000);
+    assert.strictEqual(ranking.DAY_SECONDS, DAY);
+    assert.strictEqual(ranking.SCORE_BLIND_SECONDS, 2 * DAY);
+    assert.strictEqual(ranking.REFRESH_OVERLAP_SECONDS, 2 * DAY);
+    assert.deepStrictEqual(ranking.RANGE_PRESETS, [
+      "all",
+      "year",
+      "month",
+      "custom",
+    ]);
+  });
+
+  test("posts rank by score, then newest first, then by id", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const entries = [
+      entry("low", 5, 10 * DAY),
+      entry("old", 50, 20 * DAY),
+      entry("new", 50, 3 * DAY),
+      entry("b", 50, 5 * DAY),
+      entry("a", 50, 5 * DAY),
+      entry("top", 90, 30 * DAY),
+    ];
+    assert.deepStrictEqual(
+      ranking.rankEntries(entries, { nowSec: NOW, minScore: 0 }),
+      ["top", "new", "a", "b", "old", "low"],
+    );
+  });
+
+  test("a post exactly 48 hours old ranks; one a second younger does not", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    assert.deepStrictEqual(
+      ranking.rankEntries(
+        [entry("young", 99, 2 * DAY - 1), entry("ripe", 1, 2 * DAY)],
+        { nowSec: NOW, minScore: 0 },
+      ),
+      ["ripe"],
+    );
+  });
+
+  test("posts below the minimum score are left out", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const entries = [
+      entry("a", 100, 3 * DAY),
+      entry("b", 99, 3 * DAY),
+      entry("c", 0, 3 * DAY),
+      entry("d", -4, 3 * DAY),
+    ];
+    assert.deepStrictEqual(
+      ranking.rankEntries(entries, { nowSec: NOW, minScore: 100 }),
+      ["a"],
+    );
+    assert.deepStrictEqual(
+      ranking.rankEntries(entries, { nowSec: NOW, minScore: 0 }),
+      ["a", "b", "c"],
+    );
+  });
+
+  test("a window ends on a whole second", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const entries = [
+      { id: "a", created: 100 },
+      { id: "b", created: 90 },
+      { id: "c", created: 90 },
+      { id: "d", created: 90 },
+      { id: "e", created: 80 },
+    ];
+    const window = ranking.cutWindow(entries, 2);
+    assert.deepStrictEqual(
+      window.taken.map((item) => item.id),
+      ["a", "b", "c", "d"],
+    );
+    assert.strictEqual(window.start, 90);
+    assert.strictEqual(window.full, true);
+    const exact = ranking.cutWindow(entries, 5);
+    assert.strictEqual(exact.taken.length, 5);
+    assert.strictEqual(exact.full, true);
+    const short = ranking.cutWindow(entries, 6);
+    assert.strictEqual(short.taken.length, 5);
+    assert.strictEqual(short.start, 80);
+    assert.strictEqual(short.full, false);
+    assert.deepStrictEqual(ranking.cutWindow([], 3), {
+      taken: [],
+      start: 0,
+      full: false,
+    });
+  });
+
+  test("the cursor asks for the oldest second again, or moves past a page that is all one second", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    assert.deepStrictEqual(ranking.advanceCursor(2000000, 1500), {
+      cursorMs: 1501000,
+      bottom: 1501,
+    });
+    // Every post of the page was created in second 1999.
+    assert.deepStrictEqual(ranking.advanceCursor(2000000, 1999), {
+      cursorMs: 1999000,
+      bottom: 1999,
+    });
+    assert.deepStrictEqual(ranking.advanceCursor(1999500, 1999), {
+      cursorMs: 1999000,
+      bottom: 1999,
+    });
+  });
+
+  test("date ranges: presets from now, custom days inclusive in UTC", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    assert.deepStrictEqual(ranking.rangeBounds({ preset: "all" }, NOW), {
+      start: 0,
+      end: Infinity,
+    });
+    assert.deepStrictEqual(ranking.rangeBounds({ preset: "year" }, NOW), {
+      start: NOW - 365 * DAY,
+      end: Infinity,
+    });
+    assert.deepStrictEqual(ranking.rangeBounds({ preset: "month" }, NOW), {
+      start: NOW - 30 * DAY,
+      end: Infinity,
+    });
+    const jan2020 = Date.UTC(2020, 0, 1) / 1000;
+    assert.deepStrictEqual(
+      ranking.rangeBounds(
+        { preset: "custom", from: "2020-01-01", to: "2020-01-31" },
+        NOW,
+      ),
+      { start: jan2020, end: jan2020 + 31 * DAY },
+    );
+    assert.deepStrictEqual(
+      ranking.rangeBounds(
+        { preset: "custom", from: "2020-01-01", to: "2020-01-01" },
+        NOW,
+      ),
+      { start: jan2020, end: jan2020 + DAY },
+    );
+    // Either end may be left open.
+    assert.deepStrictEqual(
+      ranking.rangeBounds(
+        { preset: "custom", from: "2020-01-01", to: "" },
+        NOW,
+      ),
+      { start: jan2020, end: Infinity },
+    );
+    assert.deepStrictEqual(
+      ranking.rangeBounds(
+        { preset: "custom", from: "", to: "2020-01-01" },
+        NOW,
+      ),
+      { start: 0, end: jan2020 + DAY },
+    );
+    [
+      { preset: "custom", from: "2020-02-01", to: "2020-01-01" },
+      { preset: "custom", from: "", to: "" },
+      { preset: "custom", from: "2020-02-30", to: "" },
+      { preset: "decade" },
+      null,
+    ].forEach((range) => {
+      assert.deepStrictEqual(
+        ranking.rangeBounds(range, NOW),
+        { start: 0, end: Infinity },
+        JSON.stringify(range),
+      );
+    });
+  });
+
+  test("views are named by everything that changes what shows", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    assert.strictEqual(ranking.viewKey({}), "windows|all|||0");
+    assert.strictEqual(
+      ranking.viewKey({
+        mode: "top",
+        range: { preset: "custom", from: "2020-01-01", to: "2020-12-31" },
+        minScore: 100,
+      }),
+      "top|custom|2020-01-01|2020-12-31|100",
+    );
+    // Dates only matter to a custom range.
+    assert.strictEqual(
+      ranking.viewKey({
+        mode: "windows",
+        range: { preset: "year", from: "2020-01-01", to: "" },
+        minScore: 5,
+      }),
+      "windows|year|||5",
+    );
+    assert.deepStrictEqual(
+      ranking.normalView({
+        mode: "sideways",
+        range: { preset: "custom", from: "2020-13-01", to: "2021-01-05" },
+        minScore: "12.9",
+      }),
+      {
+        mode: "windows",
+        range: { preset: "custom", from: "", to: "2021-01-05" },
+        minScore: 12,
+      },
+    );
+    [-5, "soon", Infinity, null].forEach((minScore) => {
+      assert.strictEqual(
+        ranking.normalView({ minScore }).minScore,
+        0,
+        String(minScore),
+      );
+    });
+  });
+
+  test("a window is ready when full, when the pull passed the range's start, or when the pull is done", () => {
+    assert.ok(ranking, "archive ranking helpers not loaded");
+    const full = { full: true };
+    const partial = { full: false };
+    const pulling = { done: false, bottom: 5000 };
+    assert.strictEqual(ranking.windowReady(full, pulling, 0), true);
+    assert.strictEqual(ranking.windowReady(partial, pulling, 0), false);
+    assert.strictEqual(ranking.windowReady(partial, pulling, 5000), true);
+    assert.strictEqual(ranking.windowReady(partial, pulling, 6000), true);
+    assert.strictEqual(
+      ranking.windowReady(partial, { done: true, bottom: 5000 }, 0),
+      true,
+    );
+    assert.strictEqual(
+      ranking.windowReady(partial, { done: false, bottom: Infinity }, 0),
+      false,
+    );
+    assert.strictEqual(ranking.rangeComplete(pulling, 0), false);
+    assert.strictEqual(ranking.rangeComplete(pulling, 5000), true);
+    assert.strictEqual(
+      ranking.rangeComplete({ done: true, bottom: 5000 }, 0),
+      true,
+    );
+  });
+});
+
+suite("browser-extension archive pull", () => {
+  const pull = loadContentScriptBlock(
+    "archive-pull",
+    [
+      "API_BASE",
+      "META_APP",
+      "narrowedAfterMs",
+      "searchUrl",
+      "earliestUrl",
+      "pageOutcome",
+      "rateLimitDelayMs",
+      "backoffMs",
+    ],
+    "archive.js",
+  );
+  const BEFORE = 1758800000000;
+  const DAY_MS = 86400000;
+  const KNOWN = ["subreddit", "sort", "before", "after", "limit", "meta-app"];
+
+  test("archive pull helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(pull, "did not find the archive-pull markers in archive.js");
+  });
+
+  test("a search asks for one page, newest first, with known parameters only", () => {
+    assert.ok(pull, "archive pull helpers not loaded");
+    const base = "https://arctic-shift.photon-reddit.com/api/posts/search";
+    assert.strictEqual(
+      pull.API_BASE,
+      "https://arctic-shift.photon-reddit.com/api",
+    );
+    assert.strictEqual(pull.META_APP, "redditp");
+    assert.deepStrictEqual(
+      [0, 1, 2, 3].map((level) => pull.searchUrl("pics", BEFORE, level)),
+      [
+        `${base}?subreddit=pics&sort=desc&before=${BEFORE}&limit=auto&meta-app=redditp`,
+        `${base}?subreddit=pics&sort=desc&before=${BEFORE}&limit=100&meta-app=redditp`,
+        `${base}?subreddit=pics&sort=desc&before=${BEFORE}&limit=100&after=${BEFORE - 30 * DAY_MS}&meta-app=redditp`,
+        `${base}?subreddit=pics&sort=desc&before=${BEFORE}&limit=100&after=${BEFORE - 7 * DAY_MS}&meta-app=redditp`,
+      ],
+    );
+    [0, 1, 2, 3, 9, -1, undefined].forEach((level) => {
+      const url = new URL(pull.searchUrl("pics", BEFORE, level));
+      Array.from(url.searchParams.keys()).forEach((key) => {
+        assert.ok(KNOWN.includes(key), `${level}: ${key}`);
+      });
+    });
+    assert.strictEqual(pull.narrowedAfterMs(BEFORE, 1), 0);
+    assert.strictEqual(pull.narrowedAfterMs(BEFORE, 2), BEFORE - 30 * DAY_MS);
+  });
+
+  test("the sub's first post has its own request", () => {
+    assert.ok(pull, "archive pull helpers not loaded");
+    assert.strictEqual(
+      pull.earliestUrl("pics"),
+      "https://arctic-shift.photon-reddit.com/api/utils/min?subreddit=pics&meta-app=redditp",
+    );
+  });
+
+  test("answers read as data, empty, timeout, limited or failed", () => {
+    assert.ok(pull, "archive pull helpers not loaded");
+    [
+      [200, { data: [{ id: "a" }] }, "data"],
+      [200, { data: [] }, "empty"],
+      [200, { data: null, error: "Query timed out" }, "timeout"],
+      [500, { data: null, error: "Query timed out" }, "timeout"],
+      [422, { error: "query TIMED OUT, try again" }, "timeout"],
+      [429, { data: null, error: "Too many requests" }, "limited"],
+      [429, null, "limited"],
+      [400, { data: null, error: "unknown parameter" }, "failed"],
+      [500, { data: null, error: "Internal error" }, "failed"],
+      [200, { data: null }, "failed"],
+      [200, null, "failed"],
+      [200, { data: "x" }, "failed"],
+    ].forEach(([status, body, outcome]) => {
+      assert.strictEqual(
+        pull.pageOutcome(status, body),
+        outcome,
+        JSON.stringify([status, body]),
+      );
+    });
+  });
+
+  test("a rate limit waits as its headers say, else a minute doubling up to five", () => {
+    assert.ok(pull, "archive pull helpers not loaded");
+    const now = 1000000;
+    assert.strictEqual(pull.rateLimitDelayMs("5", null, now, 0), 5000);
+    assert.strictEqual(
+      pull.rateLimitDelayMs(null, String(now + 12000), now, 0),
+      12000,
+    );
+    assert.strictEqual(pull.rateLimitDelayMs(null, null, now, 0), 60000);
+    assert.strictEqual(pull.rateLimitDelayMs(null, null, now, 1), 120000);
+    assert.strictEqual(pull.rateLimitDelayMs(null, null, now, 5), 300000);
+    assert.strictEqual(pull.rateLimitDelayMs("", "", now, 0), 60000);
+    // Never under a second, never over five minutes.
+    assert.strictEqual(pull.rateLimitDelayMs("0", null, now, 0), 1000);
+    assert.strictEqual(
+      pull.rateLimitDelayMs(null, String(now - 5000), now, 0),
+      1000,
+    );
+    assert.strictEqual(pull.rateLimitDelayMs("900", null, now, 0), 300000);
+  });
+
+  test("network errors back off from 5 seconds up to a minute", () => {
+    assert.ok(pull, "archive pull helpers not loaded");
+    assert.deepStrictEqual(
+      [0, 1, 2, 3, 4, 10].map((attempt) => pull.backoffMs(attempt)),
+      [5000, 10000, 20000, 40000, 60000, 60000],
+    );
+  });
+});
+
+suite("browser-extension archive format", () => {
+  const format = loadContentScriptBlock(
+    "archive-format",
+    [
+      "formatCount",
+      "formatMonth",
+      "formatSpan",
+      "formatAgo",
+      "formatBytes",
+      "pullProgress",
+    ],
+    "archive.js",
+  );
+
+  test("archive format helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(format, "did not find the archive-format markers in archive.js");
+  });
+
+  test("counts, months and spans", () => {
+    assert.ok(format, "archive format helpers not loaded");
+    assert.strictEqual(format.formatCount(12345), "12,345");
+    assert.strictEqual(format.formatCount(0), "0");
+    assert.strictEqual(format.formatCount(undefined), "0");
+    // Months are UTC whatever the local time zone.
+    assert.strictEqual(
+      format.formatMonth(Date.UTC(2008, 0, 31, 23, 30) / 1000),
+      "Jan 2008",
+    );
+    assert.strictEqual(
+      format.formatSpan(
+        Date.UTC(2008, 0, 25) / 1000,
+        Date.UTC(2026, 8, 25) / 1000,
+      ),
+      "Jan 2008 – Sep 2026",
+    );
+    assert.strictEqual(
+      format.formatSpan(
+        Date.UTC(2026, 8, 1) / 1000,
+        Date.UTC(2026, 8, 25) / 1000,
+      ),
+      "Sep 2026",
+    );
+    assert.strictEqual(
+      format.formatSpan(Infinity, Date.UTC(2026, 8, 25) / 1000),
+      "",
+    );
+    assert.strictEqual(format.formatSpan(0, 0), "");
+  });
+
+  test("how long ago, in steps", () => {
+    assert.ok(format, "archive format helpers not loaded");
+    const now = Date.UTC(2026, 8, 25, 12);
+    [
+      [now - 30 * 1000, "just now"],
+      [now - 60 * 1000, "1 minute ago"],
+      [now - 5 * 60 * 1000, "5 minutes ago"],
+      [now - 3 * 3600 * 1000, "3 hours ago"],
+      [now - 24 * 3600 * 1000, "1 day ago"],
+      [now - 3 * 86400 * 1000, "3 days ago"],
+      [0, "never"],
+      [undefined, "never"],
+    ].forEach(([then, text]) => {
+      assert.strictEqual(format.formatAgo(then, now), text, String(then));
+    });
+  });
+
+  test("storage sizes", () => {
+    assert.ok(format, "archive format helpers not loaded");
+    assert.strictEqual(format.formatBytes(0), "0 bytes");
+    assert.strictEqual(format.formatBytes(500), "500 bytes");
+    assert.strictEqual(format.formatBytes(512 * 1024), "512 KB");
+    assert.strictEqual(format.formatBytes(1.5 * 1024 ** 3), "1.5 GB");
+    assert.strictEqual(format.formatBytes(12.4 * 1024 ** 2), "12 MB");
+  });
+
+  test("pull progress runs from the newest post down to the first, or to the range", () => {
+    assert.ok(format, "archive format helpers not loaded");
+    assert.strictEqual(format.pullProgress({ done: true }), 1);
+    const record = { done: false, top: 2000, bottom: 1500, earliest: 1000 };
+    assert.strictEqual(format.pullProgress(record), 0.5);
+    assert.strictEqual(format.pullProgress(record, 1500), 1);
+    assert.strictEqual(format.pullProgress(record, 1750), 1);
+    assert.strictEqual(format.pullProgress({ ...record, bottom: Infinity }), 0);
+    assert.strictEqual(format.pullProgress({ ...record, bottom: 500 }), 1);
+    assert.strictEqual(format.pullProgress({ ...record, earliest: 0 }), null);
+    assert.strictEqual(format.pullProgress({ ...record, top: 0 }), null);
+    assert.strictEqual(format.pullProgress(null), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 

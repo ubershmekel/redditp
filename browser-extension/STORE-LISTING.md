@@ -12,11 +12,18 @@ it.
    Do not reintroduce a list like that.
 2. **An adult-site name in the submission.** The listing and the code both named
    a specific video host. The extension now recognizes that host through a
-   generic URL-shape rule (`/watch/<id>` → `/ifr/<id>`) and names no third-party
-   site anywhere in the package. Do not add host names back to the listing, the
+   generic URL-shape rule (`/watch/<id>` → `/ifr/<id>`) and names no such site
+   anywhere in the package. Do not add host names back to the listing, the
    description, the manifest, or the source comments — not even in a "supported
    sites" list, which is what made the first version read as keyword spam in the
    first place.
+
+Archive mode adds one site name to the package, and it has to: the public
+archive the archive page reads posts from, `arctic-shift.photon-reddit.com`.
+`archive.js` sends its requests there, and `archive.html` names it so the user
+knows where the posts come from. Only the archive page talks to it, and only
+once the user opens that page; nothing else is sent anywhere. None of the words
+the grep below looks for appears in it.
 
 Neither the shipped code nor the listing copy below currently contains any such
 name. Run this after packaging and before every submission — it scans the staged
@@ -59,14 +66,25 @@ slideshow even when its close button is hidden.
 You can also start the slideshow straight from a link: add redditp=1 to any
 Reddit address and the page opens in presentation mode by itself.
 
-The extension runs only on reddit.com, uses your existing Reddit session, and
-sends nothing anywhere else. It presents the posts your own Reddit account and
-settings already show you on the page.
+Archive mode reaches further back than Reddit's own listings, which stop after
+about a thousand posts. The archive button in the slideshow, or a small icon in
+the corner of a subreddit's pages, opens a page that browses the subreddit's
+whole history ranked by score, within the dates you choose. The posts are kept
+in your browser, so a later visit picks up where you left off. The icon can be
+hidden in the settings.
+
+The extension runs only on reddit.com and uses your existing Reddit session; the
+slideshow presents the posts your own Reddit account and settings already show
+you on the page. Only the archive page talks to anything else: when you open it,
+it asks the public Arctic Shift archive (arctic-shift.photon-reddit.com) for
+that subreddit's posts, sending the subreddit's name and the dates it needs,
+without cookies. Pictures and videos load from wherever each post links them, as
+they do on Reddit. Nothing else is sent anywhere.
 
 ## Single purpose
 
-Present the posts on the Reddit page the user is currently viewing as a
-full-screen slideshow.
+Present the posts on the Reddit page the user is currently viewing, or a
+subreddit's archived posts, as a full-screen slideshow.
 
 ## Permission justifications
 
@@ -76,16 +94,21 @@ full-screen slideshow.
   and show a hint on the toolbar icon when it is not.
 - **scripting**: injects the slideshow into the Reddit tab when the user clicks
   the toolbar button or presses the keyboard shortcut.
-- **storage**: saves the user's slide timing and presentation-control choices
-  locally in Chrome.
+- **storage**: saves the user's slide timing and presentation-control choices,
+  including whether to show the archive icon, locally in Chrome. The archive
+  page keeps the archived posts the user asked for in the browser's own storage
+  (IndexedDB).
 - **Host permission for reddit.com**: the extension reads the posts rendered on
   the Reddit page in order to build the slideshow, and the same permission lets
   it fetch a post's own Reddit page when a search result shows only a small
   thumbnail.
 - **Content script on reddit.com**: a small script checks whether the address
   carries the opt-in `redditp=1` parameter, so a bookmark or link can open the
-  slideshow directly. It reads nothing else and does nothing on any other
-  address.
+  slideshow directly. On a subreddit's listing pages it also shows a small
+  archive icon, styled by a stylesheet that touches nothing else, which opens
+  that subreddit's archive page in a new tab. It reads the extension's own saved
+  setting, so the user can hide the icon, and follows the address as Reddit
+  changes pages. It reads nothing from the page itself.
 
 Mention the content script explicitly. It runs on every reddit.com page load, so
 a reviewer comparing the manifest against a justification that only described

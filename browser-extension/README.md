@@ -3,7 +3,8 @@
 This Manifest V3 extension turns the Reddit listing currently open in the
 browser into an in-page media slideshow. It reads the posts rendered in the
 browser, using the user's normal Reddit session; it does not call Reddit's
-public JSON API.
+public JSON API. Its [archive mode](#archive-mode) browses a subreddit's whole
+history instead, ranked by score.
 
 One source tree builds both stores. `nodejs/package-extension.js` patches the
 manifest per browser, so this folder stays the only place to edit.
@@ -249,6 +250,8 @@ the extension's.
   page scripts see them, so Firefox toggles playback itself rather than through
   redditp's handler. The visible behavior is the same, and Reddit's own click
   handler stays out of the way there too.
+- Archive mode is built and tested in Chrome. The Firefox build ships the same
+  archive page and icon, but they have not been tested there.
 - `background.js` and `auto-activate.js` resolve `globalThis.browser || chrome`
   because Firefox's `chrome` alias is callback-based while `browser` returns
   promises. Keep new background code on that `api` handle.
@@ -295,15 +298,21 @@ available as the fallback.
 ## Files
 
 - `manifest.json`: extension metadata, permissions, and shortcut
-- `background.js`: toolbar and keyboard-command launcher
-- `auto-activate.js`: opt-in `redditp=1` URL launcher
+- `background.js`: toolbar and keyboard-command launcher; opens the archive page
+  in a new tab
+- `auto-activate.js`: opt-in `redditp=1` URL launcher, and the archive icon on
+  subreddit pages
+- `launcher.css`: the archive icon on subreddit pages
 - `content.js`: Reddit DOM extraction and slideshow behavior
 - `presentation.css`: isolated, responsive presentation UI
+- `archive.html`, `archive.js`, `archive.css`: the archive page; opened by the
+  extension, not listed in the manifest
 - `favicon.png`: small toolbar icon (64px)
 - `icon-128.png`: store and extensions-page icon (128px)
 
 `nodejs/package-extension.js` lists the files that go into the upload; add any
-new runtime file there as well as to `manifest.json`. It takes a target:
+new runtime file there, and to `manifest.json` when the manifest loads it. It
+takes a target:
 
 - `npm run ext:package` — Chrome zip, manifest used as-is
 - `npm run ext:package:firefox` — Firefox zip, with the MV3 event page

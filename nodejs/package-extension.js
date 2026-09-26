@@ -13,13 +13,19 @@ const root = path.join(__dirname, "..");
 const srcDir = path.join(root, "browser-extension");
 const buildDir = path.join(root, "build");
 
-// Everything the extension actually needs at runtime. Keep in sync with manifest.json.
+// Everything the extension actually needs at runtime: the files manifest.json
+// loads, plus the pages the extension opens itself (archive.html and what it
+// loads), which the manifest does not list. Keep in sync with both.
 const files = [
   "manifest.json",
   "background.js",
   "content.js",
   "auto-activate.js",
+  "launcher.css",
   "presentation.css",
+  "archive.html",
+  "archive.js",
+  "archive.css",
   "favicon.png",
   "icon-128.png",
 ];
@@ -43,7 +49,10 @@ const targets = {
           id: "presentation-mode@redditp.com",
           // 140 ESR is the first release that accepts data_collection_permissions.
           strict_min_version: "140.0",
-          // The add-on stores settings locally and sends nothing anywhere.
+          // The add-on keeps its settings and archives in the browser and
+          // collects no personal data. Only the archive page, when the user
+          // opens it, sends anything: the subreddit's name and dates, to the
+          // public Arctic Shift archive, without cookies.
           data_collection_permissions: { required: ["none"] },
         },
         // Android needed one release longer for the data-collection key.

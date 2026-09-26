@@ -547,6 +547,27 @@
   pointer-events: none;
 }
 
+/* The images, GIFs and videos buttons: lit while shown, struck through while
+   hidden. The last one lit cannot be turned off. */
+#redditp-presentation .redditp__media-toggles {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+#redditp-presentation .redditp__media-toggle[aria-pressed="false"] {
+  color: #999;
+  text-decoration: line-through;
+}
+
+#redditp-presentation .redditp__media-toggle:disabled {
+  cursor: default;
+}
+
+#redditp-presentation .redditp__media-toggle:disabled:hover {
+  border-bottom-color: transparent;
+}
+
 #redditp-presentation .redditp__link-card {
   position: absolute;
   top: 50%;
@@ -842,6 +863,12 @@
     min-height: 36px;
     padding: 7px 6px;
     font-size: 12px;
+  }
+
+  #redditp-presentation .redditp__media-toggle {
+    min-width: 0;
+    padding-right: 4px;
+    padding-left: 4px;
   }
 
   #redditp-presentation .redditp__grid {

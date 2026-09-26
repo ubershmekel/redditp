@@ -976,6 +976,7 @@ suite("browser-extension media filter", () => {
     "mediaFilterSummary",
     "shownMediaLabel",
     "nextMediaFilter",
+    "lockedMediaType",
   ]);
   const shows = (images, gifs, videos) => ({
     showImages: images,
@@ -1219,6 +1220,24 @@ suite("browser-extension media filter", () => {
     assert.ok(filter, "media filter helpers not loaded");
     [NO_IMAGES, NO_GIFS, NO_VIDEOS, NONE].forEach((settings) => {
       assert.deepStrictEqual(filter.nextMediaFilter(settings), ALL);
+    });
+  });
+
+  test("only the one type left on is locked", () => {
+    assert.ok(filter, "media filter helpers not loaded");
+    [ALL, NO_IMAGES, NO_GIFS, NO_VIDEOS, NONE].forEach((settings) => {
+      assert.strictEqual(
+        filter.lockedMediaType(settings),
+        "",
+        JSON.stringify(settings),
+      );
+    });
+    [
+      [IMAGES_ONLY, "showImages"],
+      [GIFS_ONLY, "showGifs"],
+      [VIDEOS_ONLY, "showVideos"],
+    ].forEach(([settings, key]) => {
+      assert.strictEqual(filter.lockedMediaType(settings), key, key);
     });
   });
 });

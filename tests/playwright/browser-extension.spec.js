@@ -2925,3 +2925,133 @@ test("the title opens the post in a new tab and the presentation stays open", as
   );
   await expect(page.locator(".redditp__title-link")).toHaveCount(0);
 });
+
+// The images, GIFs and videos buttons in the control bar, by exact name so
+// the Show checkboxes ("Images", "GIFs", "Videos") never match.
+function mediaButtons(page) {
+  return ["images", "GIFs", "videos"].map((name) =>
+    page.getByRole("button", { name, exact: true }),
+  );
+}
+
+test("the images, GIFs and videos buttons filter posts and agree with the gear and O", async ({
+  page,
+}) => {
+  await routeMediaMix(page);
+  await startPresentation(page, mediaMixPosts());
+  const count = page.locator(".redditp__count");
+  const [imagesButton, gifsButton, videosButton] = mediaButtons(page);
+  await expect(count).toHaveText("1 / 7");
+  for (const button of [imagesButton, gifsButton, videosButton]) {
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+    await expect(button).toBeEnabled();
+  }
+  await expect(videosButton).toHaveAttribute("title", "Hide videos");
+
+  await videosButton.click();
+  await expect(videosButton).toHaveAttribute("aria-pressed", "false");
+  await expect(videosButton).toHaveAttribute("title", "Show videos");
+  await expect(count).toHaveText("1 / 4 · no videos");
+
+  // The last type shown cannot be turned off.
+  await gifsButton.click();
+  await expect(gifsButton).toHaveAttribute("aria-pressed", "false");
+  await expect(count).toHaveText("1 / 2 · images only");
+  await expect(imagesButton).toBeDisabled();
+  await expect(imagesButton).toHaveAttribute(
+    "title",
+    "At least one type stays shown",
+  );
+
+  // The gear's Show checkboxes hold the same choice and change the buttons.
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  const images = page.getByLabel("Images", { exact: true });
+  const gifs = page.getByLabel("GIFs", { exact: true });
+  const videos = page.getByLabel("Videos", { exact: true });
+  await expect(images).toBeChecked();
+  await expect(images).toBeDisabled();
+  await expect(gifs).not.toBeChecked();
+  await expect(videos).not.toBeChecked();
+  await videos.check();
+  await expect(videosButton).toHaveAttribute("aria-pressed", "true");
+  await expect(imagesButton).toBeEnabled();
+  await expect(count).toHaveText("1 / 4 · no GIFs");
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+
+  // O goes from a mix back to everything, then to images only.
+  await page.keyboard.press("o");
+  await expect(count).toHaveText("1 / 7");
+  for (const button of [imagesButton, gifsButton, videosButton]) {
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+  }
+  // A focused button that the filter disables hands focus on.
+  await imagesButton.focus();
+  await page.keyboard.press("o");
+  await expect(count).toHaveText("1 / 2 · images only");
+  await expect(imagesButton).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Close presentation mode" }),
+  ).toBeFocused();
+
+  // The buttons stay in the grid and filter it as well.
+  await page.keyboard.press("v");
+  const grid = page.locator(".redditp__grid");
+  await expect(grid).toBeVisible();
+  for (const button of [imagesButton, gifsButton, videosButton]) {
+    await expect(button).toBeVisible();
+  }
+  await expect(grid.locator(".redditp__tile")).toHaveCount(2);
+  await gifsButton.click();
+  await expect(grid.locator(".redditp__tile")).toHaveCount(4);
+  await expect(count).toHaveText(/^4 posts · no videos/);
+});
+
+test("the media buttons stay on screen at phone width", async ({ page }) => {
+  await routeMediaMix(page);
+  async function expectOnScreen(width, height) {
+    for (const button of mediaButtons(page)) {
+      await expect(button).toBeInViewport();
+    }
+    const box = await page.locator(".redditp__controls").boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(box.y + box.height).toBeLessThanOrEqual(height);
+    expect(box.height).toBeLessThan(130);
+  }
+
+  for (const [width, height] of [
+    [360, 780],
+    [360, 420],
+  ]) {
+    await page.setViewportSize({ width, height });
+    // setContent keeps the window, and with it the last presentation.
+    await page.goto("about:blank");
+    await startPresentation(page, mediaMixPosts());
+    await expect(page.locator(".redditp__title")).toHaveText("First image");
+    await expectOnScreen(width, height);
+
+    await page.keyboard.press("v");
+    await expect(page.locator(".redditp__grid")).toBeVisible();
+    await expectOnScreen(width, height);
+
+    // A filter that hides every post still leaves the buttons to undo it.
+    await openRoutedPage(
+      page,
+      `https://www.reddit.com/r/mixphone${width}x${height}/`,
+      `${mixVideoPost("opening", "Opening clip")}<div style="height: 4000px"></div>`,
+      { showGifs: false, showVideos: false },
+    );
+    await injectExtension(page);
+    await expect(page.locator(".redditp__empty h2")).toBeVisible();
+    await expect(page.locator(".redditp__count")).toHaveText(
+      /^0 posts · images only/,
+    );
+    await expectOnScreen(width, height);
+    await page.getByRole("button", { name: "videos", exact: true }).click();
+    await expect(page.locator(".redditp__title")).toHaveText("Opening clip");
+  }
+});

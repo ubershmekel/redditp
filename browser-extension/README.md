@@ -108,24 +108,30 @@ post's poster, and players load only in the slideshow. Turn on **Open in grid
 view** in the settings panel to start presentation mode in the grid.
 
 The **Show** checkboxes in the settings panel choose which media the slideshow
-and the grid show: images, GIFs, and videos. GIFs include imgur GIF and GIFV
-links, which play as video. Link and text posts appear only while all three are
-on, and one type always stays on. With images only, a link post's preview
-picture does not count as an image. While a filter is on, the slide counter says
-so, as in `3 / 12 · images only`, and a dot marks the gear button, or the +
-button when the controls are collapsed. Loading more posts keeps scrolling
-Reddit until a matching post arrives, for up to about 12 seconds at a time.
-Search results that show only a thumbnail stay until their post is read, then
-drop out if they do not match. The choice is saved with the other settings.
+and the grid show: images, GIFs, and videos. The **images**, **GIFs**, and
+**videos** buttons in the bottom-left controls do the same, as does O: a lit
+button's type is shown, and a struck-through one is hidden. GIFs include imgur
+GIF and GIFV links, which play as video. Link and text posts appear only while
+all three are on, and one type always stays on, so the last lit button, like the
+last ticked box, cannot be turned off. The buttons stay in the controls in the
+grid, and also while a filter hides every loaded post. With images only, a link
+post's preview picture does not count as an image. While a filter is on, the
+slide counter says so, as in `3 / 12 · images only`, and a dot marks the gear
+button, or the + button when the controls are collapsed. Loading more posts
+keeps scrolling Reddit until a matching post arrives, for up to about 12 seconds
+at a time. Search results that show only a thumbnail stay until their post is
+read, then drop out if they do not match. The choice is saved with the other
+settings.
 
 Open the gear button's settings panel for a keyboard shortcut reference. Use the
 gear button in the bottom-left controls to choose the auto-advance duration and
-which media types to show, hide the title panel, navigation arrows, or close
-button, show or hide the bottom panel, and open in grid view. The gear is part
-of the expandable panel, so compact mode leaves only a small expand button. If
-the close button is hidden, press Escape from the slideshow to close
-presentation mode. These preferences are saved by your browser and used the next
-time presentation mode opens. The **redditp** link opens this README on GitHub.
+which media types to show (the images, GIFs, and videos buttons beside it change
+the same setting), hide the title panel, navigation arrows, or close button,
+show or hide the bottom panel, and open in grid view. The gear is part of the
+expandable panel, so compact mode leaves only a small expand button. If the
+close button is hidden, press Escape from the slideshow to close presentation
+mode. These preferences are saved by your browser and used the next time
+presentation mode opens. The **redditp** link opens this README on GitHub.
 
 These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation

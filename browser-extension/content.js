@@ -203,6 +203,13 @@
     });
     return result;
   }
+
+  // At least one type always shows: the key of the only type still on,
+  // which cannot be turned off, or "" while two or three are on.
+  function lockedMediaType(settings) {
+    const shown = MEDIA_FILTER_TYPES.filter(([key]) => settings[key]);
+    return shown.length === 1 ? shown[0][0] : "";
+  }
   // redditp-media-filter:end
 
   const state = {
@@ -1174,6 +1181,26 @@
     "redditp__button redditp__view redditp__control-item",
     "grid",
   );
+  // The Show filter as buttons: lit while a type shows, struck through while
+  // it is hidden. They do the same as the Show checkboxes in the settings.
+  const mediaToggles = element(
+    "div",
+    "redditp__media-toggles redditp__control-item",
+    "",
+  );
+  mediaToggles.setAttribute("role", "group");
+  mediaToggles.setAttribute("aria-label", "Shown media");
+  const mediaToggleButtons = {};
+  MEDIA_FILTER_TYPES.forEach(([key, label]) => {
+    const button = element(
+      "button",
+      "redditp__button redditp__media-toggle",
+      label,
+    );
+    button.type = "button";
+    mediaToggleButtons[key] = button;
+    mediaToggles.append(button);
+  });
   const autoButton = element(
     "button",
     "redditp__button redditp__playback-control redditp__control-item",
@@ -1221,6 +1248,7 @@
     settingsButton,
     brand,
     viewButton,
+    mediaToggles,
     commentsLink,
     sourceLink,
     autoButton,
@@ -1830,6 +1858,7 @@
     viewButton.title = inGrid
       ? "Back to the slideshow (V)"
       : "Show every post in a grid (V)";
+    syncMediaToggles();
     controls.classList.toggle(
       "redditp__controls--collapsed",
       !state.settings.showControls,
@@ -1862,6 +1891,21 @@
     galleryButton.textContent = slide?.galleryItem
       ? `(${slide.galleryItem}/${slide.galleryTotal})`
       : "";
+  }
+
+  // The media buttons stay in the slideshow, the grid, and the empty state a
+  // filter can leave, so a filter can always be changed back.
+  function syncMediaToggles() {
+    const locked = lockedMediaType(state.settings);
+    MEDIA_FILTER_TYPES.forEach(([key, label]) => {
+      const button = mediaToggleButtons[key];
+      const shown = Boolean(state.settings[key]);
+      button.setAttribute("aria-pressed", String(shown));
+      button.disabled = key === locked;
+      button.title = button.disabled
+        ? "At least one type stays shown"
+        : `${shown ? "Hide" : "Show"} ${label}`;
+    });
   }
 
   // Counts posts rather than slides, so a gallery advances only its own
@@ -2289,12 +2333,19 @@
     return Math.max(0, Math.min(index, state.slides.length - 1));
   }
 
-  // A filter change or an upgrade can remove the focused tile or hide the
-  // focused control. Focus then goes where opening the view would put it.
+  // A filter change or an upgrade can remove the focused tile, or hide or
+  // disable the focused control. Focus then goes where opening the view
+  // would put it. A disabled button keeps focus until the browser's next
+  // rendering step, so it counts as lost straight away.
   function refocusIfLost() {
     if (state.settingsOpen) return;
     const active = document.activeElement;
-    if (!active || !root.contains(active) || !active.getClientRects().length) {
+    if (
+      !active ||
+      !root.contains(active) ||
+      active.disabled ||
+      !active.getClientRects().length
+    ) {
       focusInitialControl();
     }
   }
@@ -2395,12 +2446,10 @@
       settingCheckboxes[key].checked = state.settings[key];
     });
     // At least one media type always shows, so its box cannot be unticked.
-    const shownTypes = MEDIA_FILTER_TYPES.filter(
-      ([key]) => state.settings[key],
-    );
+    const locked = lockedMediaType(state.settings);
     MEDIA_FILTER_TYPES.forEach(([key]) => {
       const input = settingCheckboxes[key];
-      input.disabled = shownTypes.length === 1 && Boolean(state.settings[key]);
+      input.disabled = key === locked;
       if (input.disabled) {
         input.parentElement.title = "At least one type stays shown";
       } else {
@@ -2985,6 +3034,12 @@
   soundButton.addEventListener("click", toggleSound);
   galleryButton.addEventListener("click", skipGallery);
   viewButton.addEventListener("click", toggleView);
+  MEDIA_FILTER_TYPES.forEach(([key]) => {
+    mediaToggleButtons[key].addEventListener("click", () => {
+      if (key === lockedMediaType(state.settings)) return;
+      updateSettings({ [key]: !state.settings[key] });
+    });
+  });
   // Ahead of onGridClick, so a Ctrl/Cmd click opens the media and stays in
   // the grid.
   grid.addEventListener("click", openMediaInNewTab, true);

@@ -100,12 +100,13 @@ The grid shows every loaded post as a tile, and each image of a gallery as a
 numbered tile of its own. Click or tap a tile, or focus it and press Enter, to
 open the slideshow at that slide; Escape then returns to the grid at the same
 tile, while the × button still closes presentation mode. The arrow keys, Page
-Up/Page Down, and Home/End scroll the grid. Scrolling to the end of the grid
-loads more posts, and search results that show only a small thumbnail upgrade to
-their actual media as their tiles come into view, two at a time. The grid turns
-auto-advance off and starts no video or embedded player: video tiles show the
-post's poster, and players load only in the slideshow. Turn on **Open in grid
-view** in the settings panel to start presentation mode in the grid.
+Up/Page Down, and Home/End scroll the grid. Scrolling to within about three
+screens of the end of the grid loads more posts, and search results that show
+only a small thumbnail upgrade to their actual media as their tiles come into
+view, two at a time. The grid turns auto-advance off and starts no video or
+embedded player: video tiles show the post's poster, and players load only in
+the slideshow. Turn on **Open in grid view** in the settings panel to start
+presentation mode in the grid.
 
 The **Show** checkboxes in the settings panel choose which media the slideshow
 and the grid show: images, GIFs, and videos. The **images**, **GIFs**, and
@@ -138,14 +139,19 @@ These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation
 mode is open.
 
-Reaching the final slide automatically scrolls the underlying Reddit feed and
-preloads newly rendered posts. A load scrolls Reddit to the end again about once
-a second and waits up to 12 seconds for new posts before treating the feed as
-ended, so a slow feed still gets through. Pressing next while that load is still
-running queues the navigation; if Reddit has no more posts, it wraps to the
-first slide. Single-post `/comments/` pages do not trigger this feed-loading
-scroll. The slide counter shows `loading more` while this background preload is
-active.
+The slideshow loads more posts before it runs out. Once fewer than 8 slides are
+left after the current one, it scrolls the underlying Reddit feed in the
+background and adds the newly rendered posts without moving the slideshow, up to
+4 loads in a row. The pictures of the next 3 slides are fetched early too, so
+they show at once, unless the browser asks to save data. A load scrolls Reddit
+to the end again about once a second and waits up to 12 seconds for new posts
+before treating the feed as ended, so a slow feed still gets through. The slide
+counter shows `loading more` only on the last post, while a load is still
+running; pressing next there queues the move. If Reddit then adds nothing for 12
+seconds, the slideshow wraps to the first slide, and once the feed is known to
+have ended, next on the last slide wraps at once. Single-post `/comments/` pages
+do not trigger this feed-loading scroll. Closing presentation mode scrolls the
+Reddit page back to where it was.
 
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 Firefox does it in `about:addons` under the gear menu's **Manage Extension

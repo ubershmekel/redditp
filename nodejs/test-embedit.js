@@ -1248,6 +1248,13 @@ suite("browser-extension feed loading", () => {
     "LOAD_NUDGE_MS",
     "LOAD_IDLE_MS",
     "FILTERED_MAX_ROUNDS",
+    "prefetchWanted",
+    "preloadUrls",
+    "rememberBounded",
+    "PREFETCH_AHEAD",
+    "PREFETCH_ROUNDS",
+    "PRELOAD_AHEAD",
+    "PRELOAD_CACHE_SIZE",
   ]);
 
   test("feed loading helpers could be loaded", () => {
@@ -1285,6 +1292,135 @@ suite("browser-extension feed loading", () => {
     assert.ok(loading, "feed loading helpers not loaded");
     assert.strictEqual(loading.loadVerdict(0, 14, 11999), "wait");
     assert.strictEqual(loading.loadVerdict(0, 0, 0), "wait");
+  });
+
+  test("the slideshow loads within eight slides, up to four loads in a row", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    assert.strictEqual(loading.PREFETCH_AHEAD, 8);
+    assert.strictEqual(loading.PREFETCH_ROUNDS, 4);
+    assert.strictEqual(loading.PRELOAD_AHEAD, 3);
+    assert.strictEqual(loading.PRELOAD_CACHE_SIZE, 6);
+  });
+
+  test("loading starts when fewer than eight slides are left", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const wanted = loading.prefetchWanted;
+    assert.strictEqual(wanted(20, 0, false, false), false);
+    assert.strictEqual(wanted(20, 11, false, false), false);
+    assert.strictEqual(wanted(20, 12, false, false), true);
+  });
+
+  test("an ended feed loads again only from its last post", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const wanted = loading.prefetchWanted;
+    assert.strictEqual(wanted(20, 12, false, true), false);
+    assert.strictEqual(wanted(20, 19, true, true), true);
+    assert.strictEqual(wanted(30, 0, true, false), true);
+  });
+
+  test("nothing loads ahead of an empty slideshow", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    assert.strictEqual(loading.prefetchWanted(0, 0, false, false), false);
+    assert.strictEqual(loading.prefetchWanted(0, 0, true, false), false);
+  });
+
+  test("the next three slides' pictures are fetched ahead", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const slides = [
+      { kind: "image", url: "https://i.redd.it/current.jpg" },
+      { kind: "image", url: "https://i.redd.it/next.jpg" },
+      {
+        kind: "video",
+        url: "https://v.redd.it/clip/DASH_480.mp4",
+        poster: "https://external-preview.redd.it/clip.png",
+      },
+      {
+        kind: "pending-native-video",
+        url: "https://v.redd.it/live",
+        poster: "https://external-preview.redd.it/live.png",
+      },
+      { kind: "image", url: "https://i.redd.it/fourth-ahead.jpg" },
+    ];
+    assert.deepStrictEqual(loading.preloadUrls(slides, 0), [
+      "https://i.redd.it/next.jpg",
+      "https://external-preview.redd.it/clip.png",
+      "https://external-preview.redd.it/live.png",
+    ]);
+    assert.deepStrictEqual(loading.preloadUrls(slides, 1), [
+      "https://external-preview.redd.it/clip.png",
+      "https://external-preview.redd.it/live.png",
+      "https://i.redd.it/fourth-ahead.jpg",
+    ]);
+  });
+
+  test("players, embeds, cards and unread thumbnails are not fetched", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const slides = [
+      { kind: "image", url: "https://i.redd.it/current.jpg" },
+      {
+        kind: "native-video",
+        url: "https://www.reddit.com/r/a/",
+        poster: "https://external-preview.redd.it/native.png",
+      },
+      {
+        kind: "embed",
+        url: "https://www.youtube.com/embed/a",
+        poster: "https://external-preview.redd.it/embed.png",
+      },
+      { kind: "link", url: "https://example.com/story", poster: "" },
+      { kind: "video", url: "https://v.redd.it/b/DASH_480.mp4", poster: "" },
+      {
+        kind: "image",
+        url: "https://external-preview.redd.it/thumb.png",
+        needsEnrichment: true,
+      },
+    ];
+    assert.deepStrictEqual(loading.preloadUrls(slides, 0), []);
+    assert.deepStrictEqual(loading.preloadUrls(slides, 2), []);
+  });
+
+  test("a picture repeated in a gallery is fetched once", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const same = { kind: "image", url: "https://i.redd.it/same.jpg" };
+    assert.deepStrictEqual(loading.preloadUrls([same, same, same, same], 0), [
+      "https://i.redd.it/same.jpg",
+    ]);
+  });
+
+  test("the last slide has nothing ahead to fetch", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const slides = [
+      { kind: "image", url: "https://i.redd.it/a.jpg" },
+      { kind: "image", url: "https://i.redd.it/b.jpg" },
+    ];
+    assert.deepStrictEqual(loading.preloadUrls(slides, 1), []);
+    assert.deepStrictEqual(loading.preloadUrls([], 0), []);
+  });
+
+  test("the preload cache keeps the newest entries", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const map = new Map();
+    const evicted = [];
+    for (let number = 1; number <= 8; number += 1) {
+      evicted.push(
+        ...loading.rememberBounded(map, `key${number}`, `value${number}`, 6),
+      );
+    }
+    assert.deepStrictEqual(evicted, ["value1", "value2"]);
+    assert.deepStrictEqual(
+      [...map.keys()],
+      ["key3", "key4", "key5", "key6", "key7", "key8"],
+    );
+  });
+
+  test("storing an entry again refreshes it and drops nothing", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const map = new Map();
+    ["a", "b", "c"].forEach((key) => {
+      loading.rememberBounded(map, key, key.toUpperCase(), 3);
+    });
+    assert.deepStrictEqual(loading.rememberBounded(map, "a", "A", 3), []);
+    assert.deepStrictEqual([...map.keys()], ["b", "c", "a"]);
   });
 });
 

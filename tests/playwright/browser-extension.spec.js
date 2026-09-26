@@ -3159,6 +3159,8 @@ test("a feed that adds nothing ends the load after the idle window", async ({
   await routeGridImages(page);
   const body = `${gridImagePosts(1)}<div style="height: 4000px"></div>`;
   await openRoutedPage(page, "https://www.reddit.com/r/endedfeed/", body, {});
+  // The reader is partway down the Reddit page.
+  await page.evaluate(() => window.scrollTo(0, 300));
   await instrumentScroll(page);
   await injectExtension(page);
   const count = page.locator(".redditp__count");
@@ -3173,6 +3175,12 @@ test("a feed that adds nothing ends the load after the idle window", async ({
   // The nudge timer stopped with the load.
   await page.clock.runFor(5000);
   expect(await scrollCalls(page)).toBe(calls);
+
+  // The load scrolled Reddit to its end; closing scrolls it back.
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  expect(await page.evaluate(() => window.scrollY)).toBe(300);
 
   // The grid's own load ends the same way.
   await openRoutedPage(page, "https://www.reddit.com/r/endedgrid/", body, {
@@ -3262,5 +3270,232 @@ test("closing or refiltering mid-load leaves no observer or timer running", asyn
   expect(await observing()).toBe(0);
   const calls = await scrollCalls(page);
   await page.clock.runFor(5000);
+  expect(await scrollCalls(page)).toBe(calls);
+});
+
+test("the slideshow starts loading before its last slide and stays put", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/aheadfeed/",
+    `${gridImagePosts(3)}<div style="height: 4000px"></div>`,
+    {},
+  );
+  await instrumentScroll(page);
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("Post 1");
+  // Two slides are left, so a load is already running, in the background.
+  await expect(count).toHaveText("1 / 3");
+  expect(await scrollCalls(page)).toBeGreaterThan(0);
+
+  await insertPosts(page, gridImagePost(4) + gridImagePost(5));
+  await expect(count).toHaveText("1 / 5");
+  await expect(title).toHaveText("Post 1");
+});
+
+test("background loads stop after four in a row", async ({ page }) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/chainfeed/",
+    `${gridImagePosts(1)}<div style="height: 4000px"></div>`,
+    {},
+  );
+  // Every scroll renders the next post, as if Reddit never ran out.
+  await instrumentScroll(page, { template: gridImagePost("{n}"), start: 2 });
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("1 / 5");
+  await page.waitForTimeout(300);
+  expect(await scrollCalls(page)).toBe(4);
+  await expect(count).toHaveText("1 / 5");
+  await expect(title).toHaveText("Post 1");
+
+  // Moving on starts the next four.
+  await page.keyboard.press("ArrowRight");
+  await expect(count).toHaveText("2 / 9");
+  await expect(title).toHaveText("Post 2");
+  await page.waitForTimeout(300);
+  expect(await scrollCalls(page)).toBe(8);
+});
+
+// Seven posts: a picture, a Reddit video with a poster, a YouTube embed, and
+// four more pictures. Pictures are "<prefix>-<post number>.jpg", so two pages
+// never share a URL. The player is Reddit's own custom element, which fetches
+// nothing by itself.
+function aheadPosts(prefix) {
+  const picture = (number) =>
+    `<div class="thing link" data-url="https://i.redd.it/${prefix}-${number}.jpg" data-permalink="/r/ahead/comments/${prefix}${number}/post/"><a class="title">Picture ${number}</a></div>`;
+  return [
+    picture(1),
+    `<shreddit-post id="t3_${prefix}2" post-title="Ahead clip" post-type="video" content-href="https://v.redd.it/${prefix}clip" permalink="/r/ahead/comments/${prefix}2/post/"><shreddit-player src="https://v.redd.it/${prefix}clip/HLSPlaylist.m3u8" preview="https://v.redd.it/${prefix}clip/DASH_480.mp4" poster="https://external-preview.redd.it/${prefix}clip.png"></shreddit-player></shreddit-post>`,
+    `<shreddit-post id="t3_${prefix}3" post-title="Ahead interview" content-href="https://www.youtube.com/watch?v=l74r1s8y7uY" permalink="/r/ahead/comments/${prefix}3/post/"></shreddit-post>`,
+    ...[4, 5, 6, 7].map(picture),
+  ].join("");
+}
+
+test("the next three pictures load ahead, and the filter is respected", async ({
+  page,
+}) => {
+  const requested = new Set();
+  await page.route(
+    /^https:\/\/(i\.redd\.it|external-preview\.redd\.it)\//,
+    (route) => {
+      requested.add(route.request().url());
+      return route.fulfill(svgImage(800, 600));
+    },
+  );
+  for (const pattern of [
+    "https://v.redd.it/**",
+    "https://www.youtube.com/**",
+  ]) {
+    await page.route(pattern, (route) => route.abort());
+  }
+  const expectRequested = (url) =>
+    expect.poll(() => requested.has(url), { message: url }).toBe(true);
+  const title = page.locator(".redditp__title");
+
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/aheadall/",
+    aheadPosts("all"),
+    {},
+  );
+  await injectExtension(page);
+  await expect(title).toHaveText("Picture 1");
+  // The next three slides are the video, the embed, and picture 4.
+  await expectRequested("https://external-preview.redd.it/allclip.png");
+  await expectRequested("https://i.redd.it/all-4.jpg");
+  await page.waitForTimeout(300);
+  expect(requested.has("https://i.redd.it/all-5.jpg")).toBe(false);
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Ahead clip");
+  await expectRequested("https://i.redd.it/all-5.jpg");
+
+  // With images only, the next three are pictures 4 to 6, and the hidden
+  // video's poster is left alone.
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/aheadimages/",
+    aheadPosts("only"),
+    { showGifs: false, showVideos: false },
+  );
+  await injectExtension(page);
+  await expect(title).toHaveText("Picture 1");
+  for (const number of [4, 5, 6]) {
+    await expectRequested(`https://i.redd.it/only-${number}.jpg`);
+  }
+  await page.waitForTimeout(300);
+  expect(requested.has("https://i.redd.it/only-7.jpg")).toBe(false);
+  expect(requested.has("https://external-preview.redd.it/onlyclip.png")).toBe(
+    false,
+  );
+});
+
+test("the preload cache keeps six pictures and is dropped on close", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/cachefeed/",
+    gridImagePosts(12),
+    {},
+  );
+  // Records every picture fetched ahead, which the extension creates with
+  // new Image(); the slideshow's own pictures are elements it creates.
+  await page.evaluate(() => {
+    window.__redditpPreloaded = [];
+    const PageImage = window.Image;
+    window.Image = function (...args) {
+      const image = new PageImage(...args);
+      window.__redditpPreloaded.push(image);
+      return image;
+    };
+  });
+  await injectExtension(page);
+  const preloaded = () =>
+    page.evaluate(() =>
+      window.__redditpPreloaded.map(
+        (image) => image.src.match(/grid-(\d+)\.jpg$/)[1],
+      ),
+    );
+  const title = page.locator(".redditp__title");
+  await expect(title).toHaveText("Post 1");
+  for (let press = 0; press < 5; press += 1) {
+    await page.keyboard.press("ArrowRight");
+  }
+  await expect(title).toHaveText("Post 6");
+  for (let press = 0; press < 5; press += 1) {
+    await page.keyboard.press("ArrowLeft");
+  }
+  await expect(title).toHaveText("Post 1");
+  // Pictures 2 to 9 were fetched once on the way; 2 and 3 then fell out of
+  // the six kept and were fetched again on the way back.
+  const created = await preloaded();
+  expect(created).toHaveLength(10);
+  expect(created.filter((number) => number === "2")).toHaveLength(2);
+  expect(created.filter((number) => number === "3")).toHaveLength(2);
+
+  // Closing drops the cache, so the next open fetches ahead afresh.
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(title).toHaveText("Post 1");
+  await expect.poll(async () => (await preloaded()).length).toBe(13);
+  expect((await preloaded()).slice(10)).toEqual(["2", "3", "4"]);
+});
+
+test("the grid starts loading three screens before its end", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await routeGridImages(page);
+  await startPresentation(page, gridImagePosts(24));
+  const count = page.locator(".redditp__count");
+  // Far from the end, the slideshow loads nothing yet.
+  await expect(count).toHaveText("1 / 24");
+  await page.keyboard.press("v");
+  await expect(count).toHaveText("24 posts · loading more");
+  await expect(page.locator(".redditp__grid-status")).toHaveText(
+    "Loading more posts…",
+  );
+  expect(
+    await page.locator(".redditp__grid").evaluate((grid) => grid.scrollTop),
+  ).toBe(0);
+});
+
+test("next on the last slide wraps at once when the feed has ended", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/endedpair/",
+    `${gridImagePosts(2)}<div style="height: 4000px"></div>`,
+    {},
+  );
+  await instrumentScroll(page);
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  // Two posts are few enough to start loading from the first.
+  await expect(count).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(count).toHaveText("2 / 2 · loading more");
+  await page.clock.runFor(13_000);
+  await expect(count).toHaveText("2 / 2");
+  const calls = await scrollCalls(page);
+
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Post 1");
+  await expect(count).toHaveText("1 / 2");
   expect(await scrollCalls(page)).toBe(calls);
 });

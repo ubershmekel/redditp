@@ -233,6 +233,61 @@
     if (idleMs >= LOAD_IDLE_MS) return "idle";
     return "wait";
   }
+
+  // The slideshow loads ahead of itself: once fewer than PREFETCH_AHEAD
+  // slides follow the current one, more posts load in the background, up to
+  // PREFETCH_ROUNDS loads in a row. The pictures of the next PRELOAD_AHEAD
+  // slides are fetched early, and the PRELOAD_CACHE_SIZE most recent of them
+  // stay referenced until they show.
+  const PREFETCH_AHEAD = 8;
+  const PREFETCH_ROUNDS = 4;
+  const PRELOAD_AHEAD = 3;
+  const PRELOAD_CACHE_SIZE = 6;
+
+  // Whether the slideshow should load more posts now. The last post always
+  // does. Before it, loading starts once few slides are left, unless the
+  // feed is known to have ended.
+  function prefetchWanted(slideCount, index, onLastPost, exhausted) {
+    if (!slideCount) return false;
+    if (onLastPost) return true;
+    if (exhausted) return false;
+    return slideCount - 1 - index < PREFETCH_AHEAD;
+  }
+
+  // The pictures to fetch before the next few slides show: an image's file
+  // and a video's poster, each once. Players, embeds, link cards, and search
+  // thumbnails that are still to be read are left alone.
+  function preloadUrls(slides, index) {
+    const urls = [];
+    slides.slice(index + 1, index + 1 + PRELOAD_AHEAD).forEach((slide) => {
+      if (!slide || slide.needsEnrichment) return;
+      let url = "";
+      if (slide.kind === "image") {
+        url = slide.url;
+      } else if (
+        slide.kind === "video" ||
+        slide.kind === "pending-native-video"
+      ) {
+        url = slide.poster;
+      }
+      if (url && !urls.includes(url)) urls.push(url);
+    });
+    return urls;
+  }
+
+  // Stores the value as the map's newest entry, then drops the oldest ones
+  // beyond the limit. Returns the dropped values.
+  function rememberBounded(map, key, value, limit) {
+    map.delete(key);
+    map.set(key, value);
+    const evicted = [];
+    while (map.size > limit) {
+      const oldest = map.keys().next().value;
+      evicted.push(map.get(oldest));
+      map.delete(oldest);
+    }
+    return evicted;
+  }
   // redditp-feed-loading:end
 
   const state = {
@@ -282,11 +337,24 @@
     gridEnrichFailures: 0,
     // Posts the running load has found so far, shown or not.
     loadFound: 0,
+    // Set when a load ends because Reddit added nothing for LOAD_IDLE_MS,
+    // and cleared when a load finds posts. While it is set, only the last
+    // post starts loads, and next on the last slide wraps at once.
+    feedExhausted: false,
+    // How many loads the running background prefetch has started, the first
+    // included; 0 when the running load is not a prefetch.
+    prefetchLoads: 0,
+    // Pictures fetched ahead of the slideshow: URL -> Image, oldest first.
+    preloads: new Map(),
+    // Where the Reddit page was scrolled when presentation mode opened.
+    pageScrollY: 0,
   };
   // Grid tile -> { slide, height }, the height in column widths.
   const gridTileInfo = new WeakMap();
-  // Watches the end of the grid and its thumbnail tiles, where supported.
+  // Watches the grid's thumbnail tiles, where supported.
   let gridObserver = null;
+  // Watches the end of the grid, further ahead than the tiles.
+  let gridEndObserver = null;
   // The page watch of the load that is waiting for Reddit, if any.
   let feedWatch = null;
   // Post elements already read this open, so a load that looks again and
@@ -299,6 +367,9 @@
   const gridEnrichTried = new WeakSet();
   const GRID_ENRICH_CONCURRENCY = 2;
   const GRID_ENRICH_MAX_FAILURES = 3;
+  // A load can take a while, so the grid starts one within three screens of
+  // its end.
+  const GRID_LOAD_MARGIN = "300% 0px";
 
   function absoluteUrl(value) {
     if (!value || value === "#") return "";
@@ -1702,6 +1773,10 @@
       gridObserver.disconnect();
       gridObserver = null;
     }
+    if (gridEndObserver) {
+      gridEndObserver.disconnect();
+      gridEndObserver = null;
+    }
     // Upgrades still in flight count themselves down when they finish.
     state.gridEnrichQueue = [];
     state.gridEnrichFailures = 0;
@@ -1721,10 +1796,19 @@
     if (gridObserver || typeof IntersectionObserver !== "function") return;
     gridObserver = new IntersectionObserver(onGridIntersection, {
       root: grid,
-      // A screen ahead, so posts load before the end of the grid shows.
+      // A screen ahead, so thumbnails upgrade before they show.
       rootMargin: "100% 0px",
     });
-    gridObserver.observe(gridSentinel);
+    // The sentinel sits under the tallest column, so it marks the real end.
+    // Widening the tiles' observer instead would upgrade thumbnails three
+    // screens ahead too.
+    gridEndObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMoreFromGrid();
+      },
+      { root: grid, rootMargin: GRID_LOAD_MARGIN },
+    );
+    gridEndObserver.observe(gridSentinel);
   }
 
   function observeGridTile(tile, slide) {
@@ -1733,10 +1817,6 @@
 
   function onGridIntersection(entries) {
     entries.forEach((entry) => {
-      if (entry.target === gridSentinel) {
-        if (entry.isIntersecting) loadMoreFromGrid();
-        return;
-      }
       const info = gridTileInfo.get(entry.target);
       if (!info) return;
       if (entry.isIntersecting) queueGridEnrichment(info.slide);
@@ -1747,9 +1827,9 @@
   // An observer reports only changes, so a sentinel that is still in range
   // after a load must be observed afresh to be reported again.
   function rearmGridSentinel() {
-    if (!gridObserver) return;
-    gridObserver.unobserve(gridSentinel);
-    gridObserver.observe(gridSentinel);
+    if (!gridEndObserver) return;
+    gridEndObserver.unobserve(gridSentinel);
+    gridEndObserver.observe(gridSentinel);
   }
 
   // Thumbnail-only slides are upgraded as their tiles come into range, a
@@ -1912,10 +1992,7 @@
     settingsButton.title = filtering
       ? `Presentation settings (${mediaFilterSummary(state.settings)})`
       : "Presentation settings";
-    updateCount(
-      state.loadingMore &&
-        (state.view === "grid" || !hasSlides || isOnLastPost()),
-    );
+    updateCount(loadingSuffixShown());
     const slide = hasSlides ? state.slides[state.index] : null;
     galleryButton.hidden = !slide?.galleryItem;
     galleryButton.textContent = slide?.galleryItem
@@ -1936,6 +2013,16 @@
         ? "At least one type stays shown"
         : `${shown ? "Hide" : "Show"} ${label}`;
     });
+  }
+
+  // "loading more" shows where the viewer is waiting on the load: in the
+  // grid, on an empty stage, and on the last post. A load running ahead of
+  // the slideshow leaves the counter alone.
+  function loadingSuffixShown() {
+    return (
+      state.loadingMore &&
+      (state.view === "grid" || !state.slides.length || isOnLastPost())
+    );
   }
 
   // Counts posts rather than slides, so a gallery advances only its own
@@ -2133,11 +2220,10 @@
     scheduleAuto();
     void enrichSlide(slide);
     void upgradePendingAdaptiveSlide(slide);
-    // Start loading on the last post's first slide so the next post is ready
-    // by the time its gallery ends.
-    if (!isSinglePostPage() && isOnLastPost()) {
-      void loadMoreAtEnd(false);
-    }
+    // More posts start loading well before the last slide, and the next
+    // pictures before they show.
+    prefetchIfLow();
+    preloadAhead();
   }
 
   function move(delta) {
@@ -2157,11 +2243,20 @@
         updateCount(true);
         return;
       }
+      // Leaving the last post drops a queued move, but the load goes on in
+      // the background.
       if (delta < 0 && state.index + delta < lastPostStart()) {
-        cancelLoadMore();
+        state.advanceAfterLoad = false;
       }
     }
     if (delta > 0 && state.index === state.slides.length - 1) {
+      // A feed known to have ended wraps at once rather than waiting out
+      // another load.
+      if (state.feedExhausted) {
+        state.index = 0;
+        render();
+        return;
+      }
       void loadMoreAtEnd(true);
       return;
     }
@@ -2333,6 +2428,7 @@
     }
     if (!state.open || !isOnLastPost()) return;
     state.advanceAfterLoad = Boolean(advanceWhenReady);
+    state.prefetchLoads = 0;
     return loadMorePosts();
   }
 
@@ -2346,12 +2442,14 @@
     state.loadingMore = true;
     state.loadFound = 0;
     const request = ++state.loadRequest;
-    updateCount(true);
+    updateCount(loadingSuffixShown());
     syncEmptyState();
     syncGridStatus();
 
     let scan = appendNewPosts();
     let added = scan.shown;
+    // Every post this load found, shown or not.
+    let found = scan.found;
     let verdict = added ? "matched" : "wait";
     noteLoadProgress(scan);
     try {
@@ -2374,6 +2472,7 @@
             wasHidden = hidden;
             scan = appendNewPosts();
             added = scan.shown;
+            found += scan.found;
             noteLoadProgress(scan);
             if (scan.found) {
               // Posts the filter hides still show that Reddit is loading.
@@ -2396,6 +2495,10 @@
     }
 
     if (!state.open || request !== state.loadRequest) return null;
+    // New posts show that the feed goes on; a load that waited out the idle
+    // window found its end.
+    if (found) state.feedExhausted = false;
+    if (verdict === "idle") state.feedExhausted = true;
     // A load that found nothing to show stops the grid loading on its own
     // until the grid is shown again or the filter changes; otherwise the
     // grid watches its end afresh.
@@ -2406,21 +2509,93 @@
     // Only the slideshow moves on to a newly loaded post.
     const shouldAdvance = state.advanceAfterLoad && state.view === "slideshow";
     state.advanceAfterLoad = false;
+    // render() decides afresh whether to load more, so a background
+    // prefetch never chains past one of these.
     if (added && state.slides.length === added) {
       // The first posts a filter lets through; either view starts there.
+      state.prefetchLoads = 0;
       state.index = 0;
       render();
       refocusIfLost();
     } else if (added && shouldAdvance) {
+      state.prefetchLoads = 0;
       state.index += 1;
       render();
     } else if (!added && shouldAdvance) {
+      state.prefetchLoads = 0;
       state.index = 0;
       render();
     } else {
       updateCount(false);
+      // The new posts may be among the next few slides.
+      if (added && state.view === "slideshow") preloadAhead();
+      continuePrefetch(found);
     }
     return added;
+  }
+
+  // Starts loading more posts in the background once the slideshow is low,
+  // without moving it. Only the slideshow does this; the grid loads from its
+  // end, and an empty stage from loadForEmptyFilter().
+  function prefetchIfLow() {
+    if (
+      !state.open ||
+      state.preparing ||
+      state.view !== "slideshow" ||
+      state.loadingMore ||
+      isSinglePostPage() ||
+      !prefetchWanted(
+        state.slides.length,
+        state.index,
+        isOnLastPost(),
+        state.feedExhausted,
+      )
+    )
+      return;
+    state.prefetchLoads = 1;
+    state.advanceAfterLoad = false;
+    void loadMorePosts();
+  }
+
+  // A background prefetch that found posts loads again while the slideshow
+  // is still low, up to PREFETCH_ROUNDS loads in a row.
+  function continuePrefetch(found) {
+    if (!state.prefetchLoads) return;
+    if (
+      found > 0 &&
+      state.prefetchLoads < PREFETCH_ROUNDS &&
+      state.view === "slideshow" &&
+      !state.loadingMore &&
+      prefetchWanted(
+        state.slides.length,
+        state.index,
+        isOnLastPost(),
+        state.feedExhausted,
+      )
+    ) {
+      state.prefetchLoads += 1;
+      void loadMorePosts();
+      return;
+    }
+    state.prefetchLoads = 0;
+  }
+
+  // Fetches the pictures of the next few slides so they show at once. The
+  // few most recent stay referenced, so the browser keeps them until then.
+  // Data Saver turns this off.
+  function preloadAhead() {
+    if (!state.open || state.view !== "slideshow") return;
+    const connection = navigator.connection;
+    if (connection && connection.saveData) return;
+    preloadUrls(state.slides, state.index).forEach((url) => {
+      let image = state.preloads.get(url);
+      if (!image) {
+        image = new Image();
+        image.decoding = "async";
+        image.src = url;
+      }
+      rememberBounded(state.preloads, url, image, PRELOAD_CACHE_SIZE);
+    });
   }
 
   // Counts the posts a load has looked at, for a filtered load's progress
@@ -2446,6 +2621,7 @@
     )
       return;
     state.advanceAfterLoad = false;
+    state.prefetchLoads = 0;
     void loadMorePosts();
   }
 
@@ -2454,6 +2630,7 @@
     state.loadRequest += 1;
     state.loadingMore = false;
     state.advanceAfterLoad = false;
+    state.prefetchLoads = 0;
     stopFeedWatch(feedWatch);
     document.documentElement.style.overflow = "hidden";
   }
@@ -2502,6 +2679,7 @@
     )
       return;
     state.advanceAfterLoad = false;
+    state.prefetchLoads = 0;
     void loadMorePosts();
   }
 
@@ -2515,6 +2693,8 @@
     const current = state.slides[state.index];
     cancelLoadMore();
     state.gridExhausted = false;
+    // Other posts show now, so the feed may well have more of them.
+    state.feedExhausted = false;
     state.slides = state.allSlides.filter((slide) =>
       slideMatchesFilter(slide, state.settings),
     );
@@ -2526,7 +2706,8 @@
       state.slides[state.index] === current
     ) {
       syncPresentationUi();
-      if (!isSinglePostPage() && isOnLastPost()) void loadMoreAtEnd(false);
+      prefetchIfLow();
+      preloadAhead();
     } else {
       render();
       if (state.view === "grid") {
@@ -2915,6 +3096,7 @@
 
   function close() {
     if (!state.open && !state.opening) return;
+    const wasOpen = state.open;
     state.open = false;
     state.opening = false;
     state.preparing = false;
@@ -2924,6 +3106,8 @@
     state.loadRequest += 1;
     state.openRequest += 1;
     stopFeedWatch(feedWatch);
+    state.prefetchLoads = 0;
+    state.preloads.clear();
     state.settingsOpen = false;
     settingsOverlay.hidden = true;
     clearTimeout(state.autoTimer);
@@ -2936,6 +3120,8 @@
     window.removeEventListener("resize", onWindowResize);
     root.hidden = true;
     document.documentElement.style.overflow = state.oldOverflow;
+    // Loads scrolled Reddit to its end; the page goes back to where it was.
+    if (wasOpen) window.scrollTo(0, state.pageScrollY);
     document.removeEventListener("keydown", onKeyDown, true);
   }
 
@@ -2957,6 +3143,7 @@
     }
     state.opening = false;
     state.oldOverflow = document.documentElement.style.overflow;
+    state.pageScrollY = window.scrollY;
     state.open = true;
     root.hidden = false;
     document.documentElement.style.overflow = "hidden";
@@ -2971,6 +3158,9 @@
     // run's enrichment results no longer refer to anything. Keeping them would
     // make enrichSlide skip every thumbnail it had already upgraded once.
     state.enrichments.clear();
+    state.feedExhausted = false;
+    state.prefetchLoads = 0;
+    state.preloads.clear();
     state.allSlides = [];
     state.slides = [];
     state.preparing = true;

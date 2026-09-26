@@ -167,6 +167,68 @@ Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 Firefox does it in `about:addons` under the gear menu's **Manage Extension
 Shortcuts**.
 
+## Archive mode
+
+The archive page, `archive.html`, browses a subreddit's whole history ranked by
+score, which a Reddit listing cannot do past its first thousand or so posts. It
+pulls the posts from the [Arctic Shift](https://arctic-shift.photon-reddit.com)
+archive into the browser's own storage (IndexedDB) and shows them in the same
+slideshow and grid as presentation mode, with the same keys, buttons, and Show
+filter.
+
+Open a subreddit with the form at the top of the page, or with
+`archive.html#r/<subreddit>`. The pull starts at once:
+
+- It asks for the newest posts first, up to 1,000 posts a request, about once a
+  second, and goes back in time until the chosen date range is stored.
+- It pauses while the tab is hidden, and after a reload it goes on from where it
+  stopped. Only the subreddit open on the page pulls, in one tab at a time.
+- Posts are ranked in stretches of about 5,000, the newest stretch first, each
+  by score, so browsing starts long before the pull ends. A page opened with a
+  subreddit in its address opens the slideshow by itself once the first stretch
+  is stored, and the slideshow waits for the pull when it catches up with it.
+  **Top of everything**, which ranks every post in the date range at once,
+  becomes available once the whole range is stored.
+
+The panel of the open subreddit has:
+
+- **Date range**: all, the past year, the past month, or custom dates, in UTC. A
+  narrower range stops the pull once it is stored; a wider one pulls on.
+- **Minimum score**: posts below it are left out.
+- **Order**: newest stretches first, or top of everything.
+- **Browse** reopens where you left off in the same range, minimum score, and
+  order; **Start over** starts from the top.
+- **Pause** or **Resume** the pull, **Refresh**, and **Delete**.
+
+Below it, the library lists every stored subreddit with its post count, date
+span, last refresh, and progress, with the same actions, and says how much
+storage the archives use.
+
+Scores are Arctic Shift's snapshot of each post about 36 hours after it was
+posted; older posts carry their final scores from the Pushshift era. Younger
+posts read a score of 1, so posts under 48 hours old are left out of the
+ranking. **Refresh** pulls the posts that are new since, and the last two days
+below them again, so those scores mature. Removed posts are never stored.
+
+Pictures and videos that fail to load are dropped, as in presentation mode, and
+the archive remembers them: later visits leave them out at once and count them
+as unavailable.
+
+Arctic Shift is a free service, so the page asks for one page of posts a second
+at most, waits a minute or more when the service asks it to slow down, and asks
+for less when a request times out.
+
+Privacy: the archive page is the only part of the extension that talks to
+anything other than Reddit. It sends Arctic Shift the subreddit's name and the
+dates the pull has reached, without cookies. Pictures and videos load from their
+hosts, as in presentation mode. Archive mode never reads anything from
+reddit.com; its author and community links open Reddit in a new tab.
+
+During development, open `chrome-extension://<extension id>/archive.html#r/pics`
+with the unpacked extension loaded, or open `browser-extension/archive.html`
+from disk. From disk, the page keeps its own archives and settings, apart from
+the extension's.
+
 ## Browser differences
 
 - Firefox treats Manifest V3 `host_permissions` as optional, so reddit.com

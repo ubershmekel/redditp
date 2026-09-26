@@ -1387,6 +1387,222 @@
     };
   }
 
+  // The viewer's source for an archive: its stored posts in one view, a
+  // batch at a time (content.js describes the shape at liveSource).
+  // "Newest windows first" walks the windows from the newest down, each
+  // ranked by score, and waits for the pull while the next one fills. "Top
+  // of everything" ranks the whole range at once. Only ids are ranked; the
+  // posts themselves are read READ_CHUNK at a time.
+  const BATCH_WANTED = 24;
+  const BATCH_MAX_POSTS = 400;
+  const READ_CHUNK = 48;
+
+  function createArchiveSource({
+    record,
+    puller,
+    view,
+    resume,
+    onResume,
+    onClosed,
+  }) {
+    const sub = record.name;
+    const key = viewKey(view);
+    const urls = viewer.media;
+    let queue = Promise.resolve();
+    // Post id -> the media keys of its pictures and videos that failed.
+    let dead = null;
+    // The window being walked: { windowEnd, start, ids, pos, last }, where
+    // windowEnd 0 is the newest window.
+    let walk = null;
+    let exhausted = false;
+    let closed = false;
+    let pendingResume = null;
+    let resumeTimer = null;
+    let resumeSavedAt = 0;
+
+    const nowSec = () => Math.floor(Date.now() / 1000);
+
+    // A window of the view, ranked, or null while the pull has not filled
+    // it. The newest window ends just above the newest stored post; during
+    // a refresh that post stays put until the refresh is done, so no gap
+    // opens above it.
+    async function readRanked(windowEnd) {
+      const range = rangeBounds(view.range, nowSec());
+      const newest = Math.min(range.end, record.top + 1);
+      const rank = (entries) =>
+        rankEntries(entries, { nowSec: nowSec(), minScore: view.minScore });
+      if (view.mode === "top") {
+        if (!rangeComplete(record, range.start)) return null;
+        const entries = await readRange(db, sub, range.start, newest);
+        return {
+          windowEnd: 0,
+          start: 0,
+          ids: rank(entries),
+          pos: 0,
+          last: true,
+        };
+      }
+      const window = await readWindow(
+        db,
+        sub,
+        windowEnd || newest,
+        Math.max(range.start, record.bottom),
+        CONFIG.windowSize,
+      );
+      if (!windowReady(window, record, range.start)) return null;
+      return {
+        windowEnd,
+        start: window.start,
+        ids: rank(window.taken),
+        pos: 0,
+        last: !window.full,
+      };
+    }
+
+    // The window at windowEnd, once the pull has filled it; null when the
+    // pull cannot fill it now (paused, failed, or pulling in another tab).
+    async function nextWindow(windowEnd) {
+      for (;;) {
+        // Listening first, so a change during the read is not missed.
+        const changed = puller.waitForChange();
+        const window = await readRanked(windowEnd);
+        if (window || closed || !puller.isPulling()) return window;
+        await changed;
+      }
+    }
+
+    // Slides until the Show filter wants BATCH_WANTED of them, or
+    // BATCH_MAX_POSTS posts have been read, or the view runs out.
+    async function takeBatch(wants) {
+      if (!dead) dead = await getDead(db, sub).catch(() => new Map());
+      const slides = [];
+      let unavailable = 0;
+      let wanted = 0;
+      let read = 0;
+      while (
+        !closed &&
+        !exhausted &&
+        wanted < BATCH_WANTED &&
+        read < BATCH_MAX_POSTS
+      ) {
+        if (!walk || walk.pos >= walk.ids.length) {
+          if (walk?.last) {
+            exhausted = true;
+            break;
+          }
+          const next = await nextWindow(walk ? walk.start : 0);
+          if (!next) break;
+          walk = next;
+          continue;
+        }
+        const ids = walk.ids.slice(walk.pos, walk.pos + READ_CHUNK);
+        const posts = await getPosts(db, sub, ids);
+        ids.forEach((id, offset) => {
+          // A post can be gone, for one, when its archive was deleted.
+          if (!posts[offset]) return;
+          const result = postSlides(posts[offset], urls, dead.get(id));
+          unavailable += result.unavailable;
+          result.slides.forEach((slide) => {
+            slide.archive.windowEnd = walk.windowEnd;
+            slide.archive.rank = walk.pos + offset;
+            slides.push(slide);
+            if (wants(slide)) wanted += 1;
+          });
+        });
+        read += ids.length;
+        walk.pos += ids.length;
+      }
+      return { slides, unavailable };
+    }
+
+    // Resume opens the view's window where it left off, at the post it
+    // left on, found by its id in case the ranking has moved since.
+    async function start(wants) {
+      if (resume) {
+        const window = await nextWindow(
+          view.mode === "top" ? 0 : resume.windowEnd || 0,
+        );
+        if (window) {
+          const found = window.ids.indexOf(resume.id);
+          window.pos =
+            found >= 0
+              ? found
+              : Math.min(Math.max(0, resume.rank || 0), window.ids.length);
+          walk = window;
+        }
+      }
+      return { ...(await takeBatch(wants)), index: 0 };
+    }
+
+    // The viewer may ask again before a batch has arrived, as after a
+    // filter change, so batches are taken one at a time.
+    function serialize(task) {
+      const run = queue.then(task);
+      queue = run.catch(() => {});
+      return run;
+    }
+
+    function flush() {
+      clearTimeout(resumeTimer);
+      resumeTimer = null;
+      if (!pendingResume) return;
+      resumeSavedAt = Date.now();
+      onResume(pendingResume);
+      pendingResume = null;
+    }
+
+    return {
+      kind: "archive",
+      text: {
+        preparing: ["Loading the archive…", "Ranking posts by score."],
+        empty: [
+          "Nothing to show here yet",
+          "The archive is still being pulled, or nothing in this range reaches the minimum score. Widen the range, lower the minimum score, or resume the pull.",
+        ],
+      },
+      start: ({ wants }) => serialize(() => start(wants)),
+      loadMore: ({ wants }) => serialize(() => takeBatch(wants)),
+      hasMore: () => !exhausted,
+      // Remembered, so the next visit leaves the media out.
+      onDead(slide) {
+        const id = slide.archive?.id;
+        if (!id || !dead) return;
+        const mediaKey = urls.canonicalMediaKey(slide.url);
+        if (!dead.has(id)) dead.set(id, new Set());
+        dead.get(id).add(mediaKey);
+        addDead(db, sub, id, mediaKey).catch(() => {});
+      },
+      // Where to resume, saved at most every CONFIG.resumeSaveMs, and when
+      // the viewer closes or the page goes away.
+      onShow(slide) {
+        const place = slide.archive;
+        if (!place) return;
+        pendingResume = {
+          key,
+          windowEnd: place.windowEnd,
+          rank: place.rank,
+          id: place.id,
+          at: Date.now(),
+        };
+        const wait = CONFIG.resumeSaveMs - (Date.now() - resumeSavedAt);
+        if (wait <= 0) flush();
+        else if (!resumeTimer) resumeTimer = setTimeout(flush, wait);
+      },
+      onClose() {
+        closed = true;
+        flush();
+        onClosed();
+      },
+      // For the page: saves the resume position now, and stops the source
+      // for good.
+      flush,
+      dispose() {
+        closed = true;
+        flush();
+      },
+    };
+  }
+
   // The page's controls.
   const viewer = window.__redditpPresentation;
   const byId = (id) => document.getElementById(`redditp-archive-${id}`);
@@ -1432,8 +1648,15 @@
   let tickTimer = null;
   let libraryRequest = 0;
   let storageRequest = 0;
+  let browseRequest = 0;
   // Archive name -> its library row.
   const rows = new Map();
+  // The source the viewer was last opened on.
+  let activeSource = null;
+  // An archive named in the address when the page was opened, not
+  // reloaded, opens by itself once its first window is ready, unless the
+  // page has been used since.
+  let autoOpen = false;
 
   function element(tag, className, text) {
     const result = document.createElement(tag);
@@ -1527,11 +1750,12 @@
     if (current && current.record.name === key) return;
     const request = ++selectRequest;
     if (current) {
-      viewer.close();
+      closeViewer();
       current.puller.stop();
       current = null;
     }
     ui.panel.hidden = true;
+    ui.browse.disabled = ui.startOver.disabled = true;
     scheduleRender();
     if (!key) return;
     let opened;
@@ -1632,6 +1856,76 @@
     showArchive(record.display);
   }
 
+  function viewerShowing() {
+    const root = document.getElementById("redditp-presentation");
+    return Boolean(root && !root.hidden);
+  }
+
+  // Closes the viewer, and stops the source it was showing for good.
+  function closeViewer() {
+    viewer.close();
+    if (activeSource) activeSource.dispose();
+    activeSource = null;
+  }
+
+  // Opens the viewer on the selected archive in its chosen view: where
+  // browsing last left off in that view, or from the top.
+  async function browse(fromResume) {
+    if (!current) return;
+    const { record, puller } = current;
+    closeViewer();
+    autoOpen = false;
+    const view = normalView(record.view);
+    const resume =
+      fromResume && record.resume?.key === viewKey(view) ? record.resume : null;
+    activeSource = createArchiveSource({
+      record,
+      puller,
+      view,
+      resume,
+      onResume(value) {
+        record.resume = value;
+        patchSub(db, record.name, { resume: value }).catch(() => {});
+      },
+      onClosed() {
+        if (!ui.panel.hidden && !ui.browse.disabled) ui.browse.focus();
+      },
+    });
+    await viewer.open(activeSource);
+  }
+
+  function startOver() {
+    if (!current) return;
+    updateRecord({ resume: null });
+    void browse(false);
+  }
+
+  // Browse needs the view's first window ready, or, for "Top of
+  // everything", the whole range stored. A window is ready once it holds a
+  // full window of posts, counted without reading them, or once the pull
+  // has passed the start of the range. An archive without a single post
+  // has nothing to browse.
+  async function syncBrowse() {
+    if (!current) return;
+    const request = ++browseRequest;
+    const { record } = current;
+    const view = record.view;
+    const range = rangeBounds(view.range, Math.floor(Date.now() / 1000));
+    let ready = record.count > 0 && rangeComplete(record, range.start);
+    if (!ready && view.mode === "windows") {
+      const stored = await countRange(
+        db,
+        record.name,
+        Math.max(range.start, record.bottom),
+        Math.min(range.end, record.top + 1),
+      ).catch(() => 0);
+      ready = stored >= CONFIG.windowSize;
+    }
+    if (request !== browseRequest || current?.record !== record) return;
+    ui.browse.disabled = ui.startOver.disabled = !ready;
+    if (ready && autoOpen && !viewerShowing()) void browse(true);
+  }
+
   async function removeArchive(name) {
     const record =
       current?.record.name === name
@@ -1646,7 +1940,7 @@
       return;
     }
     if (current?.record.name === name) {
-      viewer.close();
+      closeViewer();
       current.puller.stop();
       current = null;
       selectRequest += 1;
@@ -1701,6 +1995,18 @@
     ui.refresh.addEventListener("click", startRefresh);
     ui.remove.addEventListener("click", () => {
       if (current) void removeArchive(current.record.name);
+    });
+    ui.browse.addEventListener("click", () => void browse(true));
+    ui.startOver.addEventListener("click", startOver);
+    // Using the page in any way cancels its opening the viewer by itself.
+    ["pointerdown", "keydown", "input", "change"].forEach((type) => {
+      document.addEventListener(
+        type,
+        (event) => {
+          if (event.isTrusted) autoOpen = false;
+        },
+        true,
+      );
     });
   }
 
@@ -1781,6 +2087,7 @@
     ui.orderHint.textContent = complete
       ? "Top of everything ranks the whole range at once."
       : "Top of everything is available once the whole range is pulled.";
+    void syncBrowse();
   }
 
   function createRow(name) {
@@ -1919,6 +2226,13 @@
   }
 
   async function init() {
+    // Settled before anything waits: whether the address named an archive
+    // as the page opened, rather than reloaded.
+    const navigation =
+      typeof performance.getEntriesByType === "function"
+        ? performance.getEntriesByType("navigation")[0]
+        : null;
+    autoOpen = Boolean(hashTarget().key) && navigation?.type !== "reload";
     if (!viewer || typeof viewer.open !== "function" || !viewer.media) {
       showError("The viewer did not load.");
       return;
@@ -1945,6 +2259,7 @@
     document.addEventListener("visibilitychange", () => {
       current?.puller.wake();
     });
+    window.addEventListener("pagehide", () => activeSource?.flush());
     await route();
     scheduleRender();
   }

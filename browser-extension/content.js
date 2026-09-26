@@ -305,6 +305,55 @@
   }
   // redditp-feed-loading:end
 
+  // redditp-dead-media:start
+  // Which media that fails to load leaves the presentation. Like the blocks
+  // above, this stays DOM-free, so nodejs/test-embedit.js can evaluate it on
+  // its own. Reddit's picture for a missing i.redd.it image and imgur's
+  // removed.png both load successfully, so those two are told by their host
+  // and their size.
+  const PLACEHOLDER_IMAGES = [
+    { host: /^i\.redd\.it$/i, width: 130, height: 60 },
+    { host: /^(?:i\.)?imgur\.com$/i, width: 161, height: 81 },
+  ];
+
+  function isPlaceholderImage(url, width, height) {
+    let host = "";
+    try {
+      host = new URL(url).hostname;
+    } catch (_error) {
+      return false;
+    }
+    return PLACEHOLDER_IMAGES.some(
+      (placeholder) =>
+        placeholder.host.test(host) &&
+        placeholder.width === width &&
+        placeholder.height === height,
+    );
+  }
+
+  // Whether a slide leaves the presentation when its media fails: only a
+  // picture or video of its own does. A search thumbnail that is still to be
+  // read, a stream format the browser cannot play, a player, an embed and a
+  // link card keep their place.
+  function dropsWhenDead(slide) {
+    return (
+      (slide.kind === "image" || slide.kind === "video") &&
+      !slide.needsEnrichment &&
+      !/\.m3u8(?:$|[?#])/i.test(slide.url || "")
+    );
+  }
+
+  // The counter's suffix: what the filter shows, how many pictures and
+  // videos failed to load, then "loading more".
+  function countSuffix(summary, unavailable, loading) {
+    return (
+      (summary ? ` · ${summary}` : "") +
+      (unavailable ? ` · ${unavailable} unavailable` : "") +
+      (loading ? " · loading more" : "")
+    );
+  }
+  // redditp-dead-media:end
+
   const state = {
     open: false,
     opening: false,
@@ -363,6 +412,9 @@
     preloads: new Map(),
     // Where the Reddit page was scrolled when presentation mode opened.
     pageScrollY: 0,
+    // Pictures and videos this open dropped, or left out, because they
+    // failed to load.
+    unavailable: 0,
   };
   // Grid tile -> { slide, height }, the height in column widths.
   const gridTileInfo = new WeakMap();
@@ -380,6 +432,9 @@
   const FEED_GROWTH_SELECTOR = POST_SELECTOR + ",a[href*='/comments/']";
   // Slides the grid has tried to upgrade: once each, per open.
   const gridEnrichTried = new WeakSet();
+  // The media keys of the page's pictures and videos that failed to load in
+  // this tab, so later opens leave them out. A reload forgets them.
+  const liveDeadKeys = new Set();
   const GRID_ENRICH_CONCURRENCY = 2;
   const GRID_ENRICH_MAX_FAILURES = 3;
   // A load can take a while, so the grid starts one within three screens of
@@ -1068,16 +1123,19 @@
   // waits for more, so the progress text can count posts as they arrive. A
   // page that hosts the viewer hands open() a source of its own instead:
   //
-  //   start({ wants }) resolves to the first batch, { slides, index }, where
-  //     index is the slide to open at. Meanwhile the stage shows the
-  //     source's preparing text.
-  //   loadMore({ wants }) resolves to the next batch, { slides }, with no
-  //     slides once the source is finished, paused or failing. It may be
-  //     called again before its last batch has arrived.
+  //   start({ wants }) resolves to the first batch: { slides, index,
+  //     unavailable }, where index is the slide to open at and unavailable
+  //     counts media the source left out as known to fail. Meanwhile the
+  //     stage shows the source's preparing text.
+  //   loadMore({ wants }) resolves to the next batch, the same without
+  //     index, and with no slides once the source is finished, paused or
+  //     failing. It may be called again before its last batch has arrived.
   //   hasMore() says at once, without waiting, whether a load could find
   //     more. False ends every load straight away.
-  //   onShow(slide) and onClose(), both optional, hear that the slideshow
-  //     shows a slide and that the viewer closed.
+  //   onDead(slide), onShow(slide) and onClose(), all optional, hear that a
+  //     slide's own media failed to load (the viewer has dropped the slide
+  //     already), that the slideshow shows a slide, and that the viewer
+  //     closed.
   //   text, optional, holds a [heading, text] pair for the empty stage in
   //     text.preparing, while start is pending, and in text.empty, when
   //     there are no posts.
@@ -1090,6 +1148,10 @@
   const liveSource = {
     kind: "live",
     hasMore: () => true,
+    // Remembered for later opens in this tab.
+    onDead(slide) {
+      liveDeadKeys.add(canonicalMediaKey(slide.url));
+    },
   };
   let activeSource = liveSource;
 
@@ -1134,7 +1196,12 @@
         galleryTotal: 0,
       },
       slide,
-      { postNode: null, needsEnrichment: false, mediaUnknown: false },
+      {
+        postNode: null,
+        needsEnrichment: false,
+        mediaUnknown: false,
+        dead: false,
+      },
     );
     ["title", "body", "author", "community", "postKey"].forEach((key) => {
       result[key] = result[key] == null ? "" : String(result[key]);
@@ -1155,6 +1222,10 @@
   // Adds a batch that another source handed over, the way appendNewPosts
   // adds the page's new posts. A missing or malformed batch adds nothing.
   function appendSourceResult(result) {
+    const skipped = Number(result?.unavailable);
+    if (Number.isFinite(skipped) && skipped > 0) {
+      state.unavailable += Math.floor(skipped);
+    }
     const slides = Array.isArray(result?.slides) ? result.slides : [];
     return appendSlides(
       slides
@@ -1673,14 +1744,26 @@
     return card;
   }
 
-  function gridTileImage(tile, url, fallbackLabel, slide) {
+  // ownMedia marks the slide's own picture, which takes the slide with it
+  // when it fails; a video's poster keeps a card instead. A tile that has
+  // left the grid since drops nothing.
+  function gridTileImage(tile, url, fallbackLabel, slide, ownMedia) {
     const image = element("img", "redditp__tile-image", "");
     image.alt = "";
     image.setAttribute("loading", "lazy");
     image.setAttribute("decoding", "async");
+    const dropsSlide = () =>
+      ownMedia && dropsWhenDead(slide) && state.gridTiles.get(slide) === tile;
     image.addEventListener(
       "load",
       () => {
+        if (
+          dropsSlide() &&
+          isPlaceholderImage(url, image.naturalWidth, image.naturalHeight)
+        ) {
+          dropDeadSlide(slide);
+          return;
+        }
         setGridTileHeight(
           tile,
           tileHeightRatio(image.naturalWidth, image.naturalHeight),
@@ -1691,6 +1774,10 @@
     image.addEventListener(
       "error",
       () => {
+        if (dropsSlide()) {
+          dropDeadSlide(slide);
+          return;
+        }
         tile.querySelector(".redditp__tile-caption")?.remove();
         image.replaceWith(gridTileCard(fallbackLabel, slide));
         setGridTileHeight(tile, 0.75);
@@ -1728,7 +1815,7 @@
     const height = picture ? 1 : 0.75;
     if (picture) {
       tile.append(
-        gridTileImage(tile, picture, cardLabel, slide),
+        gridTileImage(tile, picture, cardLabel, slide, slide.kind === "image"),
         element("span", "redditp__tile-caption", slide.title),
       );
     } else {
@@ -2038,12 +2125,58 @@
     if (state.open && state.slides[state.index] === slide) render();
   }
 
+  // Takes a slide out of the presentation, the way an upgrade that the
+  // filter hides does. A current slide makes way for the next one, or for
+  // the new last one when it was last, and the grid loses its tile.
+  function removeSlide(slide) {
+    const fullIndex = state.allSlides.indexOf(slide);
+    if (fullIndex >= 0) state.allSlides.splice(fullIndex, 1);
+    const slideIndex = state.slides.indexOf(slide);
+    if (slideIndex < 0) {
+      syncPresentationUi();
+      return;
+    }
+    const wasCurrent = state.index === slideIndex;
+    state.slides.splice(slideIndex, 1);
+    if (slideIndex < state.index) state.index -= 1;
+    state.index = Math.max(0, Math.min(state.index, state.slides.length - 1));
+    if (state.gridBuilt) replaceGridTile(slide, []);
+    if (wasCurrent && state.view === "slideshow") {
+      render();
+      refocusIfLost();
+    } else {
+      syncPresentationUi();
+    }
+    if (!state.slides.length) loadForEmptyFilter();
+  }
+
+  // A picture or video that failed to load leaves the presentation and
+  // counts as unavailable. Its source hears about it, so the same media can
+  // be left out next time.
+  function dropDeadSlide(slide) {
+    if (!state.open || slide.dead) return;
+    slide.dead = true;
+    state.unavailable += 1;
+    try {
+      activeSource.onDead?.(slide);
+    } catch (_error) {
+      // A source's own bookkeeping never keeps a failed slide.
+    }
+    removeSlide(slide);
+  }
+
+  // Media that failed while it showed. A slide's own picture or video takes
+  // the slide with it; anything else leaves a link card.
   function showMediaFailure(mediaElement, slide) {
     if (
       state.open &&
       state.slides[state.index] === slide &&
       mediaElement.parentNode === mediaBox
     ) {
+      if (dropsWhenDead(slide)) {
+        dropDeadSlide(slide);
+        return;
+      }
       mediaBox.replaceChildren(linkCard(slide, true));
       slide.mediaFailed = true;
       scheduleAuto();
@@ -2155,11 +2288,14 @@
   // Counts posts rather than slides, so a gallery advances only its own
   // "(2/7)" counter while the post number stays put. The grid shows every
   // post at once, so it shows only the total. An active filter adds what it
-  // shows, such as "images only", before "loading more".
+  // shows, such as "images only", and media that failed to load adds how
+  // many did, before "loading more".
   function updateCount(loading) {
-    const summary = mediaFilterSummary(state.settings);
-    const suffix =
-      (summary ? ` · ${summary}` : "") + (loading ? " · loading more" : "");
+    const suffix = countSuffix(
+      mediaFilterSummary(state.settings),
+      state.unavailable,
+      loading,
+    );
     if (!state.slides.length) {
       count.textContent = `0 posts${suffix}`;
       return;
@@ -2180,8 +2316,9 @@
   }
 
   // The empty stage says why it is empty: Reddit's player is still being
-  // prepared, the page has no posts, or the Show filter hides them all.
-  // Another source can say the first two in its own words.
+  // prepared, the page has no posts, the Show filter hides them all, or all
+  // their pictures and videos failed to load. Another source can say the
+  // first two in its own words.
   function syncEmptyState() {
     let heading = "No posts found on this page";
     let text =
@@ -2200,6 +2337,11 @@
         heading = "Nothing here matches the filter";
         text = `Only ${shownMediaLabel(state.settings, "and")} are shown. Change that in the settings, or press O.`;
       }
+    } else if (state.unavailable) {
+      heading = "Nothing here could be loaded";
+      text = state.loadingMore
+        ? "Loading more posts…"
+        : `${state.unavailable} ${state.unavailable === 1 ? "picture or video" : "pictures or videos"} failed to load.`;
     } else {
       ownWords = sourceText("empty");
     }
@@ -2272,9 +2414,27 @@
     if (slide.kind === "image") {
       const img = element("img", "redditp__image", "");
       img.alt = slide.title;
-      img.addEventListener("load", () => expandLargeImage(img, slide), {
-        once: true,
-      });
+      img.addEventListener(
+        "load",
+        () => {
+          // Some hosts answer for a deleted picture with a placeholder.
+          if (
+            dropsWhenDead(slide) &&
+            isPlaceholderImage(
+              slide.url,
+              img.naturalWidth,
+              img.naturalHeight,
+            ) &&
+            img.parentNode === mediaBox &&
+            state.slides[state.index] === slide
+          ) {
+            dropDeadSlide(slide);
+          } else {
+            expandLargeImage(img, slide);
+          }
+        },
+        { once: true },
+      );
       img.addEventListener("error", () => showMediaFailure(img, slide), {
         once: true,
       });
@@ -2484,8 +2644,19 @@
   // hands its posts to loadMorePosts itself.
   function appendNewPosts() {
     return activeSource === liveSource
-      ? appendSlides(extractSlides())
+      ? appendSlides(skipDeadSlides(extractSlides()))
       : { found: 0, shown: 0 };
+  }
+
+  // Leaves out the page's pictures and videos that already failed to load in
+  // this tab, and counts them as unavailable straight away.
+  function skipDeadSlides(slides) {
+    return slides.filter((slide) => {
+      if (!dropsWhenDead(slide)) return true;
+      if (!liveDeadKeys.has(canonicalMediaKey(slide.url))) return true;
+      state.unavailable += 1;
+      return false;
+    });
   }
 
   function wait(milliseconds) {
@@ -2747,8 +2918,7 @@
   // A batch from a load that a newer one took over still joins, and it may
   // hold the first slides the filter shows. The newer load settles the rest.
   function showLateSlides(scan) {
-    if (!scan.shown) return;
-    if (state.slides.length === scan.shown) {
+    if (scan.shown && state.slides.length === scan.shown) {
       state.index = 0;
       render();
       refocusIfLost();
@@ -2890,7 +3060,7 @@
   }
 
   // A filter that shows none of the loaded posts keeps loading until one
-  // matches.
+  // matches, and so does a stage whose every picture and video failed.
   function loadForEmptyFilter() {
     if (
       !state.open ||
@@ -2898,7 +3068,7 @@
       state.slides.length ||
       state.loadingMore ||
       isSinglePostPage() ||
-      !mediaFilterActive(state.settings)
+      (!mediaFilterActive(state.settings) && !state.unavailable)
     )
       return;
     state.advanceAfterLoad = false;
@@ -3409,6 +3579,7 @@
     state.preloads.clear();
     state.allSlides = [];
     state.slides = [];
+    state.unavailable = 0;
     state.preparing = true;
     render();
     if (activeSource !== liveSource) {
@@ -3420,7 +3591,7 @@
     state.preparing = false;
     // Every post is read afresh on each open.
     seenPostNodes = new WeakSet();
-    state.allSlides = extractSlides();
+    state.allSlides = skipDeadSlides(extractSlides());
     state.slides = state.allSlides.filter((slide) =>
       slideMatchesFilter(slide, state.settings),
     );

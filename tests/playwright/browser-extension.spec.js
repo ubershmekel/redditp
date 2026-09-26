@@ -166,10 +166,7 @@ test("old Reddit combined-search cards upgrade their outbound media", async ({
       body: `<div class="thing link" data-fullname="t3_oldvideo" data-url="https://v.redd.it/oldvideo" data-permalink="/r/LoveTrash/comments/oldvideo/nature/" data-author="poster" data-subreddit="LoveTrash"><a class="title">Nature...</a><video src="${videoUrl}"></video></div>`,
     });
   });
-  await page.route(videoUrl, async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    await route.abort();
-  });
+  await page.route(videoUrl, (route) => fulfillSilentVideo(route));
   await startPresentation(
     page,
     `<div class="search-result search-result-link has-thumbnail" data-fullname="t3_oldvideo"><a class="thumbnail" href="${postUrl}"></a><a class="search-title" href="${postUrl}">Nature...</a><a class="search-comments" href="${postUrl}">193 comments</a><a class="author" href="https://old.reddit.com/user/poster">poster</a><a class="search-subreddit-link" href="https://old.reddit.com/r/LoveTrash/">r/LoveTrash</a><a class="search-link" href="https://v.redd.it/oldvideo">https://v.redd.it/oldvideo</a></div>`,
@@ -748,10 +745,7 @@ test("extension recognizes Reddit search media cards and packaged video", async 
       ],
     },
   });
-  await page.route(videoUrl, async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    await route.abort();
-  });
+  await page.route(videoUrl, (route) => fulfillSilentVideo(route));
   await page.route(
     "https://external-preview.redd.it/ordinary.png",
     async (route) => {
@@ -821,10 +815,7 @@ test("thumbnail-only search results upgrade from post HTML to their actual video
       body: `<shreddit-post id="t3_upgrade" post-title="Video search result" post-type="video" content-href="https://v.redd.it/video123" permalink="/r/test/comments/upgrade/video_search_result/"><shreddit-player src="https://v.redd.it/video123/HLSPlaylist.m3u8" preview="${previewUrl}" poster="${thumbnailUrl}"><source src="https://v.redd.it/video123/HLSPlaylist.m3u8"></shreddit-player></shreddit-post>`,
     });
   });
-  await page.route(previewUrl, async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    await route.abort();
-  });
+  await page.route(previewUrl, (route) => fulfillSilentVideo(route));
   await startPresentation(
     page,
     `<search-telemetry-tracker data-faceplate-tracking-context='{"post":{"id":"t3_upgrade","title":"Video search result"},"subreddit":{"name":"test"}}'><div data-testid="search-post-unit"><h2><a href="${postUrl}">Video search result</a></h2><a href="${postUrl}" aria-label="Video search result thumbnail image"><faceplate-img data-testid="search_post_thumbnail" src="${thumbnailUrl}" alt="Video search result"></faceplate-img></a></div></search-telemetry-tracker>`,
@@ -1045,7 +1036,9 @@ test("G at the final gallery waits for more posts and otherwise wraps", async ({
 }) => {
   // A load gives up only after Reddit has added nothing for a while.
   await page.clock.install();
-  await page.route("https://preview.redd.it/**", (route) => route.abort());
+  await page.route("https://preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(1170, 1140)),
+  );
   await startPresentation(page, oldGalleryPost());
   await page.keyboard.press("g");
   await expect(page.locator(".redditp__count")).toHaveText(
@@ -1080,7 +1073,9 @@ test("G at the final gallery waits for more posts and otherwise wraps", async ({
 test("the last gallery starts loading more posts from its first image", async ({
   page,
 }) => {
-  await page.route("https://preview.redd.it/**", (route) => route.abort());
+  await page.route("https://preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(1170, 1140)),
+  );
   await startPresentation(page, oldGalleryPost());
   await expect(page.locator(".redditp__count")).toHaveText(
     "1 / 1 · loading more",
@@ -1113,7 +1108,9 @@ test("G on a single-post gallery stops at its last image", async ({ page }) => {
   await page.route(oldGalleryComments, (route) =>
     route.fulfill({ contentType: "text/html", body: oldGalleryPost() }),
   );
-  await page.route("https://preview.redd.it/**", (route) => route.abort());
+  await page.route("https://preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(1170, 1140)),
+  );
   await page.goto(oldGalleryComments);
   await page.addStyleTag({ path: extensionStyles });
   await page.addScriptTag({ path: extensionScript });
@@ -1133,7 +1130,9 @@ test("old Reddit search enrichment recognizes cached galleries", async ({
   await page.route(oldGalleryComments, (route) =>
     route.fulfill({ contentType: "text/html", body: oldGalleryPost() }),
   );
-  await page.route("https://preview.redd.it/**", (route) => route.abort());
+  await page.route("https://preview.redd.it/**", (route) =>
+    route.fulfill(svgImage(1170, 1140)),
+  );
   await startPresentation(
     page,
     `<div class="search-result search-result-link" data-fullname="t3_1vy9ca0"><a class="search-title" href="${oldGalleryComments}">Apple pie gallery</a><a class="search-comments" href="${oldGalleryComments}">comments</a><a class="search-link" href="${oldGalleryUrl}">gallery</a></div>`,
@@ -1755,12 +1754,9 @@ test("a thumbnail-only search result upgrades again after reopening", async ({
       body: `<shreddit-post id="t3_reopen" post-title="Reopened clip" post-type="video" content-href="https://v.redd.it/reopen123" permalink="/r/test/comments/reopen/clip/"><shreddit-player src="https://v.redd.it/reopen123/HLSPlaylist.m3u8" preview="${previewUrl}" poster="${thumbnailUrl}"></shreddit-player></shreddit-post>`,
     });
   });
-  await page.route(previewUrl, async (route) => {
-    // An instant abort can swap the video for a link card before the
-    // assertion below polls; hold it long enough for the src check.
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    await route.abort();
-  });
+  // The clip plays, so the video stays mounted for both src checks; a clip
+  // that failed to load would leave the slideshow.
+  await page.route(previewUrl, (route) => fulfillSilentVideo(route));
   await startPresentation(
     page,
     `<search-telemetry-tracker data-faceplate-tracking-context='{"post":{"id":"t3_reopen","title":"Reopened clip"},"subreddit":{"name":"test"}}'><div data-testid="search-post-unit"><h2><a href="${postUrl}">Reopened clip</a></h2><a href="${postUrl}" aria-label="Reopened clip thumbnail image"><faceplate-img data-testid="search_post_thumbnail" src="${thumbnailUrl}" alt="Reopened clip"></faceplate-img></a></div></search-telemetry-tracker>`,
@@ -1918,32 +1914,29 @@ test("P toggles the bottom controls and C opens comments", async ({ page }) => {
   await expect(page.locator("#redditp-presentation")).toBeVisible();
 });
 
-test("auto-advance keeps moving when a video slide fails to load", async ({
+test("a video that fails to load is dropped, counted, and auto-advance goes on", async ({
   page,
 }) => {
-  await page.route("https://v.redd.it/broken/DASH_480.mp4", async (route) => {
-    await route.abort();
-  });
-  await page.route("https://i.redd.it/second.jpg", async (route) => {
-    await route.fulfill({
-      contentType: "image/svg+xml",
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"></svg>',
-    });
-  });
+  await page.clock.install();
+  await page.route("https://v.redd.it/broken/DASH_480.mp4", (route) =>
+    route.abort(),
+  );
   await startPresentation(
     page,
     `<div class="thing link" data-url="https://v.redd.it/broken/DASH_480.mp4" data-permalink="/r/v/comments/one/a/"><a class="title" href="https://v.redd.it/broken/DASH_480.mp4">Broken video</a></div>
-     <div class="thing link" data-url="https://i.redd.it/second.jpg" data-permalink="/r/pics/comments/two/b/"><a class="title" href="https://i.redd.it/second.jpg">Second post</a></div>`,
+     <div class="thing link" data-url="https://i.redd.it/second.jpg" data-permalink="/r/pics/comments/two/b/"><a class="title" href="https://i.redd.it/second.jpg">Second post</a></div>
+     <div class="thing link" data-url="https://i.redd.it/third.jpg" data-permalink="/r/pics/comments/three/c/"><a class="title" href="https://i.redd.it/third.jpg">Third post</a></div>`,
   );
-  await expect(page.locator(".redditp__title")).toHaveText("Broken video");
-  await expect(page.locator(".redditp__link-icon")).toHaveText(
-    "Image unavailable",
+  const title = page.locator(".redditp__title");
+  await expect(title).toHaveText("Second post");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 2 · 1 unavailable( · loading more)?$/,
   );
+  await expect(page.locator(".redditp__link-card")).toHaveCount(0);
 
   await page.locator(".redditp__button", { hasText: "auto" }).click();
-  await expect(page.locator(".redditp__title")).toHaveText("Second post", {
-    timeout: 9000,
-  });
+  await page.clock.runFor(6500);
+  await expect(title).toHaveText("Third post");
 });
 
 test("Tab cycles focus inside the presentation instead of the page behind it", async ({
@@ -2374,7 +2367,7 @@ function mediaMixPosts() {
   `;
 }
 
-// Pictures load; players and embeds never do, so nothing waits on them.
+// Pictures and videos load; embeds never do, so nothing waits on them.
 async function routeMediaMix(page) {
   await page.route("https://i.redd.it/**", (route) =>
     route.fulfill(svgImage(800, 600)),
@@ -2382,13 +2375,10 @@ async function routeMediaMix(page) {
   await page.route("https://external-preview.redd.it/**", (route) =>
     route.fulfill(svgImage(640, 360)),
   );
-  for (const pattern of [
-    "https://v.redd.it/**",
-    "https://i.imgur.com/**",
-    "https://www.youtube.com/**",
-  ]) {
-    await page.route(pattern, (route) => route.abort());
+  for (const pattern of ["https://v.redd.it/**", "https://i.imgur.com/**"]) {
+    await page.route(pattern, (route) => fulfillSilentVideo(route));
   }
+  await page.route("https://www.youtube.com/**", (route) => route.abort());
 }
 
 // A routed Reddit page has storage, unlike setContent's about:blank, so the
@@ -3378,12 +3368,10 @@ test("the next three pictures load ahead, and the filter is respected", async ({
       return route.fulfill(svgImage(800, 600));
     },
   );
-  for (const pattern of [
-    "https://v.redd.it/**",
-    "https://www.youtube.com/**",
-  ]) {
-    await page.route(pattern, (route) => route.abort());
-  }
+  await page.route("https://v.redd.it/**", (route) =>
+    fulfillSilentVideo(route),
+  );
+  await page.route("https://www.youtube.com/**", (route) => route.abort());
   const expectRequested = (url) =>
     expect.poll(() => requested.has(url), { message: url }).toBe(true);
   const title = page.locator(".redditp__title");
@@ -3834,4 +3822,256 @@ test("a source can put the empty stage in its own words", async ({ page }) => {
   await page.evaluate(() => window.releaseBatch([]));
   await expect(heading).toHaveText("Nothing archived yet");
   await expect(text).toHaveText("Try a wider date range.");
+});
+
+// Old Reddit image posts, each "<title>" linking "https://<host>/<file>".
+function deadMediaPosts(posts) {
+  return posts
+    .map(
+      ([title, url], index) =>
+        `<div class="thing link" data-url="${url}" data-permalink="/r/pics/comments/dead${index}/post/"><a class="title">${title}</a></div>`,
+    )
+    .join("");
+}
+
+test("a picture that fails to load is dropped, counted, and skipped after reopening", async ({
+  page,
+}) => {
+  let deadRequests = 0;
+  await page.route("https://i.redd.it/dead-two.jpg", (route) => {
+    deadRequests += 1;
+    return route.abort();
+  });
+  await startPresentation(
+    page,
+    deadMediaPosts([
+      ["First post", "https://i.redd.it/dead-one.jpg"],
+      ["Second post", "https://i.redd.it/dead-two.jpg"],
+      ["Third post", "https://i.redd.it/dead-three.jpg"],
+    ]),
+  );
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("First post");
+  await expect(count).toHaveText("1 / 3");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Third post");
+  await expect(count).toHaveText(/^2 \/ 2 · 1 unavailable( · loading more)?$/);
+  await expect(page.locator(".redditp__link-card")).toHaveCount(0);
+
+  // The failure is remembered, so the next open leaves the picture out. A
+  // reopen keeps the slide it was on, so go back to the first one first.
+  await page.keyboard.press("ArrowLeft");
+  await expect(title).toHaveText("First post");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  const requestsBefore = deadRequests;
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(count).toHaveText(/^1 \/ 2 · 1 unavailable/);
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Third post");
+  // Neither the slideshow nor its look-ahead asked for the picture again.
+  expect(deadRequests).toBe(requestsBefore);
+});
+
+test("deleted i.redd.it and imgur pictures are recognised by their placeholder size", async ({
+  page,
+}) => {
+  for (const [url, width, height] of [
+    ["https://i.redd.it/gone.jpg", 130, 60],
+    ["https://i.imgur.com/kept.jpg", 161, 80],
+    ["https://i.imgur.com/removed1.jpg", 161, 81],
+    ["https://i.redd.it/last.jpg", 800, 600],
+  ]) {
+    await page.route(url, (route) => route.fulfill(svgImage(width, height)));
+  }
+  await startPresentation(
+    page,
+    deadMediaPosts([
+      ["Gone", "https://i.redd.it/gone.jpg"],
+      ["Kept", "https://i.imgur.com/kept.jpg"],
+      ["Removed", "https://i.imgur.com/removed1.jpg"],
+      ["Last", "https://i.redd.it/last.jpg"],
+    ]),
+  );
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("Kept");
+  await expect(count).toHaveText(/^1 \/ 3 · 1 unavailable/);
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Last");
+  await expect(count).toHaveText(/^2 \/ 2 · 2 unavailable( · loading more)?$/);
+  await expect(page.locator(".redditp__link-card")).toHaveCount(0);
+});
+
+test("a grid tile whose picture fails leaves the grid; a failed poster keeps its card", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/grid-broken.jpg", (route) =>
+    route.abort(),
+  );
+  await page.route("https://external-preview.redd.it/deadclip.png", (route) =>
+    route.abort(),
+  );
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/deadgrid/",
+    `${deadMediaPosts([
+      ["Good image", "https://i.redd.it/grid-good.jpg"],
+      ["Broken image", "https://i.redd.it/grid-broken.jpg"],
+    ])}<div class="thing link" data-url="https://v.redd.it/deadclip" data-permalink="/r/deadgrid/comments/clip/post/"><a class="title">Clip</a><video src="https://v.redd.it/deadclip/DASH_480.mp4" poster="https://external-preview.redd.it/deadclip.png"></video></div>`,
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const grid = page.locator(".redditp__grid");
+  const clip = grid.getByRole("button", { name: "Clip, video", exact: true });
+  await expect(
+    grid.getByRole("button", { name: "Good image", exact: true }),
+  ).toBeVisible();
+  await expect(clip.locator(".redditp__tile-kind")).toHaveText("Video");
+  await expect(
+    grid.getByRole("button", { name: "Broken image", exact: true }),
+  ).toHaveCount(0);
+  await expect(grid.locator(".redditp__tile")).toHaveCount(2);
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^2 posts · 1 unavailable/,
+  );
+});
+
+test("a search thumbnail that fails keeps its card until its post is read", async ({
+  page,
+}) => {
+  const postUrl = "https://www.reddit.com/r/test/comments/deadthumb/post/";
+  const thumbnailUrl = "https://external-preview.redd.it/deadthumb.png";
+  let detailRequests = 0;
+  await page.route(thumbnailUrl, (route) => route.abort());
+  await page.route(postUrl, (route) => {
+    detailRequests += 1;
+    return route.fulfill({ status: 500, contentType: "text/html", body: "" });
+  });
+  await startPresentation(
+    page,
+    `<search-telemetry-tracker data-faceplate-tracking-context='{"post":{"id":"t3_deadthumb","title":"Thumbnail result"},"subreddit":{"name":"test"}}'><div data-testid="search-post-unit"><h2><a href="${postUrl}">Thumbnail result</a></h2><a href="${postUrl}" aria-label="Thumbnail result thumbnail image"><faceplate-img data-testid="search_post_thumbnail" src="${thumbnailUrl}" alt="Thumbnail result"></faceplate-img></a></div></search-telemetry-tracker>`,
+  );
+  await expect(page.locator(".redditp__title")).toHaveText("Thumbnail result");
+  await expect(page.locator(".redditp__link-icon")).toHaveText(
+    "Image unavailable",
+  );
+  // Reading the post failed as well, so the card stays.
+  await expect.poll(() => detailRequests).toBe(1);
+  await expect(page.locator(".redditp__link-icon")).toHaveText(
+    "Image unavailable",
+  );
+  await expect(page.locator(".redditp__count")).not.toContainText(
+    "unavailable",
+  );
+});
+
+test("a failed picture from another source is reported to that source", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/source-dead.jpg", (route) =>
+    route.abort(),
+  );
+  await hostPage(page);
+  await openTestSource(page, {
+    total: 3,
+    batch: 3,
+    urls: [
+      "https://i.redd.it/source-ok-1.jpg",
+      "https://i.redd.it/source-dead.jpg",
+      "https://i.redd.it/source-ok-3.jpg",
+    ],
+  });
+  const title = page.locator(".redditp__title");
+  await expect(title).toHaveText("Source 1");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Source 3");
+  await expect(page.locator(".redditp__count")).toContainText(
+    "· 1 unavailable",
+  );
+  expect((await testSourceLog(page)).dead).toEqual(["t3_source2"]);
+});
+
+test("a page whose every picture failed goes looking for more posts", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  // The picture fails only when the test says so.
+  let heldPicture = null;
+  await page.route("https://i.redd.it/lonely.jpg", (route) => {
+    heldPicture = route;
+  });
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/lonelyfeed/",
+    `${deadMediaPosts([["Lonely picture", "https://i.redd.it/lonely.jpg"]])}<div style="height: 4000px"></div>`,
+    {},
+  );
+  await instrumentScroll(page);
+  await injectExtension(page);
+  const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("1 / 1 · loading more");
+  // The feed ends first.
+  await page.clock.runFor(13_000);
+  await expect(count).toHaveText("1 / 1");
+  await expect.poll(() => heldPicture !== null).toBe(true);
+  const calls = await scrollCalls(page);
+
+  await heldPicture.abort();
+  await expect(page.locator(".redditp__empty h2")).toHaveText(
+    "Nothing here could be loaded",
+  );
+  await expect(page.locator(".redditp__empty p")).toHaveText(
+    "Loading more posts…",
+  );
+  await expect(count).toHaveText("0 posts · 1 unavailable · loading more");
+  expect(await scrollCalls(page)).toBeGreaterThan(calls);
+
+  await insertPosts(page, gridImagePost(1));
+  await expect(page.locator(".redditp__title")).toHaveText("Post 1");
+  await expect(count).toHaveText(/^1 \/ 1 · 1 unavailable( · loading more)?$/);
+});
+
+test("media a source left out counts, and an empty stage says it failed", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/only-dead.jpg", (route) => route.abort());
+  await hostPage(page);
+  await page.evaluate(() => {
+    window.sourceCalls = [];
+    window.__redditpPresentation.open({
+      kind: "test",
+      start: () =>
+        Promise.resolve({
+          slides: [
+            {
+              kind: "image",
+              url: "https://i.redd.it/only-dead.jpg",
+              postMedia: true,
+              title: "Only picture",
+              postKey: "t3_onlydead",
+            },
+          ],
+          unavailable: 2,
+        }),
+      loadMore: () => {
+        window.sourceCalls.push("loadMore");
+        return Promise.resolve({ slides: [] });
+      },
+      hasMore: () => false,
+    });
+  });
+  await expect(page.locator(".redditp__empty h2")).toHaveText(
+    "Nothing here could be loaded",
+  );
+  await expect(page.locator(".redditp__empty p")).toHaveText(
+    "3 pictures or videos failed to load.",
+  );
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "0 posts · 3 unavailable",
+  );
+  // The source has nothing more, so the empty stage asks it for nothing.
+  expect(await page.evaluate(() => window.sourceCalls)).toEqual([]);
 });

@@ -1592,6 +1592,105 @@ suite("browser-extension media URLs", () => {
   });
 });
 
+suite("browser-extension dead media", () => {
+  const dead = loadContentScriptBlock("redditp-dead-media", [
+    "PLACEHOLDER_IMAGES",
+    "isPlaceholderImage",
+    "dropsWhenDead",
+    "countSuffix",
+  ]);
+
+  test("dead media helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      dead,
+      "did not find the redditp-dead-media markers in content.js",
+    );
+  });
+
+  test("the hosts' placeholder pictures are told by host and exact size", () => {
+    assert.ok(dead, "dead media helpers not loaded");
+    [
+      ["https://i.redd.it/gone.jpg", 130, 60, true],
+      ["https://i.redd.it/gone.jpg", 130, 61, false],
+      ["https://i.redd.it/gone.jpg", 131, 60, false],
+      ["https://i.imgur.com/gone.jpg", 161, 81, true],
+      ["https://imgur.com/gone", 161, 81, true],
+      ["https://i.imgur.com/gone.jpg", 161, 80, false],
+      ["https://preview.redd.it/gone.jpg", 130, 60, false],
+      ["https://i.imgur.com/gone.jpg", 130, 60, false],
+      ["https://i.redd.it/gone.jpg", 161, 81, false],
+      ["not a url", 130, 60, false],
+    ].forEach(([url, width, height, expected]) => {
+      assert.strictEqual(
+        dead.isPlaceholderImage(url, width, height),
+        expected,
+        `${url} ${width}x${height}`,
+      );
+    });
+  });
+
+  test("only a slide's own picture or video leaves when it fails", () => {
+    assert.ok(dead, "dead media helpers not loaded");
+    const image = { kind: "image", url: "https://i.redd.it/a.jpg" };
+    const video = { kind: "video", url: "https://v.redd.it/a/DASH_480.mp4" };
+    assert.strictEqual(dead.dropsWhenDead(image), true, "image");
+    assert.strictEqual(dead.dropsWhenDead(video), true, "video");
+    [
+      ["search thumbnail", { ...image, needsEnrichment: true }],
+      ["embed", { kind: "embed", url: "https://www.youtube.com/embed/a" }],
+      ["link", { kind: "link", url: "https://example.com/story" }],
+      ["native video", { kind: "native-video", url: "https://v.redd.it/a" }],
+      [
+        "pending native video",
+        { kind: "pending-native-video", url: "https://v.redd.it/a" },
+      ],
+      [
+        "stream",
+        { kind: "video", url: "https://v.redd.it/a/HLSPlaylist.m3u8" },
+      ],
+      [
+        "stream with a query",
+        { kind: "video", url: "https://v.redd.it/a/HLSPlaylist.m3u8?a=1" },
+      ],
+    ].forEach(([name, slide]) => {
+      assert.strictEqual(dead.dropsWhenDead(slide), false, name);
+    });
+  });
+
+  test("the counter names the filter, then the failures, then the load", () => {
+    assert.ok(dead, "dead media helpers not loaded");
+    [
+      ["", 0, false, ""],
+      ["images only", 0, false, " · images only"],
+      ["", 1, false, " · 1 unavailable"],
+      ["", 0, true, " · loading more"],
+      ["images only", 2, false, " · images only · 2 unavailable"],
+      ["images only", 0, true, " · images only · loading more"],
+      ["", 3, true, " · 3 unavailable · loading more"],
+      ["images only", 1, true, " · images only · 1 unavailable · loading more"],
+    ].forEach(([summary, unavailable, loading, expected]) => {
+      assert.strictEqual(
+        dead.countSuffix(summary, unavailable, loading),
+        expected,
+        JSON.stringify([summary, unavailable, loading]),
+      );
+    });
+  });
+
+  test("two placeholders are known, one per host", () => {
+    assert.ok(dead, "dead media helpers not loaded");
+    assert.deepStrictEqual(
+      dead.PLACEHOLDER_IMAGES.map(({ width, height }) => [width, height]),
+      [
+        [130, 60],
+        [161, 81],
+      ],
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------

@@ -125,6 +125,16 @@ seconds. Search results that show only a thumbnail stay until their post is
 read, then drop out if they do not match. The choice is saved with the other
 settings.
 
+Pictures and videos that fail to load leave the slideshow and the grid instead
+of turning into an "Image unavailable" card, and the slide counter says how many
+did, as in `4 / 12 · 2 unavailable`. Deleted i.redd.it and imgur pictures count
+as failed too, even though those hosts answer with a small placeholder picture.
+Presentation mode remembers the failures until the tab reloads, so opening it
+again leaves them out at once, and when every loaded post has failed it loads
+more posts. Search results that show only a thumbnail keep their card until
+their post is read, and stream formats the browser cannot play keep their link
+card.
+
 Open the gear button's settings panel for a keyboard shortcut reference. Use the
 gear button in the bottom-left controls to choose the auto-advance duration and
 which media types to show (the images, GIFs, and videos buttons beside it change

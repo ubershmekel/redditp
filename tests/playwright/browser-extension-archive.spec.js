@@ -1084,14 +1084,16 @@ test("dead archive pictures, a gallery's among them, are skipped on the next vis
 
 test("the archive reopens where you left off", async ({ page }) => {
   // No fake clock here: it hides the navigation timing that tells a reload
-  // from an opening, so the posts are dated from the real now.
+  // from an opening, so the posts, and what the page should show of them,
+  // are reckoned from the real now.
+  const nowSec = Math.floor(Date.now() / 1000);
   const posts = imagePosts("pics", {
     count: 20,
-    newestSec: Math.floor(Date.now() / 1000) - 3 * DAY,
+    newestSec: nowSec - 3 * DAY,
   });
   await mockArchive(page, { pics: posts });
   await openArchive(page, "#r/pics");
-  const expected = expectedTitles(posts, { windowSize: 10 });
+  const expected = expectedTitles(posts, { windowSize: 10, nowSec });
   const idOf = (title) => posts.find((post) => post.title === title).id;
   await walkSlides(page, expected.slice(0, 5));
   await expect

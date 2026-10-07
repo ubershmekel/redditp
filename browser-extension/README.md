@@ -151,6 +151,9 @@ ask for permissions (or optional permissions) to access any URL to control the
 mute of videos inside iframes, but that would be a privacy concern and cause the
 extension publication review time to be much longer.
 
+NSFW and spoiler posts show their media directly. Reddit's blurred cover image
+is never a slide.
+
 Unsupported link types remain useful as title cards with links to the media and
 comments.
 

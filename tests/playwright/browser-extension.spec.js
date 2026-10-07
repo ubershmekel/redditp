@@ -578,6 +578,43 @@ test("a linked watch page becomes that host's player frame", async ({
   );
 });
 
+test("a blurred NSFW or spoiler cover is not a slide before the post's media", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `
+      <shreddit-post
+        id="t3_covered"
+        post-title="Covered clip"
+        author="poster"
+        subreddit-prefixed-name="r/clips"
+        content-href="https://videohost.example/watch/covered-clip-id"
+        permalink="/r/clips/comments/covered/covered_clip/"
+        post-type="link"
+        nsfw=""
+      >
+        <div slot="post-media-container">
+          <shreddit-blurred-container mode="slot" reason="nsfw" blurred="">
+            <div slot="blurred">
+              <img alt="" role="presentation" src="https://external-preview.redd.it/cover.jpeg?blur=40&amp;format=pjpg">
+              <img id="post-image" alt="r/clips - Covered clip" loading="eager" src="https://external-preview.redd.it/cover.jpeg?blur=40&amp;format=pjpg">
+            </div>
+            <div slot="revealed">
+              <shreddit-embed html="&lt;iframe src=&quot;https://videohost.example/ifr/covered-clip-id&quot;&gt;&lt;/iframe&gt;"></shreddit-embed>
+            </div>
+          </shreddit-blurred-container>
+        </div>
+      </shreddit-post>
+    `,
+  );
+
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    /^https:\/\/videohost\.example\/ifr\/covered-clip-id\?/,
+  );
+});
+
 test("a player frame that answers no command says so on the sound button", async ({
   page,
 }) => {

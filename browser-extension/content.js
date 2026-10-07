@@ -124,7 +124,15 @@
   }
 
   function usefulImage(image) {
-    if (!image || image.closest("[aria-hidden='true']")) return false;
+    // NSFW and spoiler posts put a blurred copy of the media in the "blurred"
+    // slot of shreddit-blurred-container.
+    if (
+      !image ||
+      image.closest(
+        "[aria-hidden='true'], shreddit-blurred-container [slot='blurred']",
+      )
+    )
+      return false;
     const description =
       `${image.getAttribute("alt") || ""} ${image.className || ""}`.toLowerCase();
     if (/avatar|award|emoji|icon|snoo/.test(description)) return false;

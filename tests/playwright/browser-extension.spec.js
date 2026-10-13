@@ -882,6 +882,55 @@ test("the final slide automatically loads newly rendered Reddit posts", async ({
   await expect(page.locator(".redditp__count")).toHaveText("2 / 3");
 });
 
+test("the final slide loads old Reddit's next listing pages", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/**", (route) => route.abort());
+  const listing = "https://www.reddit.com/r/aww+pics/";
+  const pages = [
+    { url: listing, after: "t3_one", title: "First page post" },
+    {
+      url: `${listing}?count=25&after=t3_one`,
+      after: "t3_two",
+      title: "Second page post",
+    },
+    {
+      url: `${listing}?count=50&after=t3_two`,
+      after: "",
+      title: "Third page post",
+    },
+  ];
+  pages.forEach(({ url, after, title }, index) =>
+    page.route(url, (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `
+          <div class="thing link" data-fullname="t3_${index}" data-url="https://i.redd.it/${index}.jpg" data-permalink="/r/aww/comments/${index}/post/">
+            <a class="title">${title}</a>
+          </div>
+          <div class="nav-buttons"><span class="nextprev">view more:
+            ${after ? `<span class="next-button"><a href="${listing}?count=${(index + 1) * 25}&amp;after=${after}" rel="nofollow next">next ›</a></span>` : ""}
+          </span></div>
+        `,
+      }),
+    ),
+  );
+  await page.goto(listing);
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  await expect(page.locator(".redditp__title")).toHaveText("First page post");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Second page post");
+  await expect(page.locator(".redditp__count")).toHaveText("2 / 3");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Third page post");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("First page post");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 3");
+});
+
 // Minimal old-Reddit gallery structure from the reported food+scenery DOM.
 const oldGalleryIds = [
   "w7ko4xfmlklh1",

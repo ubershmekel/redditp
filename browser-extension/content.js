@@ -61,6 +61,7 @@
     loadingMore: false,
     advanceAfterLoad: false,
     loadRequest: 0,
+    nextPageUrl: "",
     openRequest: 0,
     enrichments: new Map(),
     nativeRestores: new WeakMap(),
@@ -623,26 +624,29 @@
     return media;
   }
 
-  function selectPostNodes() {
-    const candidates = Array.from(
-      document.querySelectorAll(POST_SELECTOR),
-    ).filter((node) => {
-      // Current Reddit wraps shreddit-post in a generic article. Prefer the
-      // element that carries the actual post identity and metadata. In the
-      // inverse shape (a specific search container wrapping an article), keep
-      // the specific outer container.
-      if (node.matches("article") && node.querySelector(SPECIFIC_POST_SELECTOR))
-        return false;
-      const specificParent = node.parentElement?.closest(
-        SPECIFIC_POST_SELECTOR,
-      );
-      return !specificParent;
-    });
+  function selectPostNodes(root) {
+    const candidates = Array.from(root.querySelectorAll(POST_SELECTOR)).filter(
+      (node) => {
+        // Current Reddit wraps shreddit-post in a generic article. Prefer the
+        // element that carries the actual post identity and metadata. In the
+        // inverse shape (a specific search container wrapping an article), keep
+        // the specific outer container.
+        if (
+          node.matches("article") &&
+          node.querySelector(SPECIFIC_POST_SELECTOR)
+        )
+          return false;
+        const specificParent = node.parentElement?.closest(
+          SPECIFIC_POST_SELECTOR,
+        );
+        return !specificParent;
+      },
+    );
     if (candidates.length) return candidates;
 
     const nodes = [];
     const seen = new Set();
-    document.querySelectorAll("a[href*='/comments/']").forEach((link) => {
+    root.querySelectorAll("a[href*='/comments/']").forEach((link) => {
       const node = link.closest("div, li");
       if (node && !seen.has(node)) {
         seen.add(node);
@@ -652,11 +656,11 @@
     return nodes;
   }
 
-  function extractSlides() {
+  function extractSlides(root) {
     const slides = [];
     const seenPostMedia = new Set();
     const seenPosts = new Set();
-    selectPostNodes().forEach((node) => {
+    selectPostNodes(root).forEach((node) => {
       if (node.closest("#redditp-presentation")) return;
       const comments = commentsUrl(node);
       const postKey =
@@ -723,6 +727,20 @@
     return slides;
   }
 
+  async function fetchRedditDocument(url) {
+    const response = await fetch(url, {
+      credentials: "include",
+      headers: { Accept: "text/html" },
+    });
+    if (!response.ok) throw new Error(`Reddit returned ${response.status}`);
+    return new DOMParser().parseFromString(await response.text(), "text/html");
+  }
+
+  // Old Reddit listings page with a "next ›" link instead of infinite scroll.
+  function nextPageUrl(root) {
+    return root.querySelector(".nav-buttons .next-button a[href]")?.href || "";
+  }
+
   async function enrichSlide(slide) {
     if (!slide.needsEnrichment || !slide.commentsUrl) return;
     const key = slide.postKey || slide.commentsUrl;
@@ -730,13 +748,7 @@
     state.enrichments.set(key, "pending");
 
     try {
-      const response = await fetch(slide.commentsUrl, {
-        credentials: "include",
-        headers: { Accept: "text/html" },
-      });
-      if (!response.ok) throw new Error(`Reddit returned ${response.status}`);
-      const html = await response.text();
-      const doc = new DOMParser().parseFromString(html, "text/html");
+      const doc = await fetchRedditDocument(slide.commentsUrl);
       const safePostKey = /^[\w-]+$/.test(slide.postKey || "")
         ? slide.postKey
         : "";
@@ -1424,9 +1436,9 @@
     return `fallback:${slide.title}|${slide.sourceUrl}`;
   }
 
-  function appendNewPosts() {
+  function appendNewPosts(root) {
     const existingPosts = new Set(state.slides.map(postIdentity));
-    const additions = extractSlides().filter(
+    const additions = extractSlides(root).filter(
       (slide) => !existingPosts.has(postIdentity(slide)),
     );
     if (additions.length) state.slides.push(...additions);
@@ -1452,16 +1464,21 @@
     const request = ++state.loadRequest;
     updateCount(true);
 
-    let added = appendNewPosts();
+    let added = appendNewPosts(document);
     try {
-      if (!added) {
+      if (!added && state.nextPageUrl) {
+        const doc = await fetchRedditDocument(state.nextPageUrl);
+        if (!state.open || request !== state.loadRequest) return;
+        state.nextPageUrl = nextPageUrl(doc);
+        added = appendNewPosts(doc);
+      } else if (!added) {
         document.documentElement.style.overflow = state.oldOverflow;
         for (let attempt = 0; attempt < 20; attempt += 1) {
           const scrollingElement = document.scrollingElement;
           window.scrollTo(0, scrollingElement?.scrollHeight || 0);
           await wait(200);
           if (!state.open || request !== state.loadRequest) return;
-          added = appendNewPosts();
+          added = appendNewPosts(document);
           if (added) break;
         }
       }
@@ -1735,7 +1752,8 @@
     emptyTitle.textContent = "No posts found on this page";
     emptyText.textContent =
       "Scroll Reddit to load some posts, then try presentation mode again.";
-    state.slides = extractSlides();
+    state.slides = extractSlides(document);
+    state.nextPageUrl = nextPageUrl(document);
     state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
     render();
     const initialFocus = closeButton.hidden

@@ -101,8 +101,10 @@ through to the browser, so Ctrl+F and friends keep working while presentation
 mode is open.
 
 Reaching the final slide automatically scrolls the underlying Reddit feed and
-preloads newly rendered posts. Pressing next while that load is still running
-queues the navigation; if Reddit has no more posts, it wraps to the first slide.
+preloads newly rendered posts. On old Reddit listings, which page with a "next
+›" link, it loads the posts of the next page instead, and keeps following each
+page's next link. Pressing next while that load is still running queues the
+navigation; if Reddit has no more posts, it wraps to the first slide.
 Single-post `/comments/` pages do not trigger this feed-loading scroll. The
 slide counter shows `loading more` while this background preload is active.
 
@@ -135,11 +137,11 @@ article/post-container fallbacks. This covers home and popular feeds, subreddit
 listings, search results, post pages, and user pages on both old and current
 Reddit.
 
-Only posts currently rendered in the page can be included. On an infinite scroll
-feed, scroll first to load more posts, then start presentation mode. Images,
-galleries, and video hosted by Reddit are shown, along with the media of the few
-link hosts Reddit posts commonly use. Video starts muted and can be unmuted from
-the compact control bar or with M, which is remembered for later presentations.
+Presentation mode starts with the posts currently rendered in the page and loads
+more as it reaches the end. Images, galleries, and video hosted by Reddit are
+shown, along with the media of the few link hosts Reddit posts commonly use.
+Video starts muted and can be unmuted from the compact control bar or with M,
+which is remembered for later presentations.
 
 Media played inside a host's own player frame is opened autoplaying. The frame
 URL requests the viewer's saved sound preference using the common mute and

@@ -54,6 +54,30 @@ function svgImage(width, height) {
   };
 }
 
+// The renditions that a landscape clip's manifest on v.redd.it lists, as
+// [name, width, height], named after their short side.
+const LANDSCAPE_RENDITIONS = [
+  ["CMAF_220.mp4", 392, 220],
+  ["CMAF_360.mp4", 640, 360],
+  ["CMAF_720.mp4", 1280, 720],
+];
+
+// A video's manifest as v.redd.it serves it, to any origin: its renditions
+// with a picture, as [name, width, height], and its sound.
+function dashManifest(renditions) {
+  const representations = renditions
+    .map(
+      ([name, width, height]) =>
+        `<Representation bandwidth="${width * height}" height="${height}" id="${name}" mimeType="video/mp4" width="${width}"><BaseURL>${name}</BaseURL></Representation>`,
+    )
+    .join("");
+  return {
+    contentType: "application/dash+xml",
+    headers: { "access-control-allow-origin": "*" },
+    body: `<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static"><Period><AdaptationSet contentType="video">${representations}</AdaptationSet><AdaptationSet contentType="audio"><Representation bandwidth="131851" id="audio" mimeType="audio/mp4"><BaseURL>CMAF_AUDIO_128.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>`,
+  };
+}
+
 // What each test's page did: errors, requests that would have left the
 // machine, and requests to Reddit.
 const pageLogs = new WeakMap();
@@ -119,7 +143,14 @@ test.beforeEach(async ({ page, context }) => {
       ),
   );
   await context.route(/^https:\/\/(?:v\.redd\.it|i\.imgur\.com)\//, (route) =>
-    route.fulfill({ contentType: "video/webm", body: silentVideo }),
+    /\.mpd$/.test(route.request().url())
+      ? route.fulfill(dashManifest(LANDSCAPE_RENDITIONS))
+      : route.fulfill({ contentType: "video/webm", body: silentVideo }),
+  );
+  // The stills of players' grid tiles.
+  await context.route(
+    /^https:\/\/(?:i\.ytimg\.com|media\.redgifs\.com)\//,
+    (route) => route.fulfill(svgImage(480, 360)),
   );
   // Players load a blank page, so an embed makes no network error.
   await context.route(
@@ -991,6 +1022,356 @@ test("archive posts play their media", async ({ page }) => {
   await expect(title).toHaveText("Animated GIF");
   await expect(video).toHaveAttribute("src", GIF_MP4);
   await expect(viewerCount(page)).toHaveText("2 / 2 · GIFs only");
+});
+
+test("archive tiles load Reddit's 640 pixel copies in their stored shape, GIFs loop a small MP4, and gallery JPEGs load from i.redd.it", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(NOW);
+  const portrait = fixturePost("kgg4v8");
+  const portraitCopy = portrait.preview.images[0].resolutions
+    .find((copy) => copy.width === 640)
+    .url.replace(/&amp;/g, "&");
+  // A GIF with Reddit's stills of it, its MP4, and the MP4's smaller copies,
+  // their URLs escaped as the archive's answers have them.
+  const LOOP = "https://preview.redd.it/archloop.gif";
+  const copies = (widths, format) =>
+    widths.map((width) => ({
+      url: `${LOOP}?width=${width}&amp;format=${format}&amp;s=${width}`,
+      width,
+      height: width * 0.75,
+    }));
+  const loop = {
+    ...clone(imagePost),
+    url: "https://i.redd.it/archloop.gif",
+    url_overridden_by_dest: "https://i.redd.it/archloop.gif",
+    preview: {
+      images: [
+        {
+          source: {
+            url: `${LOOP}?format=png8&amp;s=still`,
+            width: 800,
+            height: 600,
+          },
+          resolutions: copies([320, 640, 960], "png8"),
+          variants: {
+            mp4: {
+              source: { url: `${LOOP}?format=mp4&amp;s=full` },
+              resolutions: copies([320, 640], "mp4"),
+            },
+          },
+        },
+      ],
+    },
+  };
+  const gallery = clone(
+    require("../../test-data/gallery-feature.json").data.children[1].data,
+  );
+  Object.entries(gallery.media_metadata).forEach(([id, entry]) => {
+    entry.m = "image/jpg";
+    entry.s.u = `https://preview.redd.it/${id}.jpg?width=1080&amp;format=pjpg&amp;auto=webp&amp;s=x`;
+  });
+  const posts = [
+    [portrait, "Portrait"],
+    [loop, "Loop"],
+    [gallery, "Gallery"],
+  ].map(([template, title], index) => ({
+    ...clone(template),
+    id: `copies${index}`,
+    name: `t3_copies${index}`,
+    subreddit: "copies",
+    created_utc: NOW_SEC - 3 * DAY - index * HOUR,
+    score: 900 - index * 100,
+    title,
+    permalink: `/r/copies/comments/copies${index}/post/`,
+    removed_by_category: null,
+  }));
+  await page.route(/[?&]format=mp4/, (route) =>
+    route.fulfill({ contentType: "video/webm", body: silentVideo }),
+  );
+  // The portrait's copy waits until the test lets it through.
+  let heldCopy = null;
+  await page.route(
+    (url) => url.href === portraitCopy,
+    (route) => {
+      heldCopy = route;
+    },
+  );
+  await mockArchive(page, { copies: posts });
+  await openArchive(page, "#r/copies");
+  const title = viewerTitle(page);
+  const image = page.locator(".redditp__image");
+
+  // The slideshow shows the originals.
+  await expect(title).toHaveText("Portrait");
+  await expect(image).toHaveAttribute("src", portrait.url);
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Loop");
+  await expect(page.locator(".redditp__video")).toHaveAttribute(
+    "src",
+    `${LOOP}?format=mp4&s=full`,
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__gallery")).toHaveText("(1/3)");
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/galimg1.jpg");
+
+  await page.keyboard.press("v");
+  const tile = (name) =>
+    page.locator(".redditp__grid").getByRole("button", { name, exact: true });
+  const portraitTile = tile("Portrait");
+  await expect(portraitTile.locator("img")).toHaveAttribute(
+    "src",
+    portraitCopy,
+  );
+  await expect.poll(() => heldCopy !== null).toBe(true);
+  // Its shape comes from the stored size before the copy arrives.
+  const shape = async () => {
+    const box = await portraitTile.boundingBox();
+    return box.height / box.width;
+  };
+  expect(await shape()).toBeCloseTo(4032 / 3024, 2);
+  await heldCopy.fulfill(svgImage(640, 853));
+  await expect(portraitTile.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  expect(await shape()).toBeCloseTo(4032 / 3024, 2);
+
+  const loopTile = tile("Loop, video");
+  await expect(loopTile.locator("img")).toHaveAttribute(
+    "src",
+    `${LOOP}?width=640&format=png8&s=640`,
+  );
+  const loopVideo = loopTile.locator("video");
+  await expect(loopVideo).toHaveAttribute(
+    "src",
+    `${LOOP}?width=640&format=mp4&s=640`,
+  );
+  await expect(loopVideo).toHaveClass(/redditp__tile-video--shown/);
+  expect(await loopVideo.evaluate((element) => element.muted)).toBe(true);
+  // Only the GIF loops.
+  await expect(page.locator(".redditp__grid video")).toHaveCount(1);
+  await expect(tile("Gallery, 2 of 3").locator("img")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/galimg2.jpg",
+  );
+});
+
+test("archive player tiles show a still of the player, never the player", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(NOW);
+  const previewed = fixturePost("kgifs8");
+  // A YouTube link that has lost its preview and its oEmbed.
+  const {
+    preview: _preview,
+    media: _media,
+    secure_media: _secureMedia,
+    ...bareYoutube
+  } = fixturePost("kgjtiu");
+  // Watch pages on a player host without a preview, one of them with a
+  // still in its oEmbed, as RedGIFs' clips have.
+  const namedStill = "https://media.redgifs.com/SomeClip-poster.jpg";
+  const oembed = {
+    type: "video",
+    thumbnail_url: namedStill,
+    html: '<iframe src="https://videohost.example/ifr/named"></iframe>',
+  };
+  const watchPage = (id, fields) => ({
+    ...fixturePost("kghink"),
+    url: `https://videohost.example/watch/${id}`,
+    url_overridden_by_dest: `https://videohost.example/watch/${id}`,
+    domain: "videohost.example",
+    post_hint: "rich:video",
+    ...fields,
+  });
+  const posts = [
+    [previewed, "Previewed clip"],
+    [bareYoutube, "Bare YouTube clip"],
+    [
+      watchPage("named", {
+        media: { type: "videohost.example", oembed },
+        secure_media: { type: "videohost.example", oembed },
+      }),
+      "Named still clip",
+    ],
+    [watchPage("bare", {}), "Stillless clip"],
+  ].map(([template, title], index) => ({
+    ...clone(template),
+    id: `frame${index}`,
+    name: `t3_frame${index}`,
+    subreddit: "frames",
+    created_utc: NOW_SEC - 3 * DAY - index * HOUR,
+    score: 900 - index * 100,
+    title,
+    permalink: `/r/frames/comments/frame${index}/post/`,
+    removed_by_category: null,
+  }));
+  await mockArchive(page, { frames: posts });
+  await openArchive(page, "#r/frames");
+  await expect(viewerTitle(page)).toHaveText("Previewed clip");
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    /^https:\/\/www\.youtube\.com\/embed\/zb_oMA-v_wI\?/,
+  );
+
+  await page.keyboard.press("v");
+  const grid = page.locator(".redditp__grid");
+  const tile = (name) => grid.getByRole("button", { name, exact: true });
+  const stills = [
+    [
+      "Previewed clip, video",
+      previewed.preview.images[0].source.url.replace(/&amp;/g, "&"),
+    ],
+    [
+      "Bare YouTube clip, video",
+      "https://i.ytimg.com/vi/GXzLx-UjNNg/hqdefault.jpg",
+    ],
+    ["Named still clip, video", namedStill],
+  ];
+  for (const [name, still] of stills) {
+    const picture = tile(name).locator("img");
+    await expect(picture).toHaveAttribute("src", still);
+    await expect(picture).toHaveClass(/redditp__tile-image--loaded/);
+    await expect(tile(name).locator(".redditp__tile-play")).toHaveCount(0);
+  }
+  await expect(
+    tile("Stillless clip, video").locator(".redditp__tile-kind"),
+  ).toHaveText("Embedded video");
+  await expect(grid.locator("iframe, video")).toHaveCount(0);
+  await expect(page.locator(".redditp__embed")).toHaveCount(0);
+});
+
+test("archive tiles loop Reddit videos and RedGIFs clips as small renditions, and never a YouTube player", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(NOW);
+  // Reddit's copy of a RedGIFs clip, as the post's preview names it.
+  const redgifs = {
+    ...fixturePost("kghink"),
+    url: "https://www.redgifs.com/watch/someclip",
+    url_overridden_by_dest: "https://www.redgifs.com/watch/someclip",
+    domain: "redgifs.com",
+    post_hint: "rich:video",
+    preview: {
+      images: [
+        {
+          source: {
+            url: "https://external-preview.redd.it/someclip.jpg?s=a",
+            width: 1080,
+            height: 1920,
+          },
+        },
+      ],
+      reddit_video_preview: {
+        bitrate_kbps: 5000,
+        fallback_url: "https://v.redd.it/redgifs1/CMAF_1080.mp4",
+        height: 1920,
+        width: 1080,
+        dash_url: "https://v.redd.it/redgifs1/DASHPlaylist.mpd",
+        is_gif: true,
+      },
+      enabled: false,
+    },
+  };
+  const posts = [
+    [videoPost, "Reddit video"],
+    [fixturePost("kg84kl"), "Crossposted video"],
+    [redgifs, "RedGIFs clip"],
+    [fixturePost("kgifs8"), "YouTube clip"],
+  ].map(([template, title], index) => ({
+    ...clone(template),
+    id: `loop${index}`,
+    name: `t3_loop${index}`,
+    subreddit: "loops",
+    created_utc: NOW_SEC - 3 * DAY - index * HOUR,
+    score: 900 - index * 100,
+    title,
+    permalink: `/r/loops/comments/loop${index}/post/`,
+    removed_by_category: null,
+  }));
+  // The videos' manifests: Reddit video's of 2020 name their renditions
+  // after their height, with an extension.
+  const manifests = [];
+  await page.route(
+    /^https:\/\/v\.redd\.it\/[^/]+\/DASHPlaylist\.mpd$/,
+    (route) => {
+      const url = route.request().url();
+      manifests.push(url);
+      if (url.includes("/redgifs1/")) {
+        return route.fulfill(
+          dashManifest([
+            ["CMAF_270.mp4", 270, 480],
+            ["CMAF_360.mp4", 360, 640],
+            ["CMAF_720.mp4", 720, 1280],
+          ]),
+        );
+      }
+      return route.fulfill(
+        dashManifest([
+          ["DASH_240.mp4", 426, 240],
+          ["DASH_360.mp4", 640, 360],
+          ["DASH_720.mp4", 1280, 720],
+        ]),
+      );
+    },
+  );
+  await mockArchive(page, { loops: posts });
+  await openArchive(page, "#r/loops");
+  await expect(viewerTitle(page)).toHaveText("Reddit video");
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveAttribute(
+    "src",
+    "https://v.redd.it/h57x3pgw57661/DASH_360.mp4?source=fallback",
+  );
+
+  await page.keyboard.press("v");
+  const grid = page.locator(".redditp__grid");
+  const loops = () =>
+    grid.evaluate((element) =>
+      Array.from(element.querySelectorAll(".redditp__tile-video"), (loop) => [
+        loop.closest(".redditp__tile").getAttribute("aria-label"),
+        loop.getAttribute("src"),
+        loop.muted && !loop.paused,
+      ]).sort(),
+    );
+  await expect.poll(loops).toEqual([
+    [
+      "Crossposted video, video",
+      "https://v.redd.it/clkrb6upg4661/DASH_360.mp4",
+      true,
+    ],
+    ["RedGIFs clip, video", "https://v.redd.it/redgifs1/CMAF_360.mp4", true],
+    [
+      "Reddit video, video",
+      "https://v.redd.it/h57x3pgw57661/DASH_360.mp4",
+      true,
+    ],
+  ]);
+  expect(manifests.sort()).toEqual([
+    "https://v.redd.it/clkrb6upg4661/DASHPlaylist.mpd",
+    "https://v.redd.it/h57x3pgw57661/DASHPlaylist.mpd",
+    "https://v.redd.it/redgifs1/DASHPlaylist.mpd",
+  ]);
+  const youtube = grid.getByRole("button", {
+    name: "YouTube clip, video",
+    exact: true,
+  });
+  await expect(youtube.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  await expect(youtube.locator("video")).toHaveCount(0);
+  await expect(grid.locator("iframe")).toHaveCount(0);
+  await expect(page.locator(".redditp__embed")).toHaveCount(0);
+
+  // The slideshow plays the video's own file, silent as the settings say.
+  await grid
+    .getByRole("button", { name: "Reddit video, video", exact: true })
+    .click();
+  await expect(video).toHaveAttribute(
+    "src",
+    "https://v.redd.it/h57x3pgw57661/DASH_360.mp4?source=fallback",
+  );
+  expect(await video.evaluate((element) => element.muted)).toBe(true);
 });
 
 test("archive mode never contacts reddit.com", async ({ page }) => {

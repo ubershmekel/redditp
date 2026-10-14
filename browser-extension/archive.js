@@ -85,15 +85,102 @@
     return isObject(video) ? video : null;
   }
 
+  // The still that a post's player frame names in its oEmbed, such as a
+  // RedGIFs clip's poster, decoded; "" when it names none.
+  function oembedThumbnail(post) {
+    const oembed = post.media?.oembed || post.secure_media?.oembed;
+    return isObject(oembed) ? decodeUrl(oembed.thumbnail_url) : "";
+  }
+
   function sizeOf(value) {
     const number = numberOf(value);
     return Number.isFinite(number) ? number : 0;
   }
 
+  // redditp-grid-rendition:start
+  // Which of Reddit's smaller copies of a picture a grid tile loads.
+  // content.js and archive.js carry this block word for word, and it stays
+  // DOM-free, so nodejs/test-embedit.js can check both copies. Grid columns
+  // are 300 to 600 CSS pixels wide on a computer, and about 170 to 200 on a
+  // phone, whose screen has 2 or 3 device pixels to the CSS pixel, so a copy
+  // GRID_THUMB_WIDTH pixels wide looks sharp in any column at a fraction of
+  // the original's weight.
+  const GRID_THUMB_WIDTH = 640;
+
+  // The narrowest of a picture's copies that is at least GRID_THUMB_WIDTH
+  // wide, from a list of { url, width }. When none is that wide, the
+  // picture is small already, so its tile loads the picture itself: null,
+  // unless orWidest asks for the widest copy instead, as for a GIF, whose
+  // file weighs far more than any copy of it. Copies without a URL or a
+  // width are passed over.
+  function gridRendition(copies, orWidest) {
+    let narrowest = null;
+    let widest = null;
+    (Array.isArray(copies) ? copies : []).forEach((copy) => {
+      if (!copy || typeof copy.url !== "string" || !copy.url) return;
+      const width = Number(copy.width);
+      if (!Number.isFinite(width) || width <= 0) return;
+      if (!widest || width > Number(widest.width)) widest = copy;
+      if (
+        width >= GRID_THUMB_WIDTH &&
+        (!narrowest || width < Number(narrowest.width))
+      ) {
+        narrowest = copy;
+      }
+    });
+    return narrowest || (orWidest ? widest : null);
+  }
+
+  // Whether a copy is a still picture. Reddit's copies of a GIF keep the
+  // .gif name, and are stills only when their format says so; without one
+  // they are GIFs again, often of megabytes.
+  function isStillCopy(url) {
+    if (typeof url !== "string") return false;
+    const decoded = url.replace(/&amp;/g, "&");
+    if (!/\.gif(?:$|[?#])/i.test(decoded)) return true;
+    try {
+      const format = new URL(decoded).searchParams.get("format") || "";
+      return /^(?:png8?|p?jpg)$/i.test(format);
+    } catch (_error) {
+      return false;
+    }
+  }
+  // redditp-grid-rendition:end
+
+  // A gallery item's smaller copies, from its metadata's `p`, in the shape
+  // gridRendition reads.
+  function galleryCopies(entry) {
+    return Array.isArray(entry.p)
+      ? entry.p
+          .filter(isObject)
+          .map((size) => ({ url: size.u, width: size.x, height: size.y }))
+      : [];
+  }
+
+  // The one smaller copy a record keeps of a list (see gridRendition), as
+  // a one-item list in the list's own shape, or null. The widest copy is
+  // kept when none is wide enough, so that a GIF can still use it.
+  function keptCopy(copies) {
+    const copy = gridRendition(copies, true);
+    return copy
+      ? [
+          {
+            url: decodeUrl(copy.url),
+            width: sizeOf(copy.width),
+            height: sizeOf(copy.height),
+          },
+        ]
+      : null;
+  }
+
   // What a post shows: its link, its Reddit video, its preview picture, the
-  // MP4 that Reddit made of a GIF, and its gallery, with the gallery's
-  // pictures in their largest size only. A crosspost keeps the same fields
-  // of its original post.
+  // MP4 that Reddit made of a GIF, Reddit's own copy of a clip that it
+  // links to on a host such as RedGIFs, and its gallery, with the gallery's
+  // pictures in their largest size. Of the smaller copies of the preview,
+  // of a GIF's MP4 and of each gallery picture, only the one a grid tile
+  // loads is kept (see keptCopy), to keep records small, of a player
+  // frame's oEmbed only its still, and of the copy of a clip only its file
+  // and size. A crosspost keeps the same fields of its original post.
   function trimMedia(post) {
     const media = {
       is_video: post.is_video === true,
@@ -124,12 +211,40 @@
         height: sizeOf(image.source.height),
       };
     }
-    const rendition = image?.variants?.mp4?.source?.url;
-    if (typeof rendition === "string") {
-      preview.variants = { mp4: { source: { url: decodeUrl(rendition) } } };
+    const still = keptCopy(image?.resolutions);
+    if (still) preview.resolutions = still;
+    const mp4 = image?.variants?.mp4;
+    if (typeof mp4?.source?.url === "string") {
+      preview.variants = {
+        mp4: { source: { url: decodeUrl(mp4.source.url) } },
+      };
+      const loop = keptCopy(mp4.resolutions);
+      if (loop) preview.variants.mp4.resolutions = loop;
     }
-    if (preview.source || preview.variants) {
+    if (preview.source || preview.resolutions || preview.variants) {
       media.preview = { images: [preview] };
+    }
+    // Reddit's copy of a linked clip, on v.redd.it, which a grid tile loops
+    // (see clipLoop).
+    const clip = post.preview?.reddit_video_preview;
+    if (isObject(clip) && typeof clip.fallback_url === "string") {
+      media.preview = {
+        ...media.preview,
+        reddit_video_preview: {
+          fallback_url: decodeUrl(clip.fallback_url),
+          width: sizeOf(clip.width),
+          height: sizeOf(clip.height),
+        },
+      };
+    }
+    // A player frame's own still stands in for a preview that the post
+    // lacks, so of its oEmbed, only that URL is kept.
+    const thumbnail = oembedThumbnail(post);
+    if (thumbnail && !preview.source) {
+      media.media = {
+        ...media.media,
+        oembed: { thumbnail_url: thumbnail },
+      };
     }
     if (Array.isArray(post.gallery_data?.items)) {
       media.gallery_data = {
@@ -157,6 +272,14 @@
           ["x", "y"].forEach((key) => {
             if (Number.isFinite(entry.s[key])) kept.s[key] = entry.s[key];
           });
+        }
+        const smaller = keptCopy(galleryCopies(entry));
+        if (smaller) {
+          kept.p = smaller.map((copy) => ({
+            u: copy.url,
+            x: copy.width,
+            y: copy.height,
+          }));
         }
         media.media_metadata[id] = kept;
       });
@@ -235,13 +358,87 @@
       : post;
   }
 
-  function previewPicture(post) {
-    return safeUrl(post?.preview?.images?.[0]?.source?.url);
+  // A post's preview picture, Reddit's copy of its picture or of its
+  // video's first frame: its URL, its size (0 when unknown), its smaller
+  // copies, and for a GIF the MP4 that Reddit made of it with that MP4's
+  // smaller copies. Records stored before the copies were kept have none.
+  function previewOf(post) {
+    const image = post?.preview?.images?.[0];
+    const mp4 = image?.variants?.mp4;
+    return {
+      url: safeUrl(image?.source?.url),
+      width: sizeOf(image?.source?.width),
+      height: sizeOf(image?.source?.height),
+      copies: image?.resolutions,
+      mp4: safeUrl(mp4?.source?.url),
+      mp4Copies: mp4?.resolutions,
+    };
+  }
+
+  const NO_PREVIEW = previewOf(null);
+
+  // What a grid tile shows of an item whose picture, or video's poster, is
+  // `preview` (see previewOf): thumb, the smaller still copy that the tile
+  // loads instead (see gridRendition), and the picture's size; and
+  // thumbVideo, the silent loop that plays over the still: a GIF's MP4 of
+  // Reddit's (see gifLoop), or the file on v.redd.it of a Reddit video or
+  // of Reddit's copy of a clip (see clipLoop), which the viewer trades for
+  // a smaller rendition. A GIF's still may be narrower than
+  // GRID_THUMB_WIDTH, since the GIF itself weighs far more.
+  function gridFields(preview, gif, loop) {
+    const copy = gridRendition(preview.copies, gif);
+    return {
+      thumb: copy && isStillCopy(copy.url) ? safeUrl(copy.url) : "",
+      thumbVideo: loop || "",
+      width: preview.width,
+      height: preview.height,
+    };
+  }
+
+  // The loop a GIF's tile plays: the narrowest of the MP4's copies that is
+  // wide enough, or its widest, or else the MP4 itself, which is small too.
+  function gifLoop(preview) {
+    const copy = gridRendition(preview.mp4Copies, true);
+    return (copy && safeUrl(copy.url)) || preview.mp4;
+  }
+
+  // The file on v.redd.it of Reddit's own copy of the clip that a post
+  // links to on a host such as RedGIFs or imgur, from its preview or from
+  // its crosspost original's; "" when neither has one.
+  function clipLoop(post) {
+    const parent = Array.isArray(post.crosspost_parent_list)
+      ? post.crosspost_parent_list[0]
+      : null;
+    return (
+      [post, parent]
+        .map((source) =>
+          isObject(source)
+            ? safeUrl(source.preview?.reddit_video_preview?.fallback_url)
+            : "",
+        )
+        .find((url) => /^https:\/\/v\.redd\.it\//i.test(url)) || ""
+    );
+  }
+
+  // A gallery picture's own file on i.redd.it, for a JPEG or WebP, or "".
+  // Its s.u is one of preview.redd.it's full-size transcodes, which the
+  // host makes on demand, so a first request for one can take seconds,
+  // while i.redd.it serves the file it has, of about the same weight. A PNG
+  // keeps its transcode, since the original can weigh many times more.
+  function galleryUpload(id, mime) {
+    const type = /^image\/(jpe?g|webp)$/i.exec(
+      typeof mime === "string" ? mime : "",
+    );
+    return type && /^[a-z0-9]+$/i.test(id)
+      ? `https://i.redd.it/${id}.${type[1].toLowerCase()}`
+      : "";
   }
 
   // A gallery's pictures and animations in the gallery's order, numbered
   // n of N. Items that failed to process are left out, and so are videos,
-  // for which the metadata names no file.
+  // for which the metadata names no file. A picture that loads from
+  // i.redd.it (see galleryUpload) keeps its transcode's URL as formerUrl,
+  // under which slides of it were known before.
   function galleryMedia(source) {
     const metadata = source.media_metadata;
     const ids = Array.isArray(source.gallery_data?.items)
@@ -255,14 +452,41 @@
         return;
       }
       const size = isObject(entry.s) ? entry.s : {};
+      const animated = entry.e === "AnimatedImage";
+      const picture = {
+        url: "",
+        width: Number.isFinite(size.x) ? size.x : 0,
+        height: Number.isFinite(size.y) ? size.y : 0,
+        copies: galleryCopies(entry),
+      };
       let item = null;
       if (entry.e === "Image") {
-        item = { kind: "image", url: safeUrl(size.u), fromGif: false };
-      } else if (entry.e === "AnimatedImage") {
-        // An animation plays as its MP4 where it has one.
-        item = safeUrl(size.mp4)
-          ? { kind: "video", url: safeUrl(size.mp4), fromGif: true }
-          : { kind: "image", url: safeUrl(size.gif), fromGif: true };
+        const upload = galleryUpload(id, entry.m);
+        const transcode = safeUrl(size.u);
+        item = {
+          kind: "image",
+          url: upload || transcode,
+          fromGif: false,
+          ...gridFields(picture, false, ""),
+        };
+        if (upload && transcode) item.formerUrl = transcode;
+      } else if (animated && safeUrl(size.mp4)) {
+        // An animation plays as its MP4 where it has one. The metadata has
+        // no smaller MP4, so its tile loops that one.
+        const mp4 = safeUrl(size.mp4);
+        item = {
+          kind: "video",
+          url: mp4,
+          fromGif: true,
+          ...gridFields(picture, true, mp4),
+        };
+      } else if (animated) {
+        item = {
+          kind: "image",
+          url: safeUrl(size.gif),
+          fromGif: true,
+          ...gridFields(picture, true, ""),
+        };
       }
       if (item?.url) items.push({ ...item, poster: "", postMedia: true });
     });
@@ -277,7 +501,10 @@
   // Reddit video's silent MP4, a picture, video or player that its link
   // leads to (a GIF as the MP4 that Reddit made of it), the preview picture
   // of a link, or the link itself. The first rule that finds something
-  // wins, so the result is never empty.
+  // wins, so the result is never empty. Each item also says what its grid
+  // tile shows (see gridFields): a Reddit video's tile loops the video, and
+  // the tile of a clip elsewhere loops Reddit's copy of it, where the post
+  // has one.
   function mediaFromPost(post, urls) {
     const source = mediaSource(post);
     if (
@@ -290,27 +517,50 @@
     const video = redditVideo(source);
     const fallback = safeUrl(video?.fallback_url);
     if (fallback) {
+      const sourcePreview = previewOf(source);
+      const poster = sourcePreview.url ? sourcePreview : previewOf(post);
       return [
         {
           kind: "video",
           url: fallback,
-          poster: previewPicture(source) || previewPicture(post),
+          poster: poster.url,
           postMedia: true,
           fromGif: video.is_gif === true,
+          ...gridFields(poster, video.is_gif === true, fallback),
         },
       ];
     }
     const url = safeUrl(post.url_overridden_by_dest || post.url);
-    const preview = previewPicture(post);
+    const preview = previewOf(post);
     const external = url ? urls.externalMedia(url) : null;
     if (external) {
+      // Reddit's preview is its copy of the picture, or of the video's
+      // first frame. The grid never loads a player, so a player's tile
+      // shows that still as its poster. Where the post has no preview, it
+      // shows the still that the player's oEmbed names, or else the one
+      // that its host keeps (see embedStill). An imgur GIF's own MP4 can
+      // weigh megabytes, so a video's or a player's tile loops only
+      // Reddit's copy of the clip, where the post has one (see clipLoop).
+      let still = "";
+      if (external.kind === "embed" && !preview.url) {
+        still =
+          safeUrl(oembedThumbnail(post)) ||
+          (typeof urls.embedStill === "function"
+            ? urls.embedStill(external.url)
+            : "");
+      }
       return [
         {
           kind: external.kind,
           url: external.url,
-          poster: external.kind === "video" ? preview : "",
+          poster: external.kind === "image" ? "" : preview.url || still,
           postMedia: true,
           fromGif: Boolean(external.fromGif),
+          ...gridFields(
+            preview,
+            Boolean(external.fromGif),
+            external.kind === "image" ? "" : clipLoop(post),
+          ),
         },
       ];
     }
@@ -318,19 +568,29 @@
     // and far cheaper to play, where the post has one.
     const rendition = mp4Rendition(source);
     if (url && rendition && GIF_URL_RE.test(url)) {
+      const poster = preview.url ? preview : previewOf(source);
       return [
         {
           kind: "video",
           url: rendition,
-          poster: preview || previewPicture(source),
+          poster: poster.url,
           postMedia: true,
           fromGif: true,
+          ...gridFields(poster, true, gifLoop(previewOf(source))),
         },
       ];
     }
+    // The preview is Reddit's copy of a linked picture.
     if (url && urls.IMAGE_URL_RE.test(url)) {
       return [
-        { kind: "image", url, poster: "", postMedia: true, fromGif: false },
+        {
+          kind: "image",
+          url,
+          poster: "",
+          postMedia: true,
+          fromGif: false,
+          ...gridFields(preview, GIF_URL_RE.test(url), ""),
+        },
       ];
     }
     if (url && urls.isVideoUrl(url)) {
@@ -338,22 +598,24 @@
         {
           kind: "video",
           url,
-          poster: preview,
+          poster: preview.url,
           postMedia: true,
           fromGif: false,
+          ...gridFields(preview, false, ""),
         },
       ];
     }
     // A link's preview picture is not the post's own media, so any Show
     // filter hides it.
-    if (!post.is_self && preview) {
+    if (!post.is_self && preview.url) {
       return [
         {
           kind: "image",
-          url: preview,
+          url: preview.url,
           poster: "",
           postMedia: false,
           fromGif: false,
+          ...gridFields(preview, GIF_URL_RE.test(preview.url), ""),
         },
       ];
     }
@@ -367,15 +629,16 @@
         poster: "",
         postMedia: false,
         fromGif: false,
+        ...gridFields(NO_PREVIEW, false, ""),
       },
     ];
   }
 
   // The viewer's slides for a post, one per media item, and how many items
   // were left out because they are known to fail (deadKeys holds their
-  // media keys). A gallery's slides keep their n/N numbering when some are
-  // left out. Every slide carries `archive`, which the viewer passes back
-  // untouched.
+  // media keys, some recorded under an item's formerUrl). A gallery's
+  // slides keep their n/N numbering when some are left out. Every slide
+  // carries `archive`, which the viewer passes back untouched.
   function postSlides(post, urls, deadKeys) {
     const permalink =
       safeUrl(post.permalink) || `${REDDIT_ORIGIN}/comments/${post.id}/`;
@@ -386,10 +649,14 @@
       post.author !== "[deleted]"
         ? `u/${post.author}`
         : "";
+    const isDead = (mediaUrl) =>
+      Boolean(
+        mediaUrl && deadKeys && deadKeys.has(urls.canonicalMediaKey(mediaUrl)),
+      );
     const slides = [];
     let unavailable = 0;
     mediaFromPost(post, urls).forEach((item) => {
-      if (deadKeys && deadKeys.has(urls.canonicalMediaKey(item.url))) {
+      if (isDead(item.url) || isDead(item.formerUrl)) {
         unavailable += 1;
         return;
       }
@@ -397,6 +664,10 @@
         kind: item.kind,
         url: item.url,
         poster: item.poster,
+        thumb: item.thumb,
+        thumbVideo: item.thumbVideo,
+        width: item.width,
+        height: item.height,
         postMedia: item.postMedia,
         fromGif: item.fromGif,
         galleryItem: item.galleryItem || 0,

@@ -82,6 +82,8 @@
   border: 0;
   object-fit: contain;
   background: #000;
+  /* A click on the picture goes back to the grid. */
+  cursor: pointer;
 }
 
 #redditp-presentation .redditp__image--expand {
@@ -715,6 +717,8 @@
   height: 100%;
 }
 
+/* A picture that arrives while its tile is in view fades in over the
+   tile's dark background instead of popping in. */
 #redditp-presentation .redditp__tile-image {
   display: block;
   max-width: none;
@@ -722,6 +726,46 @@
   margin: 0;
   border: 0;
   object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+
+#redditp-presentation .redditp__tile-image--loaded {
+  opacity: 1;
+}
+
+/* A tile's silent loop, of a GIF or a Reddit video, plays over its still,
+   and shows only once it has a picture of its own, as a rule while its tile
+   is still ahead of the view. Clicks go through it to the tile. */
+#redditp-presentation .redditp__tile-video {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  object-fit: cover;
+  background: transparent;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+
+#redditp-presentation .redditp__tile-video--shown {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #redditp-presentation .redditp__tile-image,
+  #redditp-presentation .redditp__tile-video {
+    transition: none;
+  }
 }
 
 #redditp-presentation .redditp__tile-card {
@@ -761,32 +805,6 @@
   background: rgba(0, 0, 0, 0.65);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-}
-
-#redditp-presentation .redditp__tile-play {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  margin: -22px 0 0 -22px;
-  border-radius: 50%;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.55);
-  font-size: 18px;
-  line-height: 1;
-}
-
-/* On a card without a picture the play badge moves clear of the title. */
-#redditp-presentation .redditp__tile-card ~ .redditp__tile-play {
-  top: 8px;
-  left: 8px;
-  width: 32px;
-  height: 32px;
-  margin: 0;
-  font-size: 14px;
 }
 
 #redditp-presentation .redditp__tile-caption {

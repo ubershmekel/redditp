@@ -847,9 +847,10 @@ suite("listingUrl", () => {
 
 // Evaluates the block between "// <name>:start" and "// <name>:end" in a
 // script of browser-extension/, content.js unless another file is named, and
-// returns the named functions and constants. Returns null if the markers are
-// gone, which each suite's first test asserts on rather than silently
-// skipping its checks.
+// returns the named functions and constants. A list of names evaluates those
+// blocks together, for a block that reads another. Returns null if the
+// markers are gone, which each suite's first test asserts on rather than
+// silently skipping its checks.
 function loadContentScriptBlock(name, exportNames, file = "content.js") {
   const fs = require("fs");
   const path = require("path");
@@ -857,12 +858,16 @@ function loadContentScriptBlock(name, exportNames, file = "content.js") {
     path.join(__dirname, "../browser-extension", file),
     "utf8",
   );
-  const start = source.indexOf(`// ${name}:start`);
-  const end = source.indexOf(`// ${name}:end`);
-  if (start < 0 || end < start) return null;
+  const blocks = [];
+  for (const blockName of Array.isArray(name) ? name : [name]) {
+    const start = source.indexOf(`// ${blockName}:start`);
+    const end = source.indexOf(`// ${blockName}:end`);
+    if (start < 0 || end < start) return null;
+    blocks.push(source.slice(start, end));
+  }
   return new Function(
     '"use strict";\n' +
-      source.slice(start, end) +
+      blocks.join("\n") +
       `\nreturn { ${exportNames.join(", ")} };`,
   )();
 }
@@ -967,6 +972,943 @@ suite("browser-extension grid layout", () => {
         1,
         `${width}x${height}`,
       );
+    });
+  });
+});
+
+// Which of Reddit's smaller copies of a picture a grid tile loads. content.js
+// and archive.js carry this block word for word.
+suite("browser-extension grid renditions", () => {
+  const names = ["GRID_THUMB_WIDTH", "gridRendition", "isStillCopy"];
+  const inContent = loadContentScriptBlock("redditp-grid-rendition", names);
+  const inArchive = loadContentScriptBlock(
+    "redditp-grid-rendition",
+    names,
+    "archive.js",
+  );
+  const copies = (...widths) =>
+    widths.map((width) => ({
+      url: `https://preview.redd.it/pic.jpg?width=${width}&s=x`,
+      width,
+      height: Math.round(width * 0.75),
+    }));
+
+  test("grid rendition helpers could be loaded", () => {
+    // Guards the slices above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      inContent,
+      "did not find the redditp-grid-rendition markers in content.js",
+    );
+    assert.ok(
+      inArchive,
+      "did not find the redditp-grid-rendition markers in archive.js",
+    );
+  });
+
+  test("a tile loads the narrowest copy at least 640 pixels wide", () => {
+    assert.ok(inContent, "grid rendition helpers not loaded");
+    assert.strictEqual(inContent.GRID_THUMB_WIDTH, 640);
+    const list = copies(108, 216, 320, 640, 960, 1080);
+    assert.strictEqual(inContent.gridRendition(list), list[3]);
+    assert.strictEqual(inContent.gridRendition(list, true), list[3]);
+    // Whatever the order.
+    assert.strictEqual(inContent.gridRendition([...list].reverse()), list[3]);
+    assert.strictEqual(
+      inContent.gridRendition(copies(108, 1080, 960)).width,
+      960,
+    );
+  });
+
+  test("a picture with no copy that wide loads itself, and a GIF the widest copy", () => {
+    assert.ok(inContent, "grid rendition helpers not loaded");
+    const small = copies(108, 320, 216);
+    assert.strictEqual(inContent.gridRendition(small), null);
+    assert.strictEqual(inContent.gridRendition(small, true), small[1]);
+    [[], null, undefined, "copies"].forEach((value) => {
+      assert.strictEqual(inContent.gridRendition(value), null, String(value));
+      assert.strictEqual(
+        inContent.gridRendition(value, true),
+        null,
+        String(value),
+      );
+    });
+  });
+
+  test("copies without a URL or a width are passed over", () => {
+    assert.ok(inContent, "grid rendition helpers not loaded");
+    const broken = [
+      null,
+      "https://preview.redd.it/pic.jpg",
+      { url: "", width: 700 },
+      { url: 5, width: 700 },
+      { width: 700 },
+      { url: "https://preview.redd.it/pic.jpg?width=wide", width: "wide" },
+      { url: "https://preview.redd.it/pic.jpg?width=0", width: 0 },
+      { url: "https://preview.redd.it/pic.jpg?width=-9", width: -900 },
+    ];
+    assert.strictEqual(inContent.gridRendition(broken, true), null);
+    // A numeric string counts, as older records may store one.
+    const numeric = { url: "https://preview.redd.it/pic.jpg", width: "800" };
+    assert.strictEqual(inContent.gridRendition([...broken, numeric]), numeric);
+  });
+
+  test("a copy of a GIF is a still only when its format says so", () => {
+    assert.ok(inContent, "grid rendition helpers not loaded");
+    [
+      "https://preview.redd.it/pic.jpg?width=640&s=x",
+      "https://external-preview.redd.it/pic.png",
+      "https://preview.redd.it/anim.gif?width=640&format=png8&s=x",
+      "https://preview.redd.it/anim.gif?width=640&amp;format=png8&amp;s=x",
+      "https://preview.redd.it/anim.gif?format=png&s=x",
+      "https://preview.redd.it/anim.gif?format=jpg&s=x",
+      "https://preview.redd.it/anim.GIF?format=pjpg&s=x",
+    ].forEach((url) => {
+      assert.strictEqual(inContent.isStillCopy(url), true, url);
+    });
+    [
+      "https://preview.redd.it/anim.gif?width=640&s=x",
+      "https://i.redd.it/anim.gif",
+      "https://preview.redd.it/anim.gif?format=mp4&s=x",
+      "https://preview.redd.it/anim.gif?format=gif",
+      "anim.gif?format=png",
+      null,
+      5,
+    ].forEach((url) => {
+      assert.strictEqual(inContent.isStillCopy(url), false, String(url));
+    });
+  });
+
+  test("archive.js carries the block of content.js word for word", () => {
+    const fs = require("fs");
+    const path = require("path");
+    function block(file) {
+      const source = fs
+        .readFileSync(
+          path.join(__dirname, "../browser-extension", file),
+          "utf8",
+        )
+        .replace(/\r\n/g, "\n");
+      return source.slice(
+        source.indexOf("// redditp-grid-rendition:start"),
+        source.indexOf("// redditp-grid-rendition:end"),
+      );
+    }
+    assert.ok(block("content.js").length > 0, "block not found");
+    assert.strictEqual(block("archive.js"), block("content.js"));
+  });
+});
+
+// A small stand-in for the browser's DOMParser, for the manifests below: an
+// element tree with the few DOM members that dashVideoRenditions reads
+// (getElementsByTagName, getAttribute, parentNode and textContent). The
+// Playwright specs have the browser's own parser read manifests too.
+function parseXml(text) {
+  const root = xmlElement("#document", {}, null);
+  let current = root;
+  const tokens =
+    /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<(\/?)([\w:.-]+)((?:\s+[\w:.-]+\s*=\s*"[^"]*")*)\s*(\/?)>|([^<]+)/g;
+  let match;
+  while ((match = tokens.exec(text))) {
+    const [, closing, name, attributes, selfClosing, textPart] = match;
+    if (textPart !== undefined) {
+      current.children.push({ text: textPart });
+    } else if (name && closing) {
+      current = current.parentNode;
+    } else if (name) {
+      const values = {};
+      attributes.replace(/([\w:.-]+)\s*=\s*"([^"]*)"/g, (_, key, value) => {
+        values[key] = value;
+      });
+      const child = xmlElement(name, values, current);
+      current.children.push(child);
+      if (!selfClosing) current = child;
+    }
+  }
+  return root;
+}
+
+function xmlElement(tagName, attributes, parentNode) {
+  const node = {
+    tagName,
+    parentNode,
+    children: [],
+    getAttribute: (name) =>
+      Object.prototype.hasOwnProperty.call(attributes, name)
+        ? attributes[name]
+        : null,
+    getElementsByTagName(name) {
+      const found = [];
+      const walk = (parent) =>
+        parent.children.forEach((child) => {
+          if (!child.tagName) return;
+          if (child.tagName === name) found.push(child);
+          walk(child);
+        });
+      walk(node);
+      return found;
+    },
+    get textContent() {
+      const text = (parent) =>
+        parent.children
+          .map((child) => (child.tagName ? text(child) : child.text))
+          .join("");
+      return text(node);
+    },
+  };
+  return node;
+}
+
+// Real v.redd.it manifests, trimmed of the attributes that nothing reads.
+// Reddit's newest name each rendition after its short side and say what an
+// adaptation set holds; older ones say it on each rendition, drop the
+// extension, or name renditions after their bitrate. DASH_MP4_MANIFEST's
+// clip is silent; its audio set is made up, to show a set that says what
+// its renditions are for them.
+const CMAF_MANIFEST = `<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT3M26.133331S" type="static">
+  <Period duration="PT3M26.133331S" id="0">
+    <AdaptationSet contentType="video" id="1" maxHeight="1750" maxWidth="1080" par="8:13">
+      <SupplementalProperty schemeIdUri="urn:mpeg:mpegB:cicp:TransferCharacteristics" value="1" />
+      <Representation bandwidth="265470" codecs="avc1.4d401e" height="356" id="6" mimeType="video/mp4" width="220">
+        <BaseURL>CMAF_220.mp4</BaseURL>
+        <SegmentBase indexRange="894-1549" timescale="15360"><Initialization range="0-893" /></SegmentBase>
+      </Representation>
+      <Representation bandwidth="490640" codecs="avc1.4d401e" height="438" id="7" mimeType="video/mp4" width="270">
+        <BaseURL>CMAF_270.mp4</BaseURL>
+      </Representation>
+      <Representation bandwidth="872400" codecs="avc1.4d401e" height="584" id="8" mimeType="video/mp4" width="360">
+        <BaseURL>CMAF_360.mp4</BaseURL>
+      </Representation>
+      <Representation bandwidth="1289724" codecs="avc1.4d401f" height="778" id="9" mimeType="video/mp4" width="480">
+        <BaseURL>CMAF_480.mp4</BaseURL>
+      </Representation>
+      <Representation bandwidth="2502886" codecs="avc1.4d401f" height="1168" id="10" mimeType="video/mp4" width="720">
+        <BaseURL>CMAF_720.mp4</BaseURL>
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet contentType="audio" id="2">
+      <Representation audioSamplingRate="48000" bandwidth="67797" codecs="mp4a.40.2" id="12" mimeType="audio/mp4">
+        <AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="2" />
+        <BaseURL>CMAF_AUDIO_64.mp4</BaseURL>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>`;
+const DASH_MANIFEST = `<?xml version="1.0" encoding="UTF-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT9S" type="static">
+    <Period duration="PT9S">
+        <AdaptationSet segmentAlignment="true">
+            <Representation bandwidth="780991" codecs="avc1.4d401e" height="360" id="VIDEO-1" mimeType="video/mp4" width="480">
+                <BaseURL>DASH_360</BaseURL>
+            </Representation>
+            <Representation bandwidth="599657" codecs="avc1.4d401e" height="240" id="VIDEO-2" mimeType="video/mp4" width="320">
+                <BaseURL>DASH_240</BaseURL>
+            </Representation>
+        </AdaptationSet>
+    </Period>
+</MPD>`;
+const DASH_MP4_MANIFEST = `<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+  <Period>
+    <AdaptationSet contentType="video" group="1" maxHeight="240" maxWidth="426" mimeType="video/mp4">
+      <Representation bandwidth="237028" height="220" id="video_237028" width="392"><BaseURL>DASH_220.mp4</BaseURL></Representation>
+      <Representation bandwidth="441877" height="240" id="video_441877" width="426"><BaseURL>DASH_240.mp4</BaseURL></Representation>
+    </AdaptationSet>
+    <AdaptationSet contentType="audio" mimeType="audio/mp4">
+      <Representation bandwidth="129999" id="audio_129999"><BaseURL>DASH_AUDIO_128.mp4</BaseURL></Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>`;
+const BITRATE_MANIFEST = `<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT19.1S" type="static">
+    <Period duration="PT19.1S">
+        <AdaptationSet segmentAlignment="true">
+            <Representation bandwidth="2043309" codecs="avc1.4d401f" height="480" id="VIDEO-1" mimeType="video/mp4" width="854"><BaseURL>DASH_2_4_M</BaseURL></Representation>
+            <Representation bandwidth="1125256" codecs="avc1.4d401e" height="360" id="VIDEO-2" mimeType="video/mp4" width="640"><BaseURL>DASH_1_2_M</BaseURL></Representation>
+            <Representation bandwidth="3582712" codecs="avc1.4d401f" height="720" id="VIDEO-3" mimeType="video/mp4" width="1280"><BaseURL>DASH_4_8_M</BaseURL></Representation>
+            <Representation bandwidth="601168" codecs="avc1.4d401e" height="240" id="VIDEO-5" mimeType="video/mp4" width="426"><BaseURL>DASH_600_K</BaseURL></Representation>
+        </AdaptationSet>
+        <AdaptationSet>
+            <Representation audioSamplingRate="48000" bandwidth="130046" codecs="mp4a.40.2" id="AUDIO-1" mimeType="audio/mp4"><BaseURL>audio</BaseURL></Representation>
+        </AdaptationSet>
+    </Period>
+</MPD>`;
+
+// A still for a live player's tile from Reddit's data for its post, the loop
+// that a GIF player's tile plays, and the rendition that a Reddit video's
+// tile loops. The block reads the grid rendition and media URL blocks, so the
+// three are evaluated together.
+suite("browser-extension grid media", () => {
+  const media = loadContentScriptBlock(
+    ["redditp-grid-rendition", "redditp-media-urls", "redditp-grid-media"],
+    [
+      "postFullname",
+      "postStill",
+      "gifPlayerLoop",
+      "GRID_LOOP_SHORT_SIDE",
+      "redditVideoId",
+      "dashManifestUrl",
+      "redditVideoFile",
+      "redditPlayerLoop",
+      "dashVideoRenditions",
+      "videoLoopRendition",
+      "packagedVideoLoop",
+      "postLoop",
+      "gridLoopUrl",
+    ],
+  );
+  const preview = "https://external-preview.redd.it/redgifs-still.jpg";
+  // Reddit's copies of a picture, as /api/info.json lists them without
+  // raw_json: &amp; for &.
+  const copies = (base, ...widths) =>
+    widths.map((width) => ({
+      url: `${base}?width=${width}&amp;crop=smart&amp;auto=webp&amp;s=w${width}`,
+      width,
+      height: (width * 3) / 4,
+    }));
+  const copy = (base, width) =>
+    `${base}?width=${width}&crop=smart&auto=webp&s=w${width}`;
+
+  test("grid media helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      media,
+      "did not find the redditp-grid-media markers, or the blocks it reads, in content.js",
+    );
+  });
+
+  test("a post's fullname comes from its key, or else its comments URL", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const comments =
+      "https://www.reddit.com/r/NSFW_GIF/comments/1wsat28/audrey_hollander/";
+    assert.strictEqual(media.postFullname("t3_1wsat28", ""), "t3_1wsat28");
+    assert.strictEqual(media.postFullname("", comments), "t3_1wsat28");
+    // Old Reddit's data-fullname and a tracked post id look the same; a key
+    // that is something else falls back to the comments URL.
+    assert.strictEqual(media.postFullname("1wsat28", comments), "t3_1wsat28");
+    assert.strictEqual(media.postFullname("t1_abc", comments), "t3_1wsat28");
+    assert.strictEqual(
+      media.postFullname("t3_a,t3_b", "/r/x/comments/abc9/"),
+      "t3_abc9",
+    );
+    [
+      ["", ""],
+      ["t3_", "https://www.reddit.com/r/pics/"],
+      [undefined, undefined],
+      [null, "https://www.reddit.com/r/x/comments/bad-id!/"],
+    ].forEach(([key, url]) => {
+      assert.strictEqual(media.postFullname(key, url), "", `${key} ${url}`);
+    });
+  });
+
+  test("a player's still is Reddit's preview, and its tile loads the 640 pixel copy", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const post = {
+      name: "t3_1wsat28",
+      domain: "redgifs.com",
+      preview: {
+        images: [
+          {
+            source: {
+              url: `${preview}?auto=webp&amp;s=full`,
+              width: 1280,
+              height: 960,
+            },
+            resolutions: copies(preview, 108, 216, 320, 640, 960, 1080),
+          },
+        ],
+      },
+      secure_media: {
+        oembed: {
+          thumbnail_url: "https://thumbs.example/other.jpg",
+          thumbnail_width: 600,
+          thumbnail_height: 450,
+        },
+      },
+    };
+    assert.deepStrictEqual(media.postStill(post), {
+      url: `${preview}?auto=webp&s=full`,
+      thumb: copy(preview, 640),
+      width: 1280,
+      height: 960,
+    });
+    // A still no wider than a tile needs no copy.
+    const small = {
+      preview: {
+        images: [
+          {
+            source: { url: `${preview}?s=small`, width: 320, height: 240 },
+            resolutions: copies(preview, 108, 216, 320),
+          },
+        ],
+      },
+    };
+    assert.deepStrictEqual(media.postStill(small), {
+      url: `${preview}?s=small`,
+      thumb: "",
+      width: 320,
+      height: 240,
+    });
+  });
+
+  test("an NSFW post's blurred copies are never read", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const blurred = (width) =>
+      `${preview}?width=${width}&amp;blur=40&amp;format=pjpg&amp;s=b${width}`;
+    const post = {
+      over_18: true,
+      thumbnail: "nsfw",
+      preview: {
+        images: [
+          {
+            // Without a source of its own, the widest real copy stands in.
+            resolutions: [
+              { url: blurred(1080), width: 1080, height: 810 },
+              ...copies(preview, 108, 320, 640, 960),
+            ],
+            variants: {
+              obfuscated: {
+                source: { url: blurred(1280), width: 1280, height: 960 },
+                resolutions: [{ url: blurred(640), width: 640, height: 480 }],
+              },
+              nsfw: {
+                source: { url: blurred(1280), width: 1280, height: 960 },
+                resolutions: [{ url: blurred(640), width: 640, height: 480 }],
+              },
+            },
+          },
+        ],
+      },
+    };
+    const still = media.postStill(post);
+    assert.deepStrictEqual(still, {
+      url: copy(preview, 960),
+      thumb: copy(preview, 640),
+      width: 960,
+      height: 720,
+    });
+    assert.ok(!JSON.stringify(still).includes("blur"));
+    // A post with only blurred pictures has no still.
+    assert.strictEqual(
+      media.postStill({
+        preview: {
+          images: [
+            {
+              source: { url: blurred(1280), width: 1280, height: 960 },
+              resolutions: [],
+              variants: post.preview.images[0].variants,
+            },
+          ],
+        },
+      }),
+      null,
+    );
+  });
+
+  test("without a preview, the player's oEmbed thumbnail stands in", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const oembed = {
+      thumbnail_url:
+        "https://thumbs2.redgifs.com/CumbersomeShorttermKinglet-mobile.jpg?a=1&amp;b=2",
+      thumbnail_width: 640,
+      thumbnail_height: 480,
+    };
+    const expected = {
+      thumb: "",
+      url: "https://thumbs2.redgifs.com/CumbersomeShorttermKinglet-mobile.jpg?a=1&b=2",
+      width: 640,
+      height: 480,
+    };
+    assert.deepStrictEqual(
+      media.postStill({ secure_media: { oembed } }),
+      expected,
+    );
+    assert.deepStrictEqual(media.postStill({ media: { oembed } }), expected);
+    assert.deepStrictEqual(
+      media.postStill({
+        preview: { images: [{ source: {}, resolutions: [] }] },
+        media: { oembed: { thumbnail_url: oembed.thumbnail_url } },
+      }),
+      Object.assign({}, expected, { width: 0, height: 0 }),
+    );
+  });
+
+  test("only http(s) stills count, and a GIF is no still", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    [
+      "javascript:alert(1)",
+      "data:image/png;base64,AAAA",
+      "/relative/still.jpg",
+      "https://preview.redd.it/anim.gif?width=640&s=x",
+      "https://i.giphy.com/media/abc/giphy.gif",
+      "",
+      5,
+    ].forEach((url) => {
+      assert.strictEqual(
+        media.postStill({
+          preview: { images: [{ source: { url, width: 640, height: 480 } }] },
+          secure_media: { oembed: { thumbnail_url: url } },
+        }),
+        null,
+        String(url),
+      );
+    });
+    [null, undefined, "post", 5, {}, { preview: {} }].forEach((post) => {
+      assert.strictEqual(media.postStill(post), null, String(post));
+    });
+  });
+
+  test("a GIF player's tile loops the narrowest MP4 wide enough, as signed", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    // An uploaded GIF's player names one MP4, which stays as it is.
+    const upload =
+      "https://preview.redd.it/mqm32x4ox9sh1.gif?width=1100&format=mp4&s=ca0442188ad7d663c0a2912e69a0c8973d235928";
+    assert.strictEqual(media.gifPlayerLoop(upload, null), upload);
+    const bare = "https://preview.redd.it/abc.gif?format=mp4&s=x";
+    assert.strictEqual(media.gifPlayerLoop(bare, ""), bare);
+    // A video posted as a GIF names its MP4s in packaged-media-json.
+    const permutation = (height, width) => ({
+      source: {
+        url: `https://packaged-media.redd.it/dvf13m3fhorh1/pb/m2-res_${height}p.mp4?m=DASHPlaylist.mpd&v=1&e=1790665200&s=${height}`,
+        dimensions: { width, height },
+        videoCodec: "H264",
+      },
+    });
+    const sizes = [
+      [220, 294],
+      [270, 360],
+      [360, 480],
+      [480, 640],
+      [720, 960],
+      [1080, 1440],
+    ];
+    const packaged = JSON.stringify({
+      playbackMp4s: {
+        duration: 4,
+        permutations: sizes.map(([height, width]) =>
+          permutation(height, width),
+        ),
+      },
+    });
+    const hls =
+      "https://v.redd.it/dvf13m3fhorh1/HLSPlaylist.m3u8?f=hd%2CsubsAll&v=1";
+    assert.strictEqual(
+      media.gifPlayerLoop(hls, packaged),
+      permutation(480, 640).source.url,
+    );
+    // With every MP4 narrower, the widest.
+    const narrow = JSON.stringify({
+      playbackMp4s: {
+        permutations: [permutation(220, 294), permutation(360, 480)],
+      },
+    });
+    assert.strictEqual(
+      media.gifPlayerLoop(hls, narrow),
+      permutation(360, 480).source.url,
+    );
+    // A wide upload's MP4 makes way for a packaged one that is wide enough.
+    assert.strictEqual(
+      media.gifPlayerLoop(upload, packaged),
+      permutation(480, 640).source.url,
+    );
+    // Nothing to loop.
+    [
+      [hls, null],
+      [hls, "{not json"],
+      [hls, JSON.stringify({ playbackMp4s: { permutations: "none" } })],
+      [
+        "",
+        JSON.stringify({
+          playbackMp4s: {
+            permutations: [{ source: { url: "javascript:alert(1)" } }],
+          },
+        }),
+      ],
+      [undefined, undefined],
+    ].forEach(([src, json]) => {
+      assert.strictEqual(media.gifPlayerLoop(src, json), "", String(json));
+    });
+  });
+
+  test("a video on v.redd.it is known by its id, and its files from its playlists", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    [
+      ["https://v.redd.it/6xn27aws6erh1", "6xn27aws6erh1"],
+      [
+        "https://v.redd.it/6xn27aws6erh1/CMAF_720.mp4?source=fallback",
+        "6xn27aws6erh1",
+      ],
+      [
+        "https://v.redd.it/dvf13m3fhorh1/HLSPlaylist.m3u8?f=hd&v=1",
+        "dvf13m3fhorh1",
+      ],
+      ["http://v.redd.it/6xn27aws6erh1/CMAF_720.mp4", ""],
+      ["https://packaged-media.redd.it/dvf13m3fhorh1/pb/m2-res_480p.mp4", ""],
+      ["https://v.redd.it.example/6xn27aws6erh1/CMAF_720.mp4", ""],
+      ["https://preview.redd.it/abc.gif?format=mp4", ""],
+      [undefined, ""],
+    ].forEach(([url, id]) => {
+      assert.strictEqual(media.redditVideoId(url), id, String(url));
+    });
+    assert.strictEqual(
+      media.dashManifestUrl("6xn27aws6erh1"),
+      "https://v.redd.it/6xn27aws6erh1/DASHPlaylist.mpd",
+    );
+    [
+      "https://v.redd.it/6xn27aws6erh1/CMAF_720.mp4?source=fallback",
+      "https://v.redd.it/phsmtigw12841/DASH_360",
+      "https://v.redd.it/3uu88suatgj11/DASH_2_4_M",
+    ].forEach((url) => {
+      assert.strictEqual(media.redditVideoFile(url), true, url);
+    });
+    [
+      "https://v.redd.it/6xn27aws6erh1",
+      "https://v.redd.it/6xn27aws6erh1/",
+      "https://v.redd.it/6xn27aws6erh1/DASHPlaylist.mpd",
+      "https://v.redd.it/6xn27aws6erh1/HLSPlaylist.m3u8?a=1",
+      "https://v.redd.it/6xn27aws6erh1/CMAF_96.mp4",
+      "https://v.redd.it/phsmtigw12841/DASH_96",
+      "https://preview.redd.it/abc.gif?format=mp4",
+    ].forEach((url) => {
+      assert.strictEqual(media.redditVideoFile(url), false, url);
+    });
+  });
+
+  test("a Reddit player's tile loops its video's file, or else reads the manifest alone", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const hls =
+      "https://v.redd.it/rj3ydp3xqlih1/HLSPlaylist.m3u8?f=hd%2ChlsTrimLow&v=1&a=1793239893";
+    const seek = "https://v.redd.it/rj3ydp3xqlih1/CMAF_96.mp4";
+    const file = "https://v.redd.it/rj3ydp3xqlih1/CMAF_480.mp4";
+    // The file among the player's URLs is what the tile falls back to.
+    assert.strictEqual(media.redditPlayerLoop([hls, file, seek]), file);
+    // A feed's player names only its playlist and the seek copy.
+    assert.strictEqual(
+      media.redditPlayerLoop([hls, seek, "https://v.redd.it/rj3ydp3xqlih1"]),
+      "https://v.redd.it/rj3ydp3xqlih1/DASHPlaylist.mpd",
+    );
+    // Another video's file is no fallback.
+    assert.strictEqual(
+      media.redditPlayerLoop([hls, "https://v.redd.it/other/CMAF_480.mp4"]),
+      "https://v.redd.it/rj3ydp3xqlih1/DASHPlaylist.mpd",
+    );
+    [
+      [],
+      ["https://videohost.example/clip.mp4", "javascript:alert(1)"],
+      ["https://packaged-media.redd.it/rj3ydp3xqlih1/pb/m2-res_480p.mp4"],
+      [null, undefined, ""],
+      "not a list",
+    ].forEach((urls) => {
+      assert.strictEqual(media.redditPlayerLoop(urls), "", String(urls));
+    });
+  });
+
+  test("a manifest's renditions come from its own names, never its audio", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const renditions = (id, text) =>
+      media.dashVideoRenditions(
+        parseXml(text),
+        `https://v.redd.it/${id}/DASHPlaylist.mpd`,
+      );
+    const cmaf = "https://v.redd.it/nflcmaf1/";
+    assert.deepStrictEqual(renditions("nflcmaf1", CMAF_MANIFEST), [
+      {
+        url: `${cmaf}CMAF_220.mp4`,
+        width: 220,
+        height: 356,
+        bandwidth: 265470,
+      },
+      {
+        url: `${cmaf}CMAF_270.mp4`,
+        width: 270,
+        height: 438,
+        bandwidth: 490640,
+      },
+      {
+        url: `${cmaf}CMAF_360.mp4`,
+        width: 360,
+        height: 584,
+        bandwidth: 872400,
+      },
+      {
+        url: `${cmaf}CMAF_480.mp4`,
+        width: 480,
+        height: 778,
+        bandwidth: 1289724,
+      },
+      {
+        url: `${cmaf}CMAF_720.mp4`,
+        width: 720,
+        height: 1168,
+        bandwidth: 2502886,
+      },
+    ]);
+    // Without an extension, as the renditions of 2019 have it.
+    assert.deepStrictEqual(renditions("phsmtigw12841", DASH_MANIFEST), [
+      {
+        url: "https://v.redd.it/phsmtigw12841/DASH_360",
+        width: 480,
+        height: 360,
+        bandwidth: 780991,
+      },
+      {
+        url: "https://v.redd.it/phsmtigw12841/DASH_240",
+        width: 320,
+        height: 240,
+        bandwidth: 599657,
+      },
+    ]);
+    // What the renditions are is said on their set.
+    assert.deepStrictEqual(
+      renditions("533gopqyxa9a1", DASH_MP4_MANIFEST).map((item) => item.url),
+      [
+        "https://v.redd.it/533gopqyxa9a1/DASH_220.mp4",
+        "https://v.redd.it/533gopqyxa9a1/DASH_240.mp4",
+      ],
+    );
+    // Named after their bitrate, and not in order of size.
+    assert.deepStrictEqual(
+      renditions("3uu88suatgj11", BITRATE_MANIFEST).map((item) => [
+        item.url,
+        item.width,
+        item.height,
+      ]),
+      [
+        ["https://v.redd.it/3uu88suatgj11/DASH_2_4_M", 854, 480],
+        ["https://v.redd.it/3uu88suatgj11/DASH_1_2_M", 640, 360],
+        ["https://v.redd.it/3uu88suatgj11/DASH_4_8_M", 1280, 720],
+        ["https://v.redd.it/3uu88suatgj11/DASH_600_K", 426, 240],
+      ],
+    );
+  });
+
+  test("a manifest names nothing outside its video's folder, and nothing without a size", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const manifest = (representations) =>
+      parseXml(
+        `<MPD><Period><AdaptationSet contentType="video">${representations}</AdaptationSet></Period></MPD>`,
+      );
+    const representation = (base, size = 'width="640" height="360"') =>
+      `<Representation bandwidth="1" ${size} mimeType="video/mp4"><BaseURL>${base}</BaseURL></Representation>`;
+    const url = "https://v.redd.it/clip1/DASHPlaylist.mpd";
+    assert.deepStrictEqual(
+      media
+        .dashVideoRenditions(
+          manifest(
+            [
+              representation("https://videohost.example/clip.mp4"),
+              representation("../other1/CMAF_360.mp4"),
+              representation("//v.redd.it/other1/CMAF_360.mp4"),
+              representation("CMAF_360.mp4", 'width="640"'),
+              representation(""),
+              representation("CMAF_480.mp4"),
+            ].join(""),
+          ),
+          url,
+        )
+        .map((item) => item.url),
+      ["https://v.redd.it/clip1/CMAF_480.mp4"],
+    );
+    // Only a manifest on v.redd.it counts, and a page that failed to parse
+    // names nothing.
+    assert.deepStrictEqual(
+      media.dashVideoRenditions(
+        manifest(representation("CMAF_360.mp4")),
+        "https://videohost.example/clip1/DASHPlaylist.mpd",
+      ),
+      [],
+    );
+    [null, undefined, {}, parseXml("<parsererror>bad</parsererror>")].forEach(
+      (doc) => {
+        assert.deepStrictEqual(
+          media.dashVideoRenditions(doc, url),
+          [],
+          String(doc),
+        );
+      },
+    );
+  });
+
+  test("a video's tile loops its smallest rendition 360 pixels across, or else its largest", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    assert.strictEqual(media.GRID_LOOP_SHORT_SIDE, 360);
+    const pick = (id, text) =>
+      media.videoLoopRendition(
+        media.dashVideoRenditions(
+          parseXml(text),
+          `https://v.redd.it/${id}/DASHPlaylist.mpd`,
+        ),
+      )?.url;
+    // A portrait clip's 360 is its width.
+    assert.strictEqual(
+      pick("nflcmaf1", CMAF_MANIFEST),
+      "https://v.redd.it/nflcmaf1/CMAF_360.mp4",
+    );
+    assert.strictEqual(
+      pick("phsmtigw12841", DASH_MANIFEST),
+      "https://v.redd.it/phsmtigw12841/DASH_360",
+    );
+    assert.strictEqual(
+      pick("3uu88suatgj11", BITRATE_MANIFEST),
+      "https://v.redd.it/3uu88suatgj11/DASH_1_2_M",
+    );
+    // A clip smaller than that loops its largest.
+    assert.strictEqual(
+      pick("533gopqyxa9a1", DASH_MP4_MANIFEST),
+      "https://v.redd.it/533gopqyxa9a1/DASH_240.mp4",
+    );
+    const rendition = (url, width, height, bandwidth = 0) => ({
+      url,
+      width,
+      height,
+      bandwidth,
+    });
+    // Without a 360, the smallest above it.
+    assert.strictEqual(
+      media.videoLoopRendition([
+        rendition("a", 426, 240),
+        rendition("c", 1280, 720),
+        rendition("b", 854, 480),
+      ]).url,
+      "b",
+    );
+    // Of two the same size, the lighter; renditions without a size or a URL
+    // are passed over.
+    assert.strictEqual(
+      media.videoLoopRendition([
+        rendition("heavy", 640, 360, 900000),
+        rendition("light", 640, 360, 600000),
+        rendition("unsized", 0, 0),
+        rendition("", 480, 360),
+        null,
+      ]).url,
+      "light",
+    );
+    assert.strictEqual(media.videoLoopRendition([]), null);
+    assert.strictEqual(media.videoLoopRendition(undefined), null);
+  });
+
+  test("a Reddit player that names its MP4s with their sizes needs no manifest", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const permutation = (height, width) => ({
+      source: {
+        url: `https://packaged-media.redd.it/ighybi90b5sh1/pb/m2-res_${height}p.mp4?m=DASHPlaylist.mpd&v=1&e=1790665200&s=${height}`,
+        dimensions: { width, height },
+      },
+    });
+    const packaged = (...sizes) =>
+      JSON.stringify({
+        playbackMp4s: {
+          permutations: sizes.map(([height, width]) =>
+            permutation(height, width),
+          ),
+        },
+      });
+    assert.strictEqual(
+      media.packagedVideoLoop(
+        packaged([220, 392], [270, 480], [360, 640], [480, 854], [720, 1280]),
+      ),
+      permutation(360, 640).source.url,
+    );
+    assert.strictEqual(
+      media.packagedVideoLoop(packaged([220, 392], [270, 480])),
+      permutation(270, 480).source.url,
+    );
+    // MP4s without sizes leave the choice to the manifest.
+    [
+      JSON.stringify({
+        playbackMp4s: {
+          permutations: [{ source: { url: permutation(360, 640).source.url } }],
+        },
+      }),
+      "{not json",
+      null,
+    ].forEach((json) => {
+      assert.strictEqual(media.packagedVideoLoop(json), "", String(json));
+    });
+  });
+
+  test("a post's data names Reddit's copy of its clip, or its own video", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    const copy = "https://v.redd.it/kyuaevw0lcsh1/CMAF_1080.mp4";
+    assert.strictEqual(
+      media.postLoop({
+        domain: "redgifs.com",
+        preview: {
+          images: [],
+          reddit_video_preview: {
+            fallback_url: copy,
+            dash_url: "https://v.redd.it/kyuaevw0lcsh1/DASHPlaylist.mpd",
+            is_gif: true,
+          },
+        },
+      }),
+      copy,
+    );
+    assert.strictEqual(
+      media.postLoop({
+        secure_media: {
+          reddit_video: {
+            fallback_url:
+              "https://v.redd.it/6xn27aws6erh1/CMAF_720.mp4?source=fallback",
+          },
+        },
+      }),
+      "https://v.redd.it/6xn27aws6erh1/CMAF_720.mp4?source=fallback",
+    );
+    [
+      null,
+      "post",
+      {},
+      {
+        preview: {
+          reddit_video_preview: {
+            fallback_url: "http://v.redd.it/a/DASH_360.mp4",
+          },
+        },
+      },
+      {
+        preview: {
+          reddit_video_preview: {
+            fallback_url: "https://thumbs.example/a.mp4",
+          },
+        },
+      },
+      {
+        media: {
+          reddit_video: {
+            fallback_url: "https://v.redd.it/a/HLSPlaylist.m3u8",
+          },
+        },
+      },
+      { media: { oembed: { thumbnail_url: "https://thumbs.example/a.jpg" } } },
+    ].forEach((post) => {
+      assert.strictEqual(media.postLoop(post), "", JSON.stringify(post));
+    });
+  });
+
+  test("another source's loop plays only from Reddit's media hosts, over https", () => {
+    assert.ok(media, "grid media helpers not loaded");
+    [
+      "https://v.redd.it/kyuaevw0lcsh1/CMAF_1080.mp4",
+      "https://preview.redd.it/anim.gif?width=640&format=mp4&s=x",
+      "https://i.redd.it/anim.gif?format=mp4",
+      "https://external-preview.redd.it/clip.gif?format=mp4&s=x",
+    ].forEach((url) => {
+      assert.strictEqual(media.gridLoopUrl(url), url, url);
+    });
+    [
+      "http://v.redd.it/kyuaevw0lcsh1/CMAF_1080.mp4",
+      "https://packaged-media.redd.it/a/pb/m2-res_480p.mp4",
+      "https://i.imgur.com/RCtmQG7.mp4",
+      "https://v.redd.it.example/a/CMAF_360.mp4",
+      "https://media.redgifs.com/Clip.mp4",
+      "javascript:alert(1)",
+      "/relative.mp4",
+      "",
+      null,
+      undefined,
+    ].forEach((url) => {
+      assert.strictEqual(media.gridLoopUrl(url), "", String(url));
     });
   });
 });
@@ -1259,6 +2201,8 @@ suite("browser-extension feed loading", () => {
     "PRELOAD_AHEAD",
     "PRELOAD_CACHE_SIZE",
     "sourceVerdict",
+    "warmVideoUrls",
+    "WARM_VIDEOS_AHEAD",
   ]);
 
   test("feed loading helpers could be loaded", () => {
@@ -1312,8 +2256,13 @@ suite("browser-extension feed loading", () => {
     assert.ok(loading, "feed loading helpers not loaded");
     assert.strictEqual(loading.PREFETCH_AHEAD, 8);
     assert.strictEqual(loading.PREFETCH_ROUNDS, 4);
-    assert.strictEqual(loading.PRELOAD_AHEAD, 3);
-    assert.strictEqual(loading.PRELOAD_CACHE_SIZE, 6);
+  });
+
+  test("the next six pictures load ahead, twelve stay, and two videos warm", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    assert.strictEqual(loading.PRELOAD_AHEAD, 6);
+    assert.strictEqual(loading.PRELOAD_CACHE_SIZE, 12);
+    assert.strictEqual(loading.WARM_VIDEOS_AHEAD, 2);
   });
 
   test("loading starts when fewer than eight slides are left", () => {
@@ -1338,7 +2287,7 @@ suite("browser-extension feed loading", () => {
     assert.strictEqual(loading.prefetchWanted(0, 0, true, false), false);
   });
 
-  test("the next three slides' pictures are fetched ahead", () => {
+  test("the next six slides' pictures are fetched ahead", () => {
     assert.ok(loading, "feed loading helpers not loaded");
     const slides = [
       { kind: "image", url: "https://i.redd.it/current.jpg" },
@@ -1354,16 +2303,73 @@ suite("browser-extension feed loading", () => {
         poster: "https://external-preview.redd.it/live.png",
       },
       { kind: "image", url: "https://i.redd.it/fourth-ahead.jpg" },
+      { kind: "image", url: "https://i.redd.it/fifth-ahead.jpg" },
+      { kind: "image", url: "https://i.redd.it/sixth-ahead.jpg" },
+      { kind: "image", url: "https://i.redd.it/seventh-ahead.jpg" },
     ];
     assert.deepStrictEqual(loading.preloadUrls(slides, 0), [
       "https://i.redd.it/next.jpg",
       "https://external-preview.redd.it/clip.png",
       "https://external-preview.redd.it/live.png",
+      "https://i.redd.it/fourth-ahead.jpg",
+      "https://i.redd.it/fifth-ahead.jpg",
+      "https://i.redd.it/sixth-ahead.jpg",
     ]);
     assert.deepStrictEqual(loading.preloadUrls(slides, 1), [
       "https://external-preview.redd.it/clip.png",
       "https://external-preview.redd.it/live.png",
       "https://i.redd.it/fourth-ahead.jpg",
+      "https://i.redd.it/fifth-ahead.jpg",
+      "https://i.redd.it/sixth-ahead.jpg",
+      "https://i.redd.it/seventh-ahead.jpg",
+    ]);
+  });
+
+  test("the next two Reddit videos within six slides are read in ahead", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const video = (url) => ({ kind: "video", url, poster: "" });
+    const slides = [
+      video("https://v.redd.it/current/CMAF_1080.mp4?source=fallback"),
+      { kind: "image", url: "https://i.redd.it/next.jpg" },
+      video("https://v.redd.it/first/CMAF_1080.mp4?source=fallback"),
+      video("https://preview.redd.it/second.gif?format=mp4&s=a"),
+      video("https://packaged-media.redd.it/third/pb/m2-res_1080p.mp4?s=b"),
+    ];
+    assert.deepStrictEqual(loading.warmVideoUrls(slides, 0), [
+      "https://v.redd.it/first/CMAF_1080.mp4?source=fallback",
+      "https://preview.redd.it/second.gif?format=mp4&s=a",
+    ]);
+    assert.deepStrictEqual(loading.warmVideoUrls(slides, 3), [
+      "https://packaged-media.redd.it/third/pb/m2-res_1080p.mp4?s=b",
+    ]);
+    assert.deepStrictEqual(loading.warmVideoUrls(slides, 4), []);
+  });
+
+  test("players, other hosts, playlists and videos beyond six slides are not read in", () => {
+    assert.ok(loading, "feed loading helpers not loaded");
+    const picture = { kind: "image", url: "https://i.redd.it/a.jpg" };
+    const slides = [
+      picture,
+      {
+        kind: "pending-native-video",
+        url: "https://v.redd.it/live",
+        poster: "https://external-preview.redd.it/live.png",
+      },
+      { kind: "native-video", url: "https://www.reddit.com/r/a/" },
+      { kind: "video", url: "https://i.imgur.com/loop.mp4" },
+      { kind: "video", url: "http://v.redd.it/plain/DASH_480.mp4" },
+      { kind: "video", url: "https://v.redd.it/stream/HLSPlaylist.m3u8" },
+      { kind: "embed", url: "https://www.youtube.com/embed/a" },
+      { kind: "video", url: "https://v.redd.it/far/DASH_480.mp4" },
+    ];
+    assert.deepStrictEqual(loading.warmVideoUrls(slides, 0), []);
+    assert.deepStrictEqual(loading.warmVideoUrls(slides, 1), [
+      "https://v.redd.it/far/DASH_480.mp4",
+    ]);
+    // A video repeated, as in a crosspost, is read in once.
+    const same = { kind: "video", url: "https://v.redd.it/same/DASH_480.mp4" };
+    assert.deepStrictEqual(loading.warmVideoUrls([picture, same, same], 0), [
+      "https://v.redd.it/same/DASH_480.mp4",
     ]);
   });
 
@@ -1438,6 +2444,230 @@ suite("browser-extension feed loading", () => {
   });
 });
 
+suite("browser-extension grid ahead", () => {
+  const ahead = loadContentScriptBlock("redditp-grid-ahead", [
+    "GRID_LOAD_MARGIN",
+    "GRID_LOAD_ROUNDS",
+    "GRID_PICTURE_MARGIN",
+    "GRID_STILL_MARGIN",
+    "GRID_LOOP_MARGIN",
+    "GRID_MAX_PLAYING_LOOPS",
+    "GRID_MAX_BUFFERING_LOOPS",
+    "GRID_MANIFEST_CONCURRENCY",
+    "GRID_STILL_BATCH",
+    "GRID_STILL_CONCURRENCY",
+    "gridLoopPlan",
+    "gridLoopReadIn",
+    "gridLoadWanted",
+  ]);
+  const layout = loadContentScriptBlock("redditp-grid-layout", [
+    "gridColumnCount",
+    "tileHeightRatio",
+  ]);
+  // A loop off the view, `distance` pixels away, that was never asked to
+  // read ahead; fields override.
+  const away = (distance, fields = {}) => ({
+    visible: false,
+    distance,
+    ready: false,
+    buffer: "",
+    ...fields,
+  });
+  // A loop in view, its tile starting `top` pixels down, that can play or
+  // not yet; fields override.
+  const inView = (ready, top = 0, fields = {}) => ({
+    visible: true,
+    top,
+    distance: 0,
+    ready,
+    buffer: "reading",
+    ...fields,
+  });
+
+  test("grid ahead helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      ahead,
+      "did not find the redditp-grid-ahead markers in content.js",
+    );
+    assert.ok(layout, "did not find the redditp-grid-layout markers");
+  });
+
+  test("pictures, stills and manifests reach two screens up and six down", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    assert.strictEqual(ahead.GRID_PICTURE_MARGIN, "200% 0px 600% 0px");
+    assert.strictEqual(ahead.GRID_STILL_MARGIN, ahead.GRID_PICTURE_MARGIN);
+  });
+
+  test("Reddit's data comes 100 posts a request, two at a time, and manifests twelve at a time", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    assert.strictEqual(ahead.GRID_STILL_BATCH, 100);
+    assert.strictEqual(ahead.GRID_STILL_CONCURRENCY, 2);
+    assert.strictEqual(ahead.GRID_MANIFEST_CONCURRENCY, 12);
+  });
+
+  test("loops come half a screen up and a screen down, six reading at once", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    assert.strictEqual(ahead.GRID_LOOP_MARGIN, "50% 0px 100% 0px");
+    assert.strictEqual(ahead.GRID_MAX_BUFFERING_LOOPS, 6);
+  });
+
+  test("every tile that fits in view at 2560x1440 may loop at once", () => {
+    assert.ok(ahead && layout, "grid ahead helpers not loaded");
+    // The grid's padding and gaps, as presentation.css sets them.
+    const width = 2560 - 2 * 8;
+    const columns = layout.gridColumnCount(2560);
+    const tileWidth = (width - (columns - 1) * 8) / columns;
+    const shortest = tileWidth * layout.tileHeightRatio(2, 1);
+    // A column shows as many tiles as start within the view, and one more
+    // cut off at its top.
+    const perColumn = Math.ceil(1440 / (shortest + 8)) + 1;
+    assert.strictEqual(columns, 8);
+    assert.ok(
+      ahead.GRID_MAX_PLAYING_LOOPS >= columns * perColumn,
+      `${ahead.GRID_MAX_PLAYING_LOOPS} < ${columns * perColumn}`,
+    );
+  });
+
+  test("the grid loads from eight screens before its end, six loads in a row", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    assert.strictEqual(ahead.GRID_LOAD_MARGIN, "800% 0px");
+    assert.strictEqual(ahead.GRID_LOAD_ROUNDS, 6);
+  });
+
+  test("after six loads in a row the grid waits for half a screen of scrolling", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    const wanted = ahead.gridLoadWanted;
+    assert.strictEqual(wanted(0, 0, 1000), true);
+    assert.strictEqual(wanted(5, 0, 1000), true);
+    assert.strictEqual(wanted(6, 0, 1000), false);
+    assert.strictEqual(wanted(6, 499, 1000), false);
+    assert.strictEqual(wanted(6, 500, 1000), true);
+    assert.strictEqual(wanted(60, -500, 1000), true);
+  });
+
+  test("loops in view play from the top of the view down, up to the most that play", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    const max = ahead.GRID_MAX_PLAYING_LOOPS;
+    // Arrived bottom first.
+    const loops = [
+      away(100),
+      ...Array.from({ length: max + 2 }, (_, index) =>
+        inView(true, 1000 - index),
+      ),
+    ];
+    const plan = ahead.gridLoopPlan(loops);
+    assert.strictEqual(plan.filter((action) => action === "play").length, max);
+    assert.deepStrictEqual(plan.slice(1, 3), ["cap", "cap"]);
+    assert.strictEqual(plan[plan.length - 1], "play");
+  });
+
+  test("every loop in view starts at once, whether it can play yet or not", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    const loops = [500, 100, 300, 0, 400, 200].map((top) => inView(false, top));
+    assert.deepStrictEqual(
+      ahead.gridLoopPlan(loops),
+      loops.map(() => "play"),
+    );
+  });
+
+  test("nothing reads ahead until every loop in view that plays can", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    const loops = [inView(true, 0), inView(false, 10), away(10), away(20)];
+    assert.deepStrictEqual(ahead.gridLoopPlan(loops), [
+      "play",
+      "play",
+      "wait",
+      "wait",
+    ]);
+    loops[1].ready = true;
+    assert.deepStrictEqual(ahead.gridLoopPlan(loops), [
+      "play",
+      "play",
+      "buffer",
+      "buffer",
+    ]);
+    // A loop in view beyond those that play waits, and holds nothing up.
+    const capped = Array.from({ length: ahead.GRID_MAX_PLAYING_LOOPS }, () =>
+      inView(true),
+    );
+    capped.push(inView(false, 10, { buffer: "" }), away(5));
+    assert.deepStrictEqual(ahead.gridLoopPlan(capped).slice(-2), [
+      "cap",
+      "buffer",
+    ]);
+  });
+
+  test("the nearest loops read ahead first, six at a time", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    const distances = [900, 50, 700, 10, 300, 20, 600, 40, 800];
+    const plan = ahead.gridLoopPlan(
+      distances.map((distance) => away(distance)),
+    );
+    assert.deepStrictEqual(
+      distances.filter((_distance, index) => plan[index] === "buffer"),
+      [50, 10, 300, 20, 600, 40],
+    );
+    assert.deepStrictEqual(
+      distances.filter((_distance, index) => plan[index] === "wait"),
+      [900, 700, 800],
+    );
+  });
+
+  test("loops that read keep a place, and those that have read free theirs", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    const reading = Array.from({ length: 6 }, () =>
+      away(500, { buffer: "reading" }),
+    );
+    const plan = ahead.gridLoopPlan([...reading, away(1)]);
+    assert.deepStrictEqual(plan, [
+      "buffer",
+      "buffer",
+      "buffer",
+      "buffer",
+      "buffer",
+      "buffer",
+      "wait",
+    ]);
+    reading[0].buffer = "read";
+    assert.strictEqual(ahead.gridLoopPlan([...reading, away(1)])[6], "buffer");
+    // A loop that played in view and scrolled away keeps what it read,
+    // paused.
+    assert.deepStrictEqual(
+      ahead.gridLoopPlan([away(0, { buffer: "read" }), inView(true)]),
+      ["buffer", "play"],
+    );
+  });
+
+  test("an empty grid plans nothing", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    assert.deepStrictEqual(ahead.gridLoopPlan([]), []);
+  });
+
+  test("a loop has read itself in once it holds all of itself or five seconds on", () => {
+    assert.ok(ahead, "grid ahead helpers not loaded");
+    const readIn = ahead.gridLoopReadIn;
+    // A short loop, whole or not.
+    assert.strictEqual(readIn([[0, 3]], 0, 3), true);
+    assert.strictEqual(readIn([[0, 2.5]], 0, 3), false);
+    // A long one, five seconds past where it is.
+    assert.strictEqual(readIn([[0, 5]], 0, 60), true);
+    assert.strictEqual(readIn([[0, 4]], 0, 60), false);
+    assert.strictEqual(readIn([[0, 8]], 4, 60), false);
+    const twoSpans = [
+      [0, 4],
+      [10, 20],
+    ];
+    assert.strictEqual(readIn(twoSpans, 12, 60), true);
+    // What it holds elsewhere does not count, nor does a loop of unknown
+    // length.
+    assert.strictEqual(readIn([[1, 20]], 0, 60), false);
+    assert.strictEqual(readIn([], 0, 60), false);
+    assert.strictEqual(readIn([[0, 5]], 0, NaN), false);
+  });
+});
+
 suite("browser-extension media URLs", () => {
   const urls = loadContentScriptBlock("redditp-media-urls", [
     "IMAGE_URL_RE",
@@ -1445,8 +2675,14 @@ suite("browser-extension media URLs", () => {
     "isVideoUrl",
     "canonicalMediaKey",
     "externalMedia",
+    "embedStill",
     "embedUrl",
     "youtubeStartSeconds",
+    "redditUpload",
+    "sameRedditUpload",
+    "redditOriginalUrl",
+    "isRedditGifMp4",
+    "srcsetCandidates",
   ]);
 
   test("media URL helpers could be loaded", () => {
@@ -1476,6 +2712,36 @@ suite("browser-extension media URLs", () => {
     assert.deepStrictEqual(urls.externalMedia("https://imgur.com/a1"), {
       kind: "image",
       url: "https://i.imgur.com/a1.jpg",
+    });
+  });
+
+  test("an imgur video file is a video, not a picture", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    ["mp4", "webm"].forEach((extension) => {
+      assert.deepStrictEqual(
+        urls.externalMedia(`https://i.imgur.com/a1.${extension}`),
+        { kind: "video", url: `https://i.imgur.com/a1.${extension}` },
+        extension,
+      );
+    });
+  });
+
+  test("a YouTube player's still is YouTube's own; other players have none", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    assert.strictEqual(
+      urls.embedStill(
+        "https://www.youtube.com/embed/ab-C_1?start=65&enablejsapi=1",
+      ),
+      "https://i.ytimg.com/vi/ab-C_1/hqdefault.jpg",
+    );
+    [
+      "https://videohost.example/ifr/abc",
+      "https://www.redgifs.com/ifr/someclip",
+      "https://www.youtube.com/watch?v=abc",
+      "https://evil.example/embed/abc",
+      "not a url",
+    ].forEach((url) => {
+      assert.strictEqual(urls.embedStill(url), "", url);
     });
   });
 
@@ -1588,6 +2854,130 @@ suite("browser-extension media URLs", () => {
       ["soon", 0],
     ].forEach(([value, seconds]) => {
       assert.strictEqual(urls.youtubeStartSeconds(value), seconds, value);
+    });
+  });
+
+  test("Reddit's copies of an upload are told by the upload's id", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    assert.deepStrictEqual(urls.redditUpload("https://i.redd.it/abc123.jpeg"), {
+      host: "i.redd.it",
+      id: "abc123",
+      extension: "jpeg",
+      format: "",
+    });
+    assert.deepStrictEqual(
+      urls.redditUpload(
+        "https://preview.redd.it/my-cat-v0-abc123.jpeg?width=640&format=pjpg&auto=webp&s=x",
+      ),
+      {
+        host: "preview.redd.it",
+        id: "abc123",
+        extension: "jpeg",
+        format: "pjpg",
+      },
+    );
+    [
+      "https://external-preview.redd.it/abc123.jpeg",
+      "https://i.imgur.com/abc123.jpeg",
+      "https://preview.redd.it/folder/abc123.jpeg",
+      "https://preview.redd.it/abc123",
+      "not a url",
+    ].forEach((url) => {
+      assert.strictEqual(urls.redditUpload(url), null, url);
+    });
+    [
+      [
+        "https://i.redd.it/abc123.jpeg",
+        "https://preview.redd.it/my-cat-v0-ABC123.jpeg?width=640&s=x",
+      ],
+      [
+        "https://i.redd.it/anim.gif",
+        "https://preview.redd.it/anim.gif?format=mp4",
+      ],
+    ].forEach(([first, second]) => {
+      assert.strictEqual(urls.sameRedditUpload(first, second), true, second);
+    });
+    [
+      ["https://i.redd.it/abc123.jpeg", "https://preview.redd.it/other1.jpeg"],
+      [
+        "https://i.imgur.com/abc123.jpeg",
+        "https://preview.redd.it/abc123.jpeg",
+      ],
+      ["not a url", "not a url"],
+    ].forEach(([first, second]) => {
+      assert.strictEqual(urls.sameRedditUpload(first, second), false, first);
+    });
+  });
+
+  test("a full-size transcode of a JPEG or WebP loads from its upload", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    [
+      [
+        "https://preview.redd.it/abc123.jpg?width=4032&format=pjpg&auto=webp&s=x",
+        "https://i.redd.it/abc123.jpg",
+      ],
+      [
+        "https://preview.redd.it/my-cat-v0-abc123.jpeg?width=3024&format=pjpg&auto=webp&s=x",
+        "https://i.redd.it/abc123.jpeg",
+      ],
+      [
+        "https://preview.redd.it/abc123.webp?width=2000&format=pjpg&s=x",
+        "https://i.redd.it/abc123.webp",
+      ],
+    ].forEach(([url, original]) => {
+      assert.strictEqual(urls.redditOriginalUrl(url), original, url);
+    });
+    [
+      // A PNG's original can weigh many times its transcode.
+      "https://preview.redd.it/abc123.png?width=1080&format=pjpg&s=x",
+      // A downscaled copy is no transcode of the whole picture.
+      "https://preview.redd.it/abc123.jpg?width=1080&crop=smart&auto=webp&s=x",
+      "https://external-preview.redd.it/abc123.jpg?format=pjpg&s=x",
+      "https://i.redd.it/abc123.jpg",
+      "https://preview.redd.it/folder/abc123.jpg?format=pjpg",
+      "not a url",
+    ].forEach((url) => {
+      assert.strictEqual(urls.redditOriginalUrl(url), "", url);
+    });
+  });
+
+  test("Reddit's MP4 of a GIF is told from the GIF and its stills", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    [
+      "https://preview.redd.it/anim.gif?format=mp4&s=x",
+      "https://i.redd.it/anim.gif?format=mp4",
+      "https://external-preview.redd.it/anim.gif?width=640&format=mp4&s=x",
+    ].forEach((url) => {
+      assert.strictEqual(urls.isRedditGifMp4(url), true, url);
+    });
+    [
+      "https://i.redd.it/anim.gif",
+      "https://preview.redd.it/anim.gif?format=png8&s=x",
+      "https://preview.redd.it/clip.jpg?format=mp4",
+      "https://v.redd.it/clip/DASH_480.mp4",
+      "https://i.imgur.com/anim.gif?format=mp4",
+      "https://i.imgur.com/anim.mp4",
+      "not a url",
+    ].forEach((url) => {
+      assert.strictEqual(urls.isRedditGifMp4(url), false, url);
+    });
+  });
+
+  test("a srcset's candidates carry their widths", () => {
+    assert.ok(urls, "media URL helpers not loaded");
+    assert.deepStrictEqual(
+      urls.srcsetCandidates(
+        "https://preview.redd.it/a.jpg?width=320&amp;s=1 320w,  https://preview.redd.it/a.jpg?width=640&s=2 640w,https://preview.redd.it/a.jpg 2x, https://preview.redd.it/b.jpg",
+      ),
+      [
+        { url: "https://preview.redd.it/a.jpg?width=320&s=1", width: 320 },
+        { url: "https://preview.redd.it/a.jpg?width=640&s=2", width: 640 },
+        { url: "https://preview.redd.it/a.jpg", width: 0 },
+        { url: "https://preview.redd.it/b.jpg", width: 0 },
+      ],
+    );
+    ["", " , ", null, undefined].forEach((value) => {
+      assert.deepStrictEqual(urls.srcsetCandidates(value), [], String(value));
     });
   });
 });
@@ -2045,6 +3435,34 @@ const ARCHIVE_MEDIA_KEYS = [
 const decodedPreview = (post) =>
   post.preview.images[0].source.url.replace(/&amp;/g, "&");
 
+// The smaller copy of a post's preview picture that is `width` wide, its URL
+// decoded.
+const previewCopy = (post, width) =>
+  post.preview.images[0].resolutions
+    .find((copy) => copy.width === width)
+    .url.replace(/&amp;/g, "&");
+
+// What a grid tile shows of an item without a picture of its own.
+const NO_GRID_PICTURE = { thumb: "", thumbVideo: "", width: 0, height: 0 };
+
+// The one smaller copy that a record keeps of a list of Reddit's copies, as
+// a one-item list: the narrowest at least 640 pixels wide, else the widest,
+// its URL decoded. undefined for no copies.
+function keptCopyOf(copies) {
+  if (!Array.isArray(copies) || !copies.length) return undefined;
+  const byWidth = [...copies].sort((a, b) => a.width - b.width);
+  const copy =
+    byWidth.find((candidate) => candidate.width >= 640) ||
+    byWidth[byWidth.length - 1];
+  return [
+    {
+      url: copy.url.replace(/&amp;/g, "&"),
+      width: copy.width,
+      height: copy.height,
+    },
+  ];
+}
+
 suite("browser-extension archive records", () => {
   const records = loadContentScriptBlock(
     "archive-records",
@@ -2201,19 +3619,37 @@ suite("browser-extension archive records", () => {
             height: post.preview.images[0].source.height,
           },
         };
-        // A GIF's MP4 is kept too, and nothing else of the variants.
-        const mp4 = post.preview.images[0].variants?.mp4?.source?.url;
-        if (mp4) {
+        // Of the smaller copies, only the one a grid tile loads.
+        const still = keptCopyOf(post.preview.images[0].resolutions);
+        if (still) image.resolutions = still;
+        // A GIF's MP4 is kept too, with one of its smaller copies, and
+        // nothing else of the variants.
+        const mp4 = post.preview.images[0].variants?.mp4;
+        if (mp4?.source?.url) {
           image.variants = {
-            mp4: { source: { url: mp4.replace(/&amp;/g, "&") } },
+            mp4: { source: { url: mp4.source.url.replace(/&amp;/g, "&") } },
+          };
+          const loop = keptCopyOf(mp4.resolutions);
+          if (loop) image.variants.mp4.resolutions = loop;
+        }
+        const expected = { images: [image] };
+        // Of Reddit's copy of a linked clip, only its file and size.
+        const clip = post.preview.reddit_video_preview;
+        if (clip) {
+          expected.reddit_video_preview = {
+            fallback_url: clip.fallback_url,
+            width: clip.width,
+            height: clip.height,
           };
         }
-        assert.deepStrictEqual(record.preview, { images: [image] }, post.id);
+        assert.deepStrictEqual(record.preview, expected, post.id);
       } else {
         assert.strictEqual(record.preview, undefined, post.id);
       }
+      // The largest, a crosspost, keeps a preview copy of its own and one
+      // of its original's.
       const size = JSON.stringify(record).length;
-      assert.ok(size < 1500, `${post.id}: ${size} characters`);
+      assert.ok(size < 1800, `${post.id}: ${size} characters`);
     });
   });
 
@@ -2242,12 +3678,16 @@ suite("browser-extension archive records", () => {
     );
   });
 
-  test("a gallery keeps each item's largest size only", () => {
+  test("a gallery keeps each item's largest size, and one smaller copy", () => {
     assert.ok(records, "archive record helpers not loaded");
     const post = archiveGalleryPost();
     Object.values(post.media_metadata).forEach((entry) => {
       entry.s.u += "&amp;s=x";
-      entry.p = [{ u: entry.s.u, x: 108, y: 108 }];
+      entry.p = [108, 640, 960, 320].map((width) => ({
+        u: `${entry.s.u.replace("1080", String(width))}&amp;p=1`,
+        x: width,
+        y: width,
+      }));
     });
     const record = records.trimPost(post, "aww");
     assert.deepStrictEqual(record.gallery_data, {
@@ -2266,11 +3706,117 @@ suite("browser-extension archive records", () => {
         x: 1080,
         y: 1080,
       },
+      p: [
+        {
+          u: "https://preview.redd.it/galimg1.png?width=640&s=x&p=1",
+          x: 640,
+          y: 640,
+        },
+      ],
     });
     Object.values(record.media_metadata).forEach((entry) => {
-      assert.deepStrictEqual(Object.keys(entry), ["status", "e", "m", "s"]);
+      assert.deepStrictEqual(Object.keys(entry), [
+        "status",
+        "e",
+        "m",
+        "s",
+        "p",
+      ]);
     });
     assert.strictEqual(record.is_gallery, true);
+    // With no copy 640 wide, the widest is kept, for an animation's still.
+    const small = archiveGalleryPost();
+    small.media_metadata.galimg1.p = [
+      { u: "https://preview.redd.it/galimg1.png?width=108", x: 108, y: 108 },
+      { u: "https://preview.redd.it/galimg1.png?width=320", x: 320, y: 320 },
+    ];
+    assert.deepStrictEqual(
+      records.trimPost(small, "aww").media_metadata.galimg1.p,
+      [{ u: "https://preview.redd.it/galimg1.png?width=320", x: 320, y: 320 }],
+    );
+    // An item without copies keeps none.
+    assert.strictEqual(
+      records.trimPost(small, "aww").media_metadata.galimg2.p,
+      undefined,
+    );
+  });
+
+  test("a preview keeps one smaller copy of its picture and of a GIF's MP4", () => {
+    assert.ok(records, "archive record helpers not loaded");
+    const copies = (base, widths) =>
+      widths.map((width) => ({
+        url: `${base}?width=${width}&amp;s=${width}`,
+        width,
+        height: width / 2,
+      }));
+    const record = records.trimPost(
+      {
+        id: "gif1",
+        created_utc: 1600000000,
+        url: "https://i.redd.it/anim.gif",
+        preview: {
+          images: [
+            {
+              source: {
+                url: "https://preview.redd.it/anim.gif?format=png8&amp;s=a",
+                width: 1200,
+                height: 600,
+              },
+              resolutions: copies(
+                "https://preview.redd.it/anim.gif",
+                [108, 216, 320, 640, 960, 1080],
+              ),
+              variants: {
+                gif: { source: { url: "https://preview.redd.it/anim.gif" } },
+                mp4: {
+                  source: {
+                    url: "https://preview.redd.it/anim.gif?format=mp4&amp;s=b",
+                  },
+                  resolutions: copies(
+                    "https://preview.redd.it/anim.gif",
+                    [108, 216, 320],
+                  ),
+                },
+              },
+            },
+          ],
+        },
+      },
+      "gifs",
+    );
+    assert.deepStrictEqual(record.preview, {
+      images: [
+        {
+          source: {
+            url: "https://preview.redd.it/anim.gif?format=png8&s=a",
+            width: 1200,
+            height: 600,
+          },
+          resolutions: [
+            {
+              url: "https://preview.redd.it/anim.gif?width=640&s=640",
+              width: 640,
+              height: 320,
+            },
+          ],
+          variants: {
+            mp4: {
+              source: {
+                url: "https://preview.redd.it/anim.gif?format=mp4&s=b",
+              },
+              // No copy is 640 wide, so the widest.
+              resolutions: [
+                {
+                  url: "https://preview.redd.it/anim.gif?width=320&s=320",
+                  width: 320,
+                  height: 160,
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
   });
 
   test("a self post's text is decoded and cut to 1000 characters", () => {
@@ -2321,6 +3867,7 @@ suite("browser-extension archive media", () => {
     "isVideoUrl",
     "canonicalMediaKey",
     "externalMedia",
+    "embedStill",
   ]);
   const one = (post) => {
     const items = media.mediaFromPost(post, urls);
@@ -2387,12 +3934,19 @@ suite("browser-extension archive media", () => {
 
   test("pictures, Reddit videos and crossposted videos", () => {
     assert.ok(media, "archive media helpers not loaded");
+    // A grid tile loads the preview's 640 pixel copy of the picture, or of
+    // the video's poster, and a video's tile loops the video, which the
+    // viewer trades for a smaller rendition.
     assert.deepStrictEqual(one(archiveFixture.kgl8vc), {
       kind: "image",
       url: "https://i.redd.it/y8nbh6y019661.jpg",
       poster: "",
       postMedia: true,
       fromGif: false,
+      thumb: previewCopy(archiveFixture.kgl8vc, 640),
+      thumbVideo: "",
+      width: 2992,
+      height: 2992,
     });
     assert.deepStrictEqual(one(archiveFixture.kgepby), {
       kind: "video",
@@ -2400,24 +3954,40 @@ suite("browser-extension archive media", () => {
       poster: decodedPreview(archiveFixture.kgepby),
       postMedia: true,
       fromGif: false,
+      thumb: previewCopy(archiveFixture.kgepby, 640),
+      thumbVideo:
+        "https://v.redd.it/h57x3pgw57661/DASH_360.mp4?source=fallback",
+      width: 640,
+      height: 800,
     });
+    const original = archiveFixture.kg84kl.crosspost_parent_list[0];
     assert.deepStrictEqual(one(archiveFixture.kg84kl), {
       kind: "video",
       url: "https://v.redd.it/clkrb6upg4661/DASH_240.mp4?source=fallback",
-      poster: decodedPreview(archiveFixture.kg84kl.crosspost_parent_list[0]),
+      poster: decodedPreview(original),
       postMedia: true,
       fromGif: false,
+      thumb: previewCopy(original, 640),
+      thumbVideo:
+        "https://v.redd.it/clkrb6upg4661/DASH_240.mp4?source=fallback",
+      width: 640,
+      height: 360,
     });
   });
 
   test("a GIF plays as the MP4 that Reddit made of it, where there is one", () => {
     assert.ok(media, "archive media helpers not loaded");
+    // Its tile loops that MP4, as the preview has no smaller one.
     const played = {
       kind: "video",
       url: GIF_MP4,
       poster: GIF_POSTER,
       postMedia: true,
       fromGif: true,
+      thumb: "",
+      thumbVideo: GIF_MP4,
+      width: 400,
+      height: 300,
     };
     assert.deepStrictEqual(one(gifPost()), played);
     assert.deepStrictEqual(
@@ -2426,7 +3996,7 @@ suite("browser-extension archive media", () => {
     );
     // A crosspost plays its original's.
     assert.deepStrictEqual(one(gifCrosspost()), played);
-    // Without an MP4, the GIF itself shows.
+    // Without an MP4, the GIF itself shows, and nothing loops.
     const still = gifPost();
     delete still.preview.images[0].variants.mp4;
     assert.deepStrictEqual(one(still), {
@@ -2435,6 +4005,10 @@ suite("browser-extension archive media", () => {
       poster: "",
       postMedia: true,
       fromGif: false,
+      thumb: "",
+      thumbVideo: "",
+      width: 400,
+      height: 300,
     });
     // Only a link to a GIF plays so.
     assert.deepStrictEqual(
@@ -2445,6 +4019,10 @@ suite("browser-extension archive media", () => {
         poster: "",
         postMedia: true,
         fromGif: false,
+        thumb: "",
+        thumbVideo: "",
+        width: 400,
+        height: 300,
       },
     );
     // imgur's own MP4 still comes first for its GIFs.
@@ -2474,29 +4052,286 @@ suite("browser-extension archive media", () => {
 
   test("imgur GIFVs play as MP4s, and YouTube links as players", () => {
     assert.ok(media, "archive media helpers not loaded");
+    // An imgur MP4 can weigh megabytes, so its tile loops Reddit's copy of
+    // the clip on v.redd.it instead.
     assert.deepStrictEqual(one(archiveFixture.kgcs19), {
       kind: "video",
       url: "https://i.imgur.com/RCtmQG7.mp4",
       poster: decodedPreview(archiveFixture.kgcs19),
       postMedia: true,
       fromGif: true,
+      thumb: previewCopy(archiveFixture.kgcs19, 640),
+      thumbVideo: "https://v.redd.it/wrbm17kvo6661/DASH_480.mp4",
+      width: 960,
+      height: 538,
     });
+    // Even where Reddit's preview has an MP4 of its own.
+    assert.ok(archiveFixture.kgc3gb.preview.images[0].variants.mp4);
     assert.strictEqual(
       one(archiveFixture.kgc3gb).url,
       "https://i.imgur.com/oWjg3Wv.mp4",
     );
     assert.strictEqual(one(archiveFixture.kgc3gb).fromGif, true);
+    assert.strictEqual(
+      one(archiveFixture.kgc3gb).thumbVideo,
+      "https://v.redd.it/v5eg5gm6j6661/DASH_360.mp4",
+    );
+    // Stored, the copy keeps its file and size, and still loops.
+    assert.strictEqual(
+      one(records.trimPost(archiveFixture.kgc3gb, "pics")).thumbVideo,
+      "https://v.redd.it/v5eg5gm6j6661/DASH_360.mp4",
+    );
+    // Without a copy, the tile keeps to its still.
+    const bareImgur = JSON.parse(JSON.stringify(archiveFixture.kgc3gb));
+    delete bareImgur.preview.reddit_video_preview;
+    assert.strictEqual(one(bareImgur).thumbVideo, "");
+    // The grid loads no player, so a player's tile shows Reddit's preview of
+    // it, which has no copy 640 pixels wide here.
     assert.deepStrictEqual(one(archiveFixture.kgifs8), {
       kind: "embed",
       url: "https://www.youtube.com/embed/zb_oMA-v_wI?enablejsapi=1",
-      poster: "",
+      poster: decodedPreview(archiveFixture.kgifs8),
       postMedia: true,
       fromGif: false,
+      thumb: "",
+      thumbVideo: "",
+      width: 480,
+      height: 360,
     });
     assert.strictEqual(
       one(archiveFixture.kgjtiu).url,
       "https://www.youtube.com/embed/GXzLx-UjNNg?enablejsapi=1",
     );
+    // Without a preview or an oEmbed still, a YouTube player's tile shows
+    // YouTube's own still.
+    const {
+      preview: _preview,
+      media: _media,
+      secure_media: _secureMedia,
+      ...bare
+    } = archiveFixture.kgjtiu;
+    assert.deepStrictEqual(one(bare), {
+      kind: "embed",
+      url: "https://www.youtube.com/embed/GXzLx-UjNNg?enablejsapi=1",
+      poster: "https://i.ytimg.com/vi/GXzLx-UjNNg/hqdefault.jpg",
+      postMedia: true,
+      fromGif: false,
+      ...NO_GRID_PICTURE,
+    });
+  });
+
+  test("a player's tile shows the real frame, never the blurred copies", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const frame = (width) => ({
+      url: `https://external-preview.redd.it/clip.jpg?width=${width}&amp;s=real`,
+      width,
+      height: width * 1.5,
+    });
+    const blurred = (width) => ({
+      url: `https://external-preview.redd.it/clip.jpg?width=${width}&amp;blur=40&amp;s=blur`,
+      width,
+      height: width * 1.5,
+    });
+    const blurredImage = {
+      source: blurred(720),
+      resolutions: [blurred(320), blurred(640)],
+    };
+    const stored = records.trimPost(
+      post({
+        url: "https://www.redgifs.com/watch/someclip",
+        over_18: true,
+        preview: {
+          images: [
+            {
+              source: frame(720),
+              resolutions: [frame(320), frame(640)],
+              variants: { obfuscated: blurredImage, nsfw: blurredImage },
+            },
+          ],
+        },
+      }),
+      "pics",
+    );
+    assert.deepStrictEqual(one(stored), {
+      kind: "embed",
+      url: "https://www.redgifs.com/ifr/someclip",
+      poster: "https://external-preview.redd.it/clip.jpg?width=720&s=real",
+      postMedia: true,
+      fromGif: false,
+      thumb: "https://external-preview.redd.it/clip.jpg?width=640&s=real",
+      thumbVideo: "",
+      width: 720,
+      height: 1080,
+    });
+  });
+
+  test("a RedGIFs clip's tile loops Reddit's copy of it, stored as only its file and size", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    // Reddit's copy of the clip, as its data names it.
+    const copy = {
+      bitrate_kbps: 5000,
+      fallback_url: "https://v.redd.it/kyuaevw0lcsh1/CMAF_1080.mp4",
+      has_audio: false,
+      height: 1920,
+      width: 1080,
+      scrubber_media_url: "https://v.redd.it/kyuaevw0lcsh1/CMAF_96.mp4",
+      dash_url: "https://v.redd.it/kyuaevw0lcsh1/DASHPlaylist.mpd",
+      duration: 33,
+      hls_url: "https://v.redd.it/kyuaevw0lcsh1/HLSPlaylist.m3u8",
+      is_gif: true,
+      transcoding_status: "completed",
+    };
+    const raw = post({
+      url: "https://www.redgifs.com/watch/someclip",
+      domain: "redgifs.com",
+      preview: {
+        images: [
+          {
+            source: {
+              url: "https://external-preview.redd.it/clip.jpg?s=a",
+              width: 1080,
+              height: 1920,
+            },
+          },
+        ],
+        reddit_video_preview: copy,
+        enabled: false,
+      },
+    });
+    const stored = records.trimPost(raw, "pics");
+    assert.deepStrictEqual(stored.preview.reddit_video_preview, {
+      fallback_url: copy.fallback_url,
+      width: 1080,
+      height: 1920,
+    });
+    // The slideshow still loads the player, and the Show filter still
+    // counts the clip as a video.
+    assert.deepStrictEqual(one(stored), {
+      kind: "embed",
+      url: "https://www.redgifs.com/ifr/someclip",
+      poster: "https://external-preview.redd.it/clip.jpg?s=a",
+      postMedia: true,
+      fromGif: false,
+      thumb: "",
+      thumbVideo: copy.fallback_url,
+      width: 1080,
+      height: 1920,
+    });
+    // A copy without a preview picture is kept all the same.
+    const bare = JSON.parse(JSON.stringify(raw));
+    delete bare.preview.images;
+    const storedBare = records.trimPost(bare, "pics");
+    assert.deepStrictEqual(Object.keys(storedBare.preview), [
+      "reddit_video_preview",
+    ]);
+    assert.strictEqual(one(storedBare).thumbVideo, copy.fallback_url);
+    // A crosspost loops its original's copy.
+    const crosspost = records.trimPost(
+      post({
+        id: "syn3",
+        url: "https://www.redgifs.com/watch/someclip",
+        crosspost_parent_list: [raw],
+      }),
+      "pics",
+    );
+    assert.strictEqual(one(crosspost).thumbVideo, copy.fallback_url);
+    // Only a copy on v.redd.it, over https, loops.
+    [
+      "http://v.redd.it/kyuaevw0lcsh1/CMAF_1080.mp4",
+      "https://thumbs.example/someclip.mp4",
+      "javascript:alert(1)",
+      "",
+    ].forEach((fallback) => {
+      const other = JSON.parse(JSON.stringify(raw));
+      other.preview.reddit_video_preview.fallback_url = fallback;
+      assert.strictEqual(one(other).thumbVideo, "", fallback);
+    });
+    // A YouTube player's tile never loops.
+    assert.strictEqual(one(archiveFixture.kgifs8).thumbVideo, "");
+    assert.strictEqual(
+      one(records.trimPost(archiveFixture.kgifs8, "pics")).thumbVideo,
+      "",
+    );
+  });
+
+  test("a player without a preview shows its oEmbed still, the one part of the oEmbed kept", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const poster = "https://media.redgifs.com/SomeClip-poster.jpg";
+    const oembed = {
+      type: "video",
+      provider_name: "RedGIFs",
+      thumbnail_url: poster,
+      thumbnail_width: 1080,
+      thumbnail_height: 1920,
+      html: '<iframe src="https://www.redgifs.com/ifr/someclip"></iframe>',
+    };
+    const raw = post({
+      url: "https://www.redgifs.com/watch/someclip",
+      media: { type: "redgifs.com", oembed },
+      secure_media: { type: "redgifs.com", oembed },
+    });
+    const stored = records.trimPost(raw, "pics");
+    assert.deepStrictEqual(stored.media, {
+      oembed: { thumbnail_url: poster },
+    });
+    assert.deepStrictEqual(one(stored), {
+      kind: "embed",
+      url: "https://www.redgifs.com/ifr/someclip",
+      poster,
+      postMedia: true,
+      fromGif: false,
+      ...NO_GRID_PICTURE,
+    });
+    // With a preview, the preview decides, and nothing of the oEmbed stays.
+    const previewed = records.trimPost(
+      {
+        ...raw,
+        preview: {
+          images: [
+            {
+              source: {
+                url: "https://external-preview.redd.it/clip.jpg?s=a",
+                width: 480,
+                height: 854,
+              },
+            },
+          ],
+        },
+      },
+      "pics",
+    );
+    assert.strictEqual(previewed.media, null);
+    assert.strictEqual(
+      one(previewed).poster,
+      "https://external-preview.redd.it/clip.jpg?s=a",
+    );
+  });
+
+  test("an imgur link to a video file plays as a video", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const item = one(
+      post({
+        url: "https://i.imgur.com/clip1.mp4",
+        preview: {
+          images: [
+            {
+              source: {
+                url: "https://external-preview.redd.it/clip1.jpg?s=a",
+                width: 640,
+                height: 360,
+              },
+            },
+          ],
+        },
+      }),
+    );
+    assert.strictEqual(item.kind, "video");
+    assert.strictEqual(item.url, "https://i.imgur.com/clip1.mp4");
+    assert.strictEqual(
+      item.poster,
+      "https://external-preview.redd.it/clip1.jpg?s=a",
+    );
+    assert.strictEqual(item.fromGif, false);
   });
 
   test("a link shows its preview picture, which is not the post's own media", () => {
@@ -2507,6 +4342,10 @@ suite("browser-extension archive media", () => {
       poster: "",
       postMedia: false,
       fromGif: false,
+      thumb: previewCopy(archiveFixture.kgkkid, 640),
+      thumbVideo: "",
+      width: 1600,
+      height: 900,
     });
   });
 
@@ -2518,6 +4357,7 @@ suite("browser-extension archive media", () => {
       poster: "",
       postMedia: false,
       fromGif: false,
+      ...NO_GRID_PICTURE,
     });
     assert.deepStrictEqual(one(archiveFixture.kgfnzg), {
       kind: "link",
@@ -2525,6 +4365,7 @@ suite("browser-extension archive media", () => {
       poster: "",
       postMedia: false,
       fromGif: false,
+      ...NO_GRID_PICTURE,
     });
     // A text post's preview picture is not shown in place of its text.
     assert.strictEqual(one(archiveFixture.kg9s5v).kind, "link");
@@ -2576,6 +4417,7 @@ suite("browser-extension archive media", () => {
         poster: "",
         postMedia: true,
         fromGif: false,
+        ...NO_GRID_PICTURE,
       },
     );
     const animated = media.mediaFromPost(
@@ -2629,16 +4471,382 @@ suite("browser-extension archive media", () => {
       poster: "",
       postMedia: false,
       fromGif: false,
+      ...NO_GRID_PICTURE,
     });
+  });
+
+  // Reddit's smaller copies: stills for pictures and posters, and MP4s for
+  // a GIF, each from 108 pixels wide up to `widest`, their URLs escaped as
+  // older records have them.
+  const copiesOf = (base, widest, query = "") =>
+    [108, 216, 320, 640, 960, 1080]
+      .filter((width) => width <= widest)
+      .map((width) => ({
+        url: `${base}?width=${width}${query}&amp;s=${width}`,
+        width,
+        height: Math.round(width * 0.75),
+      }));
+  const copyUrl = (base, width, query = "") =>
+    `${base}?width=${width}${query}&s=${width}`;
+  // A GIF with Reddit's stills of it, its MP4 and the MP4's smaller copies.
+  const LOOP_BASE = "https://preview.redd.it/loop.gif";
+  const loopPost = (stillWidest, mp4Widest, fields) =>
+    post({
+      id: "loop1",
+      url: "https://i.redd.it/loop.gif",
+      preview: {
+        images: [
+          {
+            source: {
+              url: `${LOOP_BASE}?format=png8&amp;s=still`,
+              width: 1200,
+              height: 900,
+            },
+            resolutions: copiesOf(LOOP_BASE, stillWidest, "&amp;format=png8"),
+            variants: {
+              mp4: {
+                source: { url: `${LOOP_BASE}?format=mp4&amp;s=motion` },
+                resolutions: copiesOf(LOOP_BASE, mp4Widest, "&amp;format=mp4"),
+              },
+            },
+          },
+        ],
+      },
+      ...fields,
+    });
+  // A gallery of one item per metadata entry, in order.
+  const galleryPost = (metadata) =>
+    post({
+      id: "gal2",
+      is_gallery: true,
+      gallery_data: {
+        items: Object.keys(metadata).map((id) => ({ media_id: id })),
+      },
+      media_metadata: metadata,
+    });
+  const galleryCopies = (id, extension, widest, query = "") =>
+    copiesOf(`https://preview.redd.it/${id}.${extension}`, widest, query).map(
+      (copy) => ({ u: copy.url, x: copy.width, y: copy.height }),
+    );
+
+  test("a GIF's tile shows a still and loops the smallest MP4 wide enough", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const played = one(loopPost(1080, 1080));
+    assert.deepStrictEqual(played, {
+      kind: "video",
+      url: `${LOOP_BASE}?format=mp4&s=motion`,
+      poster: `${LOOP_BASE}?format=png8&s=still`,
+      postMedia: true,
+      fromGif: true,
+      thumb: copyUrl(LOOP_BASE, 640, "&format=png8"),
+      thumbVideo: copyUrl(LOOP_BASE, 640, "&format=mp4"),
+      width: 1200,
+      height: 900,
+    });
+    // With no copy 640 wide, the widest; a GIF weighs more than any copy.
+    const small = one(loopPost(320, 216));
+    assert.strictEqual(small.thumb, copyUrl(LOOP_BASE, 320, "&format=png8"));
+    assert.strictEqual(
+      small.thumbVideo,
+      copyUrl(LOOP_BASE, 216, "&format=mp4"),
+    );
+    // Without smaller MP4s, the MP4 itself loops.
+    assert.strictEqual(
+      one(loopPost(1080, 0)).thumbVideo,
+      `${LOOP_BASE}?format=mp4&s=motion`,
+    );
+    // A crosspost shows its original's.
+    const crosspost = post({
+      id: "loop2",
+      url: "https://i.redd.it/loop.gif",
+      crosspost_parent_list: [loopPost(1080, 1080)],
+    });
+    assert.deepStrictEqual(one(crosspost), played);
+    // A GIF without an MP4 shows as a still, and loops nothing.
+    const gifOnly = loopPost(1080, 1080);
+    delete gifOnly.preview.images[0].variants;
+    assert.deepStrictEqual(one(gifOnly), {
+      kind: "image",
+      url: "https://i.redd.it/loop.gif",
+      poster: "",
+      postMedia: true,
+      fromGif: false,
+      thumb: copyUrl(LOOP_BASE, 640, "&format=png8"),
+      thumbVideo: "",
+      width: 1200,
+      height: 900,
+    });
+  });
+
+  test("a copy of a GIF that is itself a GIF is no still", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const animated = loopPost(1080, 1080);
+    animated.preview.images[0].resolutions = copiesOf(LOOP_BASE, 1080);
+    assert.strictEqual(one(animated).thumb, "");
+    assert.strictEqual(
+      one(animated).thumbVideo,
+      copyUrl(LOOP_BASE, 640, "&format=mp4"),
+    );
+  });
+
+  test("a picture with no copy 640 wide shows itself in the grid", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    // kg4tn5's preview stops at 320 pixels.
+    assert.deepStrictEqual(one(archiveFixture.kg4tn5), {
+      kind: "image",
+      url: "https://i.redd.it/hn1k1c6i44661.jpg",
+      poster: "",
+      postMedia: true,
+      fromGif: false,
+      thumb: "",
+      thumbVideo: "",
+      width: 634,
+      height: 530,
+    });
+    // And so does kgj40u's original, whose copy is exactly 640 wide.
+    assert.strictEqual(
+      one(archiveFixture.kgj40u).thumb,
+      previewCopy(archiveFixture.kgj40u, 640),
+    );
+  });
+
+  test("a record stored before copies were kept shows its original, in shape", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const record = records.trimPost(archiveFixture.kgl8vc, "pics");
+    delete record.preview.images[0].resolutions;
+    const [slide] = media.postSlides(record, urls).slides;
+    assert.strictEqual(slide.url, "https://i.redd.it/y8nbh6y019661.jpg");
+    assert.strictEqual(slide.thumb, "");
+    assert.strictEqual(slide.thumbVideo, "");
+    assert.strictEqual(slide.width, 2992);
+    assert.strictEqual(slide.height, 2992);
+    const gif = records.trimPost(loopPost(1080, 1080), "gifs");
+    delete gif.preview.images[0].resolutions;
+    delete gif.preview.images[0].variants.mp4.resolutions;
+    const [loop] = media.postSlides(gif, urls).slides;
+    assert.strictEqual(loop.thumb, "");
+    assert.strictEqual(loop.thumbVideo, `${LOOP_BASE}?format=mp4&s=motion`);
+  });
+
+  test("an external picture's tile shows Reddit's copy of it", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const imgur = post({
+      url: "https://imgur.com/pic1",
+      preview: {
+        images: [
+          {
+            source: {
+              url: "https://external-preview.redd.it/pic1.jpg?s=a",
+              width: 2000,
+              height: 1000,
+            },
+            resolutions: copiesOf(
+              "https://external-preview.redd.it/pic1.jpg",
+              1080,
+            ),
+          },
+        ],
+      },
+    });
+    assert.deepStrictEqual(one(imgur), {
+      kind: "image",
+      url: "https://i.imgur.com/pic1.jpg",
+      poster: "",
+      postMedia: true,
+      fromGif: false,
+      thumb: copyUrl("https://external-preview.redd.it/pic1.jpg", 640),
+      thumbVideo: "",
+      width: 2000,
+      height: 1000,
+    });
+  });
+
+  test("a gallery's JPEGs and WebPs load from i.redd.it, and its PNGs from their transcode", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const size = (id, extension) => ({
+      u: `https://preview.redd.it/${id}.${extension}?width=3000&amp;format=pjpg&amp;auto=webp&amp;s=${id}`,
+      x: 3000,
+      y: 2000,
+    });
+    const items = media.mediaFromPost(
+      galleryPost({
+        jpg1: {
+          status: "valid",
+          e: "Image",
+          m: "image/jpg",
+          s: size("jpg1", "jpg"),
+          p: galleryCopies("jpg1", "jpg", 1080),
+        },
+        jpeg2: {
+          status: "valid",
+          e: "Image",
+          m: "image/jpeg",
+          s: size("jpeg2", "jpeg"),
+        },
+        webp3: {
+          status: "valid",
+          e: "Image",
+          m: "image/WEBP",
+          s: size("webp3", "webp"),
+        },
+        png4: {
+          status: "valid",
+          e: "Image",
+          m: "image/png",
+          s: size("png4", "png"),
+          p: galleryCopies("png4", "png", 320),
+        },
+        bare5: { status: "valid", e: "Image", s: size("bare5", "jpg") },
+      }),
+      urls,
+    );
+    assert.deepStrictEqual(
+      items.map((item) => [item.url, item.formerUrl, item.thumb]),
+      [
+        [
+          "https://i.redd.it/jpg1.jpg",
+          "https://preview.redd.it/jpg1.jpg?width=3000&format=pjpg&auto=webp&s=jpg1",
+          copyUrl("https://preview.redd.it/jpg1.jpg", 640),
+        ],
+        [
+          "https://i.redd.it/jpeg2.jpeg",
+          "https://preview.redd.it/jpeg2.jpeg?width=3000&format=pjpg&auto=webp&s=jpeg2",
+          "",
+        ],
+        [
+          "https://i.redd.it/webp3.webp",
+          "https://preview.redd.it/webp3.webp?width=3000&format=pjpg&auto=webp&s=webp3",
+          "",
+        ],
+        // A PNG's original can weigh many times its transcode; a picture
+        // with no copy 640 wide shows itself.
+        [
+          "https://preview.redd.it/png4.png?width=3000&format=pjpg&auto=webp&s=png4",
+          undefined,
+          "",
+        ],
+        // Without a type, the transcode.
+        [
+          "https://preview.redd.it/bare5.jpg?width=3000&format=pjpg&auto=webp&s=bare5",
+          undefined,
+          "",
+        ],
+      ],
+    );
+    items.forEach((item) => {
+      assert.strictEqual(item.width, 3000, item.url);
+      assert.strictEqual(item.height, 2000, item.url);
+      assert.strictEqual(item.thumbVideo, "", item.url);
+    });
+    // A media id that is not a plain id keeps the transcode.
+    const odd = media.mediaFromPost(
+      galleryPost({
+        "a/b": {
+          status: "valid",
+          e: "Image",
+          m: "image/jpg",
+          s: size("ab", "jpg"),
+        },
+      }),
+      urls,
+    );
+    assert.strictEqual(
+      odd[0].url,
+      "https://preview.redd.it/ab.jpg?width=3000&format=pjpg&auto=webp&s=ab",
+    );
+  });
+
+  test("a gallery's animations loop their MP4 over a still", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const items = media.mediaFromPost(
+      galleryPost({
+        anim1: {
+          status: "valid",
+          e: "AnimatedImage",
+          m: "image/gif",
+          s: {
+            gif: "https://i.redd.it/anim1.gif",
+            mp4: "https://preview.redd.it/anim1.gif?format=mp4&amp;s=m",
+            x: 500,
+            y: 400,
+          },
+          p: galleryCopies("anim1", "gif", 320, "&amp;format=png8"),
+        },
+        anim2: {
+          status: "valid",
+          e: "AnimatedImage",
+          m: "image/gif",
+          s: { gif: "https://i.redd.it/anim2.gif", x: 800, y: 600 },
+          p: galleryCopies("anim2", "gif", 1080, "&amp;format=png8"),
+        },
+        // A copy without a still format is the GIF again.
+        anim3: {
+          status: "valid",
+          e: "AnimatedImage",
+          m: "image/gif",
+          s: { gif: "https://i.redd.it/anim3.gif", x: 800, y: 600 },
+          p: galleryCopies("anim3", "gif", 1080),
+        },
+      }),
+      urls,
+    );
+    assert.deepStrictEqual(
+      items.map((item) => [
+        item.kind,
+        item.url,
+        item.thumb,
+        item.thumbVideo,
+        item.width,
+        item.height,
+      ]),
+      [
+        [
+          "video",
+          "https://preview.redd.it/anim1.gif?format=mp4&s=m",
+          copyUrl("https://preview.redd.it/anim1.gif", 320, "&format=png8"),
+          "https://preview.redd.it/anim1.gif?format=mp4&s=m",
+          500,
+          400,
+        ],
+        [
+          "image",
+          "https://i.redd.it/anim2.gif",
+          copyUrl("https://preview.redd.it/anim2.gif", 640, "&format=png8"),
+          "",
+          800,
+          600,
+        ],
+        ["image", "https://i.redd.it/anim3.gif", "", "", 800, 600],
+      ],
+    );
   });
 
   test("trimming never changes the slides", () => {
     assert.ok(media, "archive media helpers not loaded");
+    const jpegGallery = archiveGalleryPost();
+    Object.entries(jpegGallery.media_metadata).forEach(([id, entry]) => {
+      entry.m = "image/jpg";
+      entry.p = galleryCopies(id, "png", 1080);
+    });
+    // A player frame without a preview, which shows its oEmbed's still.
+    const oembed = {
+      thumbnail_url: "https://media.redgifs.com/SomeClip-poster.jpg",
+      html: "<iframe></iframe>",
+    };
+    const bareFrame = post({
+      id: "frame1",
+      url: "https://www.redgifs.com/watch/someclip",
+      secure_media: { type: "redgifs.com", oembed },
+    });
     [
       ...archiveFixturePosts,
       archiveGalleryPost(),
+      jpegGallery,
       gifPost(),
       gifCrosspost(),
+      loopPost(1080, 1080),
+      loopPost(320, 216),
+      bareFrame,
     ].forEach((raw) => {
       assert.deepStrictEqual(
         media.mediaFromPost(records.trimPost(raw, "x"), urls),
@@ -2671,6 +4879,36 @@ suite("browser-extension archive media", () => {
     );
   });
 
+  test("a gallery JPEG recorded dead under either of its URLs stays skipped", () => {
+    assert.ok(media, "archive media helpers not loaded");
+    const gallery = archiveGalleryPost();
+    Object.entries(gallery.media_metadata).forEach(([id, entry]) => {
+      entry.m = "image/jpg";
+      entry.s.u = `https://preview.redd.it/${id}.jpg?width=1080&format=pjpg&s=x`;
+    });
+    const record = records.trimPost(gallery, "aww");
+    assert.deepStrictEqual(
+      media.postSlides(record, urls).slides.map((slide) => slide.url),
+      [1, 2, 3].map((number) => `https://i.redd.it/galimg${number}.jpg`),
+    );
+    // Before 2026-09, a dead item was recorded under its transcode's key;
+    // now it is recorded under its i.redd.it key.
+    const dead = new Set([
+      urls.canonicalMediaKey(
+        "https://preview.redd.it/galimg1.jpg?width=1080&format=pjpg&s=x",
+      ),
+      urls.canonicalMediaKey("https://i.redd.it/galimg3.jpg"),
+    ]);
+    const { slides, unavailable } = media.postSlides(record, urls, dead);
+    assert.strictEqual(unavailable, 2);
+    assert.deepStrictEqual(
+      slides.map((slide) => [slide.url, slide.galleryItem]),
+      [["https://i.redd.it/galimg2.jpg", 2]],
+    );
+    // The slide does not carry the former URL.
+    assert.strictEqual(slides[0].formerUrl, undefined);
+  });
+
   test("slides carry the post's details and where it came from", () => {
     assert.ok(media, "archive media helpers not loaded");
     const record = records.trimPost(archiveFixture.kgl8vc, "pics");
@@ -2685,6 +4923,11 @@ suite("browser-extension archive media", () => {
     assert.strictEqual(slide.sourceUrl, "https://i.redd.it/y8nbh6y019661.jpg");
     assert.strictEqual(slide.postKey, "t3_kgl8vc");
     assert.strictEqual(slide.galleryItem, 0);
+    // What its grid tile shows.
+    assert.strictEqual(slide.thumb, previewCopy(archiveFixture.kgl8vc, 640));
+    assert.strictEqual(slide.thumbVideo, "");
+    assert.strictEqual(slide.width, 2992);
+    assert.strictEqual(slide.height, 2992);
     assert.deepStrictEqual(slide.archive, {
       id: "kgl8vc",
       created: archiveFixture.kgl8vc.created_utc,

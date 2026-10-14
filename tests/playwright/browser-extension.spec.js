@@ -39,6 +39,21 @@ const staleVideoOverlayFixture = fs.readFileSync(
   ),
   "utf8",
 );
+// A RedGIFs post as current Reddit's feed renders it: only Reddit's embed of
+// the player, with no picture anywhere in the post.
+const redgifsEmbedFixture = fs.readFileSync(
+  path.resolve(
+    __dirname,
+    "../../test-data/browser-extension-redgifs-embed-post.html",
+  ),
+  "utf8",
+);
+// An uploaded GIF's player and a video posted as a GIF, as current Reddit's
+// feed renders them.
+const gifPlayersFixture = fs.readFileSync(
+  path.resolve(__dirname, "../../test-data/browser-extension-gif-players.html"),
+  "utf8",
+);
 
 // A short clip for the video URLs a test lets play. The presentation starts
 // every video muted.
@@ -59,18 +74,30 @@ async function startPresentation(page, html) {
 // The media hosts answer every URL a test does not route itself: video paths
 // with the clip, everything else with a picture. Made-up URLs would otherwise
 // reach the real hosts, which answer with a placeholder picture or an error.
+// i.ytimg.com serves the stills of YouTube players' tiles.
 const DEFAULT_MEDIA_RE =
-  /^https:\/\/(?:i\.redd\.it|preview\.redd\.it|external-preview\.redd\.it|i\.imgur\.com|v\.redd\.it)\//;
+  /^https:\/\/(?:i\.redd\.it|preview\.redd\.it|external-preview\.redd\.it|i\.imgur\.com|v\.redd\.it|i\.ytimg\.com)\//;
 
-// Page routes, and context routes a test adds later, still win.
+// Reddit's data for posts, which the grid asks for the stills of players
+// whose cards have no picture. The specs never reach the real endpoint, which
+// answers automated browsers with a challenge; a test that needs an answer
+// routes it itself.
+const POST_INFO_RE = /^https:\/\/www\.reddit\.com\/api\/info\.json(?:\?|$)/;
+
+// Page routes, and context routes a test adds later, still win. A video's
+// manifest on v.redd.it lists the renditions of a landscape clip.
 test.beforeEach(async ({ context }) => {
   await context.route(DEFAULT_MEDIA_RE, (route) => {
     const url = new URL(route.request().url());
+    if (url.hostname === "v.redd.it" && /\.mpd$/i.test(url.pathname)) {
+      return route.fulfill(dashManifest(LANDSCAPE_RENDITIONS));
+    }
     if (url.hostname === "v.redd.it" || /\.(?:mp4|webm)$/i.test(url.pathname)) {
       return fulfillSilentVideo(route);
     }
     return route.fulfill(svgImage(800, 600));
   });
+  await context.route(POST_INFO_RE, (route) => route.abort());
 });
 
 test("extension presents old Reddit image posts and supports keyboard navigation", async ({
@@ -2053,7 +2080,8 @@ test("V shows every slide as a grid tile without starting a player", async ({
   ).toBeVisible();
   await expect(grid.locator("video")).toHaveCount(0);
   await expect(grid.locator("iframe")).toHaveCount(0);
-  await expect(grid.locator(".redditp__tile-play")).toHaveCount(2);
+  // A video's tile says so to screen readers, and shows no play badge.
+  await expect(grid.locator(".redditp__tile-play")).toHaveCount(0);
   await expect(page.locator(".redditp__prev")).toBeHidden();
   await expect(page.locator(".redditp__next")).toBeHidden();
   await expect(page.locator(".redditp__details")).toBeHidden();
@@ -2356,6 +2384,2082 @@ test("thumbnail tiles upgrade in view, two posts at a time", async ({
   expect(maxInFlight).toBeLessThanOrEqual(2);
 });
 
+// A routed page that hosts the viewer, so that the viewer can start in the
+// grid, opened on a source that hands over `slides` at once. `before` runs
+// in the page before the extension starts, and `settings` add to the saved
+// settings. window.gridSourceDead lists the posts that the source heard were
+// dropped.
+async function openGridSource(page, slides, before, settings = {}) {
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/gridsource/",
+    '<meta name="redditp-host" content="test">',
+    { openInGrid: true, ...settings },
+  );
+  if (before) await page.evaluate(before);
+  await injectExtension(page);
+  await page.evaluate((list) => {
+    window.gridSourceDead = [];
+    window.__redditpPresentation.open({
+      kind: "test",
+      start: () => Promise.resolve({ slides: list }),
+      loadMore: () => Promise.resolve({ slides: [] }),
+      hasMore: () => false,
+      onDead: (slide) => window.gridSourceDead.push(slide.postKey),
+    });
+  }, slides);
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+}
+
+// An image post of the grid source, titled "Grid slide <number>".
+function gridSlide(number, fields = {}) {
+  return {
+    kind: "image",
+    url: `https://i.redd.it/gs-${number}.jpg`,
+    postMedia: true,
+    title: `Grid slide ${number}`,
+    postKey: `t3_gs${number}`,
+    commentsUrl: `https://www.reddit.com/r/gridsource/comments/gs${number}/post/`,
+    ...fields,
+  };
+}
+
+// A GIF post of the grid source, titled "GIF <number>": the MP4 that Reddit
+// made of it, its still, a 640 pixel copy of that still, and the 640 pixel
+// MP4 that its tile loops.
+function gifSlide(number, fields = {}) {
+  const base = `https://preview.redd.it/gif-${number}.gif`;
+  return gridSlide(number, {
+    kind: "video",
+    url: `${base}?format=mp4&s=full`,
+    poster: `${base}?format=png8&s=still`,
+    thumb: `${base}?width=640&format=png8&s=thumb`,
+    thumbVideo: `${base}?width=640&format=mp4&s=loop`,
+    fromGif: true,
+    width: 640,
+    height: 480,
+    title: `GIF ${number}`,
+    ...fields,
+  });
+}
+
+// Reddit's MP4s of GIFs play the silent test clip.
+function routeGifMp4s(page) {
+  return page.route(
+    /^https:\/\/preview\.redd\.it\/[^?]+\.gif\?(?:.*&)?format=mp4/,
+    fulfillSilentVideo,
+  );
+}
+
+// The renditions that the manifest of a landscape clip on v.redd.it lists,
+// as [name, width, height, bandwidth], named after their short side as
+// Reddit names them now; and those of a portrait clip, whose manifest stops
+// at 720.
+const LANDSCAPE_RENDITIONS = [
+  ["CMAF_220.mp4", 392, 220, 190000],
+  ["CMAF_270.mp4", 480, 270, 330000],
+  ["CMAF_360.mp4", 640, 360, 620000],
+  ["CMAF_480.mp4", 854, 480, 1000000],
+  ["CMAF_720.mp4", 1280, 720, 1900000],
+  ["CMAF_1080.mp4", 1920, 1080, 3900000],
+];
+const PORTRAIT_RENDITIONS = [
+  ["CMAF_220.mp4", 220, 392, 157664],
+  ["CMAF_270.mp4", 270, 480, 280092],
+  ["CMAF_360.mp4", 360, 640, 543668],
+  ["CMAF_480.mp4", 480, 854, 887294],
+  ["CMAF_720.mp4", 720, 1280, 1768496],
+];
+
+// A video's manifest as v.redd.it serves it, to any origin: its renditions
+// with a picture, as [name, width, height, bandwidth], and its sound.
+function dashManifest(renditions) {
+  const representations = renditions
+    .map(
+      ([name, width, height, bandwidth]) =>
+        `<Representation bandwidth="${bandwidth}" codecs="avc1.4d401f" height="${height}" id="${name}" mimeType="video/mp4" width="${width}"><BaseURL>${name}</BaseURL></Representation>`,
+    )
+    .join("");
+  return {
+    status: 200,
+    contentType: "application/dash+xml",
+    headers: { "access-control-allow-origin": "*" },
+    body: `<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static"><Period><AdaptationSet contentType="video">${representations}</AdaptationSet><AdaptationSet contentType="audio"><Representation bandwidth="131851" codecs="mp4a.40.2" id="audio" mimeType="audio/mp4"><BaseURL>CMAF_AUDIO_128.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>`,
+  };
+}
+
+// Answers the manifests on v.redd.it with answer(url), a response, and
+// lists each request: its URL and the cookies it sent.
+async function routeManifests(page, answer) {
+  const requests = [];
+  await page.route(
+    /^https:\/\/v\.redd\.it\/[^/]+\/DASHPlaylist\.mpd$/,
+    async (route) => {
+      const request = route.request();
+      requests.push({
+        url: request.url(),
+        cookie: (await request.allHeaders()).cookie || "",
+      });
+      return route.fulfill(answer(request.url()));
+    },
+  );
+  return requests;
+}
+
+// A Reddit video post of the grid source, titled "Clip <number>": the 1080
+// pixel file of a landscape clip on v.redd.it, which the slideshow plays and
+// its tile trades for a smaller rendition, and its poster.
+function redditVideoSlide(number, fields = {}) {
+  const file = `https://v.redd.it/clip${number}/CMAF_1080.mp4?source=fallback`;
+  return gridSlide(number, {
+    kind: "video",
+    url: file,
+    poster: `https://external-preview.redd.it/clip${number}.png?format=pjpg&s=p`,
+    thumbVideo: file,
+    width: 1920,
+    height: 1080,
+    title: `Clip ${number}`,
+    ...fields,
+  });
+}
+
+// What the grid's loops are doing, by their tiles' names: each one's tile
+// and src, and whether it plays.
+function gridLoops(page) {
+  return page.locator(".redditp__grid").evaluate((grid) =>
+    Array.from(grid.querySelectorAll(".redditp__tile-video"), (video) => ({
+      tile: video.closest(".redditp__tile").getAttribute("aria-label"),
+      src: video.getAttribute("src"),
+      playing: !video.paused,
+    })).sort((a, b) => (a.tile < b.tile ? -1 : 1)),
+  );
+}
+
+function gridTile(page, name) {
+  return page
+    .locator(".redditp__grid")
+    .getByRole("button", { name, exact: true });
+}
+
+// A tile's height over its width.
+async function tileShape(tile) {
+  const box = await tile.boundingBox();
+  return box.height / box.width;
+}
+
+test("a grid tile loads a 640 pixel copy from the card, shaped before it arrives", async ({
+  page,
+}) => {
+  const article = "https://external-preview.redd.it/article.jpeg";
+  const photo = "https://preview.redd.it/my-photo-v0-upload1.jpeg";
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/copies/",
+    `<shreddit-post id="t3_copy1" post-title="Linked article" content-href="https://example.com/article" permalink="/r/copies/comments/copy1/post/">
+      <img data-post-media-primary srcset="${article}?width=320&amp;s=1 320w, ${article}?width=640&amp;s=2 640w, ${article}?width=1080&amp;s=3 1080w" width="1080" height="540" alt="Linked article">
+    </shreddit-post>
+    <shreddit-post id="t3_copy2" post-title="Tall photo" content-href="https://i.redd.it/upload1.jpeg" permalink="/r/copies/comments/copy2/post/">
+      <img data-post-media-primary srcset="${photo}?width=640&amp;s=a 640w, ${photo}?width=1080&amp;s=b 1080w" width="1080" height="1620" alt="Tall photo">
+    </shreddit-post>
+    <shreddit-post id="t3_copy3" post-title="Other photo" content-href="https://i.redd.it/upload2.jpeg" permalink="/r/copies/comments/copy3/post/">
+      <img data-post-media-primary srcset="https://preview.redd.it/other9.jpeg?width=640&amp;s=c 640w" width="1080" height="1620" alt="Other photo">
+    </shreddit-post>`,
+    { openInGrid: true },
+  );
+  // From here on, pictures wait until the test lets them through. The
+  // page's own pictures have loaded already.
+  const held = [];
+  let release = null;
+  await page.route(
+    /^https:\/\/(?:i|preview|external-preview)\.redd\.it\//,
+    (route) => {
+      if (release) return release(route);
+      held.push(route);
+    },
+  );
+  await injectExtension(page);
+
+  const articleTile = gridTile(page, "Linked article");
+  const photoTile = gridTile(page, "Tall photo");
+  const otherTile = gridTile(page, "Other photo");
+  await expect(articleTile.locator("img")).toHaveAttribute(
+    "src",
+    `${article}?width=640&s=2`,
+  );
+  // A link straight to an upload takes the card's copy of that upload.
+  await expect(photoTile.locator("img")).toHaveAttribute(
+    "src",
+    `${photo}?width=640&s=a`,
+  );
+  // A copy of another upload says nothing about this one.
+  await expect(otherTile.locator("img")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/upload2.jpeg",
+  );
+  // The copies have not arrived, yet the tiles have their pictures' shapes.
+  expect(
+    await articleTile.locator("img").evaluate((image) => image.naturalWidth),
+  ).toBe(0);
+  expect(await tileShape(articleTile)).toBeCloseTo(0.5, 2);
+  expect(await tileShape(photoTile)).toBeCloseTo(1.5, 2);
+  expect(await tileShape(otherTile)).toBeCloseTo(1, 2);
+
+  release = (route) => {
+    const url = route.request().url();
+    if (url.startsWith(photo)) return route.fulfill(svgImage(640, 960));
+    if (url.startsWith(article)) return route.fulfill(svgImage(640, 320));
+    return route.fulfill(svgImage(800, 600));
+  };
+  await Promise.all(held.splice(0).map(release));
+  await expect(articleTile.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  await expect(photoTile.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  expect(await tileShape(articleTile)).toBeCloseTo(0.5, 2);
+  expect(await tileShape(photoTile)).toBeCloseTo(1.5, 2);
+
+  // The slideshow still shows the largest picture.
+  await articleTile.click();
+  await expect(page.locator(".redditp__image")).toHaveAttribute(
+    "src",
+    `${article}?width=1080&s=3`,
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__image")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/upload1.jpeg",
+  );
+});
+
+test("a failed or placeholder copy makes way for the original, which alone decides", async ({
+  page,
+}) => {
+  const copy = (name) => `https://preview.redd.it/${name}.jpg?width=640&s=c`;
+  const originals = [];
+  // Pictures named broken-… fail, and pictures named gone-… are Reddit's
+  // placeholder for a deleted picture.
+  await page.route(
+    /^https:\/\/(?:i|preview|external-preview)\.redd\.it\//,
+    (route) => {
+      const url = route.request().url();
+      if (url.startsWith("https://i.redd.it/")) originals.push(url);
+      if (/broken-/.test(url)) return route.abort();
+      if (/gone-/.test(url)) return route.fulfill(svgImage(130, 60));
+      return route.fulfill(svgImage(800, 600));
+    },
+  );
+  await openGridSource(page, [
+    gridSlide(1, { title: "Copy fails", thumb: copy("broken-1") }),
+    gridSlide(2, { title: "Copy gone", thumb: copy("gone-2") }),
+    gridSlide(3, {
+      title: "Both fail",
+      url: "https://i.redd.it/broken-3.jpg",
+      thumb: copy("broken-3"),
+    }),
+    gridSlide(4, {
+      title: "Both gone",
+      url: "https://i.redd.it/gone-4.jpg",
+      thumb: copy("gone-4"),
+    }),
+    gridSlide(5, { title: "Copy loads", thumb: copy("fine-5") }),
+    gridSlide(6, {
+      title: "Clip",
+      kind: "video",
+      url: "https://v.redd.it/clip6/DASH_480.mp4",
+      poster: "https://external-preview.redd.it/broken-6.png",
+      thumb: "https://external-preview.redd.it/broken-6.png?width=640",
+    }),
+  ]);
+  await expect(gridTile(page, "Copy fails").locator("img")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/gs-1.jpg",
+  );
+  await expect(gridTile(page, "Copy gone").locator("img")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/gs-2.jpg",
+  );
+  await expect(gridTile(page, "Copy gone").locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  await expect(gridTile(page, "Both fail")).toHaveCount(0);
+  await expect(gridTile(page, "Both gone")).toHaveCount(0);
+  await expect(gridTile(page, "Copy loads").locator("img")).toHaveAttribute(
+    "src",
+    copy("fine-5"),
+  );
+  // A poster that fails, copy and all, keeps its card.
+  await expect(
+    gridTile(page, "Clip, video").locator(".redditp__tile-kind"),
+  ).toHaveText("Video");
+  await expect(page.locator(".redditp__grid .redditp__tile")).toHaveCount(4);
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "4 posts · 2 unavailable",
+  );
+  expect((await page.evaluate(() => window.gridSourceDead)).sort()).toEqual([
+    "t3_gs3",
+    "t3_gs4",
+  ]);
+  // A copy that loaded left the original alone.
+  expect(originals).not.toContain("https://i.redd.it/gs-5.jpg");
+});
+
+test("grid pictures load six screens below the view and two above, and no further", async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [360, 780],
+    [412, 915],
+    [1920, 1080],
+  ]) {
+    await page.setViewportSize({ width, height });
+    const requested = new Set();
+    await page.route(/^https:\/\/i\.redd\.it\/gs-\d+\.jpg$/, (route) => {
+      requested.add(route.request().url());
+      return route.fulfill(svgImage(800, 800));
+    });
+    await openGridSource(
+      page,
+      Array.from({ length: 600 }, (_, index) =>
+        gridSlide(index + 1, { width: 800, height: 800 }),
+      ),
+    );
+    const grid = page.locator(".redditp__grid");
+    const screen = await grid.evaluate((element) => element.clientHeight);
+    // The tiles whose pictures should be loading, by where they sit in the
+    // grid's scrolled content, and those that do not match.
+    const outOfPlace = (loaded) =>
+      grid.evaluate((element, spans) => {
+        const origin = element.getBoundingClientRect().top - element.scrollTop;
+        const wrong = [];
+        element.querySelectorAll(".redditp__tile").forEach((tile) => {
+          const box = tile.getBoundingClientRect();
+          const top = box.top - origin;
+          const bottom = box.bottom - origin;
+          // Tiles on a range's very edge may go either way.
+          const edge = spans.some(
+            ([from, to]) =>
+              Math.abs(bottom - from) < 2 || Math.abs(top - to) < 2,
+          );
+          if (edge) return;
+          const expected = spans.some(
+            ([from, to]) => bottom > from && top < to,
+          );
+          const loading = tile.querySelector("img").hasAttribute("src");
+          if (loading !== expected) wrong.push(tile.getAttribute("aria-label"));
+        });
+        return wrong;
+      }, loaded);
+    // At the top, the view and six screens below it.
+    const first = [0, 7 * screen];
+    await expect
+      .poll(() => outOfPlace([first]), { message: `${width}x${height}` })
+      .toEqual([]);
+    const top = gridTile(page, "Grid slide 1").locator("img");
+    const last = gridTile(page, "Grid slide 600").locator("img");
+    await expect(top).toHaveAttribute("src", "https://i.redd.it/gs-1.jpg");
+    await expect(last).not.toHaveAttribute("src");
+    expect(requested.has("https://i.redd.it/gs-600.jpg")).toBe(false);
+
+    // A jump twelve screens down loads two screens above the new view and
+    // six below it, and leaves the tiles it passed alone.
+    await grid.evaluate((element, value) => {
+      element.scrollTop = value;
+    }, 12 * screen);
+    await expect
+      .poll(() => outOfPlace([first, [10 * screen, 19 * screen]]), {
+        message: `${width}x${height} after the jump`,
+      })
+      .toEqual([]);
+
+    await grid.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(last).toHaveAttribute("src", "https://i.redd.it/gs-600.jpg");
+    // A picture that has loaded stays.
+    await expect(top).toHaveAttribute("src", "https://i.redd.it/gs-1.jpg");
+    await expect(page.locator(".redditp__controls")).toBeInViewport();
+  }
+});
+
+test("without IntersectionObserver the browser loads the grid lazily, with nothing looping", async ({
+  page,
+}) => {
+  await routeGifMp4s(page);
+  const copy = "https://preview.redd.it/gs-1.jpg?width=640&s=c";
+  await openGridSource(
+    page,
+    [gridSlide(1, { thumb: copy }), gifSlide(2)],
+    () => {
+      window.IntersectionObserver = undefined;
+    },
+  );
+  const image = gridTile(page, "Grid slide 1").locator("img");
+  await expect(image).toHaveAttribute("loading", "lazy");
+  await expect(image).toHaveAttribute("src", copy);
+  const gifImage = gridTile(page, "GIF 2, video").locator("img");
+  await expect(gifImage).toHaveAttribute("src", gifSlide(2).thumb);
+  await expect(gifImage).toHaveClass(/redditp__tile-image--loaded/);
+  await expect(page.locator(".redditp__grid video")).toHaveCount(0);
+  await expect(gridTile(page, "GIF 2, video")).toHaveAttribute(
+    "data-loop",
+    "off",
+  );
+  await expect(gridTile(page, "Grid slide 1")).toHaveAttribute(
+    "data-loop",
+    "none",
+  );
+  await gridTile(page, "Grid slide 1").click();
+  await expect(page.locator(".redditp__title")).toHaveText("Grid slide 1");
+});
+
+test("a GIF's tile loops a small silent MP4 over its still while it shows", async ({
+  page,
+}) => {
+  await routeGifMp4s(page);
+  await openGridSource(page, [gridSlide(1), gifSlide(2), gridSlide(3)]);
+  const tile = gridTile(page, "GIF 2, video");
+  const video = tile.locator("video");
+  await expect(video).toHaveClass(/redditp__tile-video--shown/);
+  expect(
+    await video.evaluate((element) => ({
+      src: element.getAttribute("src"),
+      muted: element.muted,
+      loop: element.loop,
+      playsInline: element.playsInline,
+      attributes: ["muted", "playsinline", "webkit-playsinline"].map((name) =>
+        element.hasAttribute(name),
+      ),
+      preload: element.preload,
+      controls: element.controls,
+      hidden: element.getAttribute("aria-hidden"),
+      pointerEvents: getComputedStyle(element).pointerEvents,
+      objectFit: getComputedStyle(element).objectFit,
+      paused: element.paused,
+    })),
+  ).toEqual({
+    src: gifSlide(2).thumbVideo,
+    muted: true,
+    loop: true,
+    playsInline: true,
+    attributes: [true, true, true],
+    preload: "auto",
+    controls: false,
+    hidden: "true",
+    pointerEvents: "none",
+    objectFit: "cover",
+    paused: false,
+  });
+  // The still stays underneath, with no play badge over the loop.
+  await expect(tile.locator("img")).toHaveAttribute("src", gifSlide(2).thumb);
+  await expect(tile.locator(".redditp__tile-play")).toHaveCount(0);
+  // Only the GIF loops.
+  await expect(page.locator(".redditp__grid video")).toHaveCount(1);
+
+  // A click on the loop opens the slide, as before, and the hidden grid's
+  // loop pauses.
+  await video.click({ force: true });
+  await expect(page.locator(".redditp__title")).toHaveText("GIF 2");
+  await expect(page.locator(".redditp__video")).toHaveAttribute(
+    "src",
+    gifSlide(2).url,
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Array.from(
+          document.querySelectorAll(".redditp__grid video"),
+          (element) => element.paused,
+        ),
+      ),
+    )
+    .toEqual([true]);
+  await page.keyboard.press("Escape");
+  await expect(tile).toBeFocused();
+  await expect
+    .poll(() => video.evaluate((element) => element.paused))
+    .toBe(false);
+  // Enter opens it from the keyboard.
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".redditp__title")).toHaveText("GIF 2");
+});
+
+test("a loop comes within a screen below the view or half a screen above, reads itself in there, and leaves beyond", async ({
+  page,
+}) => {
+  await routeGifMp4s(page);
+  const loops = [];
+  page.on("request", (request) => {
+    if (/format=mp4/.test(request.url())) loops.push(request.url());
+  });
+  await openGridSource(page, [
+    gifSlide(1),
+    // In the shape of the picture that the media hosts answer with, so
+    // that no tile moves as the pictures arrive.
+    ...Array.from({ length: 120 }, (_, index) =>
+      gridSlide(index + 2, { width: 800, height: 600 }),
+    ),
+    gifSlide(122),
+  ]);
+  const grid = page.locator(".redditp__grid");
+  const tile = gridTile(page, "GIF 1, video");
+  const farTile = gridTile(page, "GIF 122, video");
+  const video = tile.locator("video");
+  const farVideo = farTile.locator("video");
+  await expect
+    .poll(() => video.evaluate((element) => element.paused))
+    .toBe(false);
+  await expect(tile).toHaveAttribute("data-loop", "playing");
+  // A GIF far down the grid has its still waiting, and no loop yet.
+  await expect(farVideo).toHaveCount(0);
+  await expect(farTile.locator("img")).not.toHaveAttribute("src");
+  await expect(farTile).toHaveAttribute("data-loop", "idle");
+  // A picture has nothing to loop.
+  await expect(gridTile(page, "Grid slide 2")).toHaveAttribute(
+    "data-loop",
+    "none",
+  );
+  const screen = await grid.evaluate((element) => element.clientHeight);
+  // Where a tile's edges are in the grid's scrolled content.
+  const edges = (name) =>
+    gridTile(page, name).evaluate((element) => {
+      const view = element.closest(".redditp__grid");
+      const box = element.getBoundingClientRect();
+      const top = box.top - view.getBoundingClientRect().top + view.scrollTop;
+      return { top, bottom: top + box.height };
+    });
+  const scrollTo = (top) =>
+    grid.evaluate((element, value) => {
+      element.scrollTop = value;
+    }, top);
+  const first = await edges("GIF 1, video");
+  // Out of view, within half a screen above it: paused, and kept, having
+  // read itself in.
+  await scrollTo(first.bottom + screen * 0.4);
+  await expect
+    .poll(() => video.evaluate((element) => element.paused))
+    .toBe(true);
+  await expect(tile).toHaveAttribute("data-loop", "ready");
+  const handle = await video.elementHandle();
+  // Further away: gone, with its decoder released, while the still stays.
+  await scrollTo(first.bottom + screen * 0.6);
+  await expect(video).toHaveCount(0);
+  expect(
+    await handle.evaluate((element) => [
+      element.isConnected,
+      element.hasAttribute("src"),
+    ]),
+  ).toEqual([false, false]);
+  await expect(tile).toHaveAttribute("data-loop", "idle");
+  await expect(tile.locator("img")).toHaveAttribute("src", gifSlide(1).thumb);
+  // Over a screen below the view, the far GIF's still loads, and its loop
+  // waits.
+  const far = await edges("GIF 122, video");
+  await scrollTo(far.top - screen * 2.3);
+  await expect(farTile.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  await page.waitForTimeout(200);
+  await expect(farVideo).toHaveCount(0);
+  expect(loops).not.toContain(gifSlide(122).thumbVideo);
+  // Within a screen below the view, it reads itself in, paused, and shows
+  // its own first picture over the still before its tile shows.
+  await scrollTo(far.top - screen * 1.7);
+  await expect(farTile).toHaveAttribute("data-loop", "ready");
+  await expect(farVideo).toHaveClass(/redditp__tile-video--shown/);
+  expect(
+    await farVideo.evaluate((element) => ({
+      paused: element.paused,
+      preload: element.preload,
+    })),
+  ).toEqual({ paused: true, preload: "auto" });
+  // In view, it plays.
+  await grid.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect
+    .poll(() => farVideo.evaluate((element) => element.paused))
+    .toBe(false);
+  await expect(farTile).toHaveAttribute("data-loop", "playing");
+  // In view again, the first GIF gets a new loop.
+  await scrollTo(0);
+  await expect
+    .poll(() => video.evaluate((element) => element.paused))
+    .toBe(false);
+});
+
+// What the grid's loops are doing, by their tiles' names: each tile's
+// data-loop, and its loop's preload and whether it plays, where it has one.
+function gridLoopStates(page) {
+  return page.locator(".redditp__grid").evaluate((grid) => {
+    const states = {};
+    grid.querySelectorAll(".redditp__tile[data-loop]").forEach((tile) => {
+      const video = tile.querySelector(".redditp__tile-video");
+      states[tile.getAttribute("aria-label")] = {
+        state: tile.getAttribute("data-loop"),
+        preload: video ? video.preload : "",
+        playing: video ? !video.paused : false,
+      };
+    });
+    return states;
+  });
+}
+
+test("every loop in view plays at once, GIFs and videos alike, at 2560x1440", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  await routeGifMp4s(page);
+  await openGridSource(
+    page,
+    Array.from({ length: 30 }, (_, index) =>
+      index % 2 ? redditVideoSlide(index + 1) : gifSlide(index + 1),
+    ),
+  );
+  const loops = () =>
+    page.locator(".redditp__grid").evaluate((element) => {
+      const videos = Array.from(
+        element.querySelectorAll(".redditp__tile-video"),
+      );
+      return {
+        videos: videos.length,
+        playing: videos.filter((video) => !video.paused).length,
+        loading: videos.filter((video) => video.preload === "auto").length,
+        states: Array.from(
+          new Set(
+            Array.from(element.querySelectorAll(".redditp__tile"), (tile) =>
+              tile.getAttribute("data-loop"),
+            ),
+          ),
+        ),
+      };
+    });
+  // Every tile is in view.
+  await expect
+    .poll(loops)
+    .toEqual({ videos: 30, playing: 30, loading: 30, states: ["playing"] });
+});
+
+test("loops in view all start at once, and those ahead read themselves in once all in view play, the nearest six at a time", async ({
+  page,
+}) => {
+  // 4 columns of GIF tiles 232 pixels tall: GIFs 1 to 12 in view, 13 to 24
+  // within a screen below it.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  // Every loop waits until the test lets it through.
+  const held = new Map();
+  const released = new Set();
+  await page.route(
+    /^https:\/\/preview\.redd\.it\/gif-(\d+)\.gif\?(?:.*&)?format=mp4/,
+    (route) => {
+      const number = Number(
+        route
+          .request()
+          .url()
+          .match(/gif-(\d+)/)[1],
+      );
+      if (released.has(number)) return fulfillSilentVideo(route);
+      if (!held.has(number)) held.set(number, []);
+      held.get(number).push(route);
+    },
+  );
+  const release = (numbers) =>
+    Promise.all(
+      numbers.map((number) => {
+        released.add(number);
+        const routes = held.get(number) || [];
+        held.delete(number);
+        return Promise.all(routes.map(fulfillSilentVideo));
+      }),
+    );
+  await openGridSource(
+    page,
+    Array.from({ length: 40 }, (_, index) => gifSlide(index + 1)),
+  );
+  const name = (number) => `GIF ${number}, video`;
+  const range = (from, to) =>
+    Array.from({ length: to - from + 1 }, (_, index) => from + index);
+  const inView = range(1, 12);
+  const below = range(13, 24);
+  // The loops in view start; those below wait having asked for nothing,
+  // and further down there is no loop at all.
+  await expect
+    .poll(async () => {
+      const states = await gridLoopStates(page);
+      return [
+        ...inView.map((number) => states[name(number)].state),
+        ...below.map((number) => states[name(number)].state),
+        states[name(25)].state,
+      ];
+    })
+    .toEqual([
+      ...inView.map(() => "starting"),
+      ...below.map(() => "waiting"),
+      "idle",
+    ]);
+  let states = await gridLoopStates(page);
+  expect(
+    [...inView, ...below].map((number) => states[name(number)].preload),
+  ).toEqual([...inView.map(() => "auto"), ...below.map(() => "none")]);
+  // While one of them cannot play yet, nothing below reads in.
+  await release(range(1, 11));
+  await expect
+    .poll(async () => {
+      const current = await gridLoopStates(page);
+      return range(1, 12).map((number) => current[name(number)].state);
+    })
+    .toEqual([...range(1, 11).map(() => "playing"), "starting"]);
+  await page.waitForTimeout(300);
+  states = await gridLoopStates(page);
+  expect(below.map((number) => states[name(number)].preload)).toEqual(
+    below.map(() => "none"),
+  );
+
+  // Once all in view play, the six nearest below start reading in: the row
+  // just below the view, then two of the next.
+  await release(inView);
+  await expect
+    .poll(async () => {
+      const current = await gridLoopStates(page);
+      const reading = below.filter(
+        (number) => current[name(number)].preload === "auto",
+      );
+      return inView.every((number) => current[name(number)].playing)
+        ? reading.length
+        : -1;
+    })
+    .toBe(6);
+  states = await gridLoopStates(page);
+  expect(range(13, 16).map((number) => states[name(number)].state)).toEqual(
+    range(13, 16).map(() => "buffering"),
+  );
+  expect(range(21, 24).map((number) => states[name(number)].state)).toEqual(
+    range(21, 24).map(() => "waiting"),
+  );
+  // None of them plays.
+  expect(below.some((number) => states[name(number)].playing)).toBe(false);
+
+  // As they finish, the rest follow, and all wait ready, paused.
+  await release(below);
+  await expect
+    .poll(async () => {
+      const current = await gridLoopStates(page);
+      return below.map((number) => current[name(number)].state);
+    })
+    .toEqual(below.map(() => "ready"));
+  states = await gridLoopStates(page);
+  expect(below.some((number) => states[name(number)].playing)).toBe(false);
+  expect(inView.every((number) => states[name(number)].playing)).toBe(true);
+});
+
+test("after a fast scroll, the manifests of the tiles in view are read first", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  // Every manifest waits until the test lets it through.
+  const requested = [];
+  const held = [];
+  await page.route(
+    /^https:\/\/v\.redd\.it\/[^/]+\/DASHPlaylist\.mpd$/,
+    (route) => {
+      requested.push(
+        route
+          .request()
+          .url()
+          .match(/clip(\d+)/)[1],
+      );
+      held.push(route);
+    },
+  );
+  const releaseHeld = () =>
+    Promise.all(
+      held
+        .splice(0)
+        .map((route) => route.fulfill(dashManifest(LANDSCAPE_RENDITIONS))),
+    );
+  await openGridSource(
+    page,
+    Array.from({ length: 300 }, (_, index) =>
+      // In the shape of the poster that the media hosts answer with.
+      redditVideoSlide(index + 1, { width: 800, height: 600 }),
+    ),
+  );
+  // Twelve at a time, those of the first tiles first; the tiles further
+  // ahead have asked for theirs too.
+  await expect.poll(() => requested.length).toBe(12);
+  expect(requested).toEqual(
+    Array.from({ length: 12 }, (_, index) => String(index + 1)),
+  );
+  const grid = page.locator(".redditp__grid");
+  await grid.evaluate((element) => {
+    element.scrollTop = element.clientHeight * 20;
+  });
+  // The numbers of the tiles in view, which wait for their manifests.
+  const inView = () =>
+    grid.evaluate((element) => {
+      const view = element.getBoundingClientRect();
+      return Array.from(element.querySelectorAll(".redditp__tile"))
+        .filter((tile) => {
+          const box = tile.getBoundingClientRect();
+          return box.bottom > view.top && box.top < view.bottom;
+        })
+        .map((tile) => ({
+          number: tile.getAttribute("aria-label").match(/^Clip (\d+)/)[1],
+          state: tile.getAttribute("data-loop"),
+        }));
+    });
+  await expect
+    .poll(async () =>
+      Array.from(new Set((await inView()).map((tile) => tile.state))),
+    )
+    .toEqual(["resolving"]);
+  const visible = (await inView()).map((tile) => tile.number);
+  expect(visible.length).toBeGreaterThanOrEqual(6);
+  // The next read are theirs, ahead of the many asked for before.
+  await releaseHeld();
+  await expect.poll(() => requested.length).toBe(24);
+  expect(
+    requested
+      .slice(12, 12 + Math.min(12, visible.length))
+      .filter((number) => !visible.includes(number)),
+  ).toEqual([]);
+  // Each loops once its manifest is read.
+  await expect
+    .poll(async () => {
+      await releaseHeld();
+      return Array.from(new Set((await inView()).map((tile) => tile.state)));
+    })
+    .toEqual(["playing"]);
+});
+
+test("a refused play keeps the still", async ({ page }) => {
+  await routeGifMp4s(page);
+  await openGridSource(page, [gifSlide(1), gridSlide(2)], () => {
+    // As in iOS Low Power Mode.
+    window.playCalls = 0;
+    HTMLMediaElement.prototype.play = function play() {
+      window.playCalls += 1;
+      return Promise.reject(
+        new DOMException("Low Power Mode", "NotAllowedError"),
+      );
+    };
+  });
+  const tile = gridTile(page, "GIF 1, video");
+  await expect
+    .poll(() => page.evaluate(() => window.playCalls))
+    .toBeGreaterThan(0);
+  await expect(tile.locator("video")).toHaveCount(0);
+  await expect(tile).toHaveAttribute("data-loop", "refused");
+  await expect(tile.locator("img")).toHaveAttribute("src", gifSlide(1).thumb);
+  await expect(tile.locator("img")).toHaveClass(/redditp__tile-image--loaded/);
+  await expect(page.locator(".redditp__count")).toHaveText("2 posts");
+});
+
+test("reduced motion and Data Saver keep GIF tiles still", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await routeGifMp4s(page);
+  await openGridSource(page, [gifSlide(1), gridSlide(2)]);
+  const tile = gridTile(page, "GIF 1, video");
+  await expect(tile.locator("img")).toHaveClass(/redditp__tile-image--loaded/);
+  await expect(tile.locator("video")).toHaveCount(0);
+  await expect(tile).toHaveAttribute("data-loop", "off");
+  // A change of mind shows at once.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect
+    .poll(() => tile.locator("video").evaluate((element) => element.paused))
+    .toBe(false);
+  await expect(tile).toHaveAttribute("data-loop", "playing");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(tile.locator("video")).toHaveCount(0);
+  await expect(tile).toHaveAttribute("data-loop", "off");
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await openGridSource(page, [gifSlide(1), gridSlide(2)], () => {
+    Object.defineProperty(navigator, "connection", {
+      configurable: true,
+      value: { saveData: true },
+    });
+  });
+  await expect(tile.locator("img")).toHaveClass(/redditp__tile-image--loaded/);
+  await expect(tile.locator("video")).toHaveCount(0);
+  await expect(tile).toHaveAttribute("data-loop", "off");
+});
+
+test("a loop that fails leaves its still and its slide", async ({ page }) => {
+  await routeGifMp4s(page);
+  let loopRequests = 0;
+  await page.route(gifSlide(1).thumbVideo, (route) => {
+    loopRequests += 1;
+    return route.abort();
+  });
+  await openGridSource(page, [gifSlide(1), gridSlide(2)]);
+  const tile = gridTile(page, "GIF 1, video");
+  await expect.poll(() => loopRequests).toBeGreaterThan(0);
+  await expect(tile.locator("video")).toHaveCount(0);
+  await expect(tile).toHaveAttribute("data-loop", "failed");
+  await expect(tile.locator("img")).toHaveClass(/redditp__tile-image--loaded/);
+  await expect(page.locator(".redditp__count")).toHaveText("2 posts");
+  expect(await page.evaluate(() => window.gridSourceDead)).toEqual([]);
+});
+
+test("a Reddit video's tile loops a small rendition that its manifest names, while the slideshow plays the video as before", async ({
+  page,
+}) => {
+  await page
+    .context()
+    .addCookies([
+      { name: "session", value: "viewer", url: "https://v.redd.it/" },
+    ]);
+  const manifests = await routeManifests(page, (url) =>
+    dashManifest(
+      url.includes("/clip2/") ? PORTRAIT_RENDITIONS : LANDSCAPE_RENDITIONS,
+    ),
+  );
+  const files = [];
+  page.on("request", (request) => {
+    if (/^https:\/\/v\.redd\.it\/.+\.mp4/.test(request.url())) {
+      files.push(request.url());
+    }
+  });
+  const clip = redditVideoSlide(1);
+  await openGridSource(
+    page,
+    [
+      clip,
+      redditVideoSlide(2, { width: 1080, height: 1920 }),
+      // A crosspost of the first clip shares its manifest.
+      redditVideoSlide(3, {
+        title: "Crossposted clip",
+        url: clip.url,
+        thumbVideo: clip.thumbVideo,
+      }),
+      gridSlide(4),
+    ],
+    undefined,
+    { sound: true },
+  );
+  const tile = gridTile(page, "Clip 1, video");
+  const video = tile.locator("video");
+  await expect(video).toHaveClass(/redditp__tile-video--shown/);
+  // As silent as a GIF's loop, whatever the sound setting.
+  expect(
+    await video.evaluate((element) => ({
+      src: element.getAttribute("src"),
+      muted: element.muted,
+      loop: element.loop,
+      playsInline: element.playsInline,
+      attributes: ["muted", "playsinline", "webkit-playsinline"].map((name) =>
+        element.hasAttribute(name),
+      ),
+      preload: element.preload,
+      controls: element.controls,
+      hidden: element.getAttribute("aria-hidden"),
+      pointerEvents: getComputedStyle(element).pointerEvents,
+    })),
+  ).toEqual({
+    src: "https://v.redd.it/clip1/CMAF_360.mp4",
+    muted: true,
+    loop: true,
+    playsInline: true,
+    attributes: [true, true, true],
+    preload: "auto",
+    controls: false,
+    hidden: "true",
+    pointerEvents: "none",
+  });
+  await expect(tile.locator("img")).toHaveAttribute("src", clip.poster);
+  // A portrait clip's 360 is its width.
+  await expect
+    .poll(() => gridLoops(page))
+    .toEqual([
+      {
+        tile: "Clip 1, video",
+        src: "https://v.redd.it/clip1/CMAF_360.mp4",
+        playing: true,
+      },
+      {
+        tile: "Clip 2, video",
+        src: "https://v.redd.it/clip2/CMAF_360.mp4",
+        playing: true,
+      },
+      {
+        tile: "Crossposted clip, video",
+        src: "https://v.redd.it/clip1/CMAF_360.mp4",
+        playing: true,
+      },
+    ]);
+  // Each manifest once, without the viewer's cookies; and never the file
+  // that the slideshow plays.
+  expect(manifests.sort((a, b) => (a.url < b.url ? -1 : 1))).toEqual([
+    { url: "https://v.redd.it/clip1/DASHPlaylist.mpd", cookie: "" },
+    { url: "https://v.redd.it/clip2/DASHPlaylist.mpd", cookie: "" },
+  ]);
+  expect(files.filter((url) => url.includes("CMAF_1080"))).toEqual([]);
+
+  // The slideshow plays the 1080 pixel file, with sound as the settings
+  // say, and the hidden grid's loops pause.
+  await video.click({ force: true });
+  const slideshowVideo = page.locator(".redditp__video");
+  await expect(slideshowVideo).toHaveAttribute("src", clip.url);
+  expect(await slideshowVideo.evaluate((element) => element.muted)).toBe(false);
+  await expect
+    .poll(async () => (await gridLoops(page)).filter((loop) => loop.playing))
+    .toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(tile).toBeFocused();
+  await expect
+    .poll(
+      async () => (await gridLoops(page)).filter((loop) => loop.playing).length,
+    )
+    .toBe(3);
+  expect(manifests).toHaveLength(2);
+});
+
+test("a Reddit video's tile falls back to the video's own file when its manifest or rendition fails, and keeps its slide", async ({
+  page,
+}) => {
+  const failed = {
+    status: 404,
+    contentType: "text/plain",
+    headers: { "access-control-allow-origin": "*" },
+    body: "Not found",
+  };
+  await routeManifests(page, (url) => {
+    if (/\/clip[15]\//.test(url)) return failed;
+    // A page instead of a manifest names nothing.
+    if (url.includes("/clip2/")) {
+      return {
+        status: 200,
+        contentType: "text/html",
+        headers: { "access-control-allow-origin": "*" },
+        body: "<!doctype html><title>Oops</title><p>Something went wrong",
+      };
+    }
+    return dashManifest(LANDSCAPE_RENDITIONS);
+  });
+  await page.route("https://v.redd.it/clip3/CMAF_360.mp4", (route) =>
+    route.abort(),
+  );
+  await page.route(/^https:\/\/v\.redd\.it\/clip4\/CMAF_/, (route) =>
+    route.abort(),
+  );
+  await openGridSource(page, [
+    redditVideoSlide(1),
+    redditVideoSlide(2),
+    redditVideoSlide(3),
+    redditVideoSlide(4),
+    // A tile that knows only the video's manifest has nothing to fall back
+    // to.
+    redditVideoSlide(5, {
+      thumbVideo: "https://v.redd.it/clip5/DASHPlaylist.mpd",
+    }),
+  ]);
+  const fallback = (number) => redditVideoSlide(number).url;
+  await expect
+    .poll(() => gridLoops(page))
+    .toEqual([
+      { tile: "Clip 1, video", src: fallback(1), playing: true },
+      { tile: "Clip 2, video", src: fallback(2), playing: true },
+      { tile: "Clip 3, video", src: fallback(3), playing: true },
+    ]);
+  for (const number of [4, 5]) {
+    const tile = gridTile(page, `Clip ${number}, video`);
+    await expect(tile.locator("img")).toHaveClass(
+      /redditp__tile-image--loaded/,
+    );
+    await expect(tile.locator("video")).toHaveCount(0);
+  }
+  await expect(page.locator(".redditp__count")).toHaveText("5 posts");
+  expect(await page.evaluate(() => window.gridSourceDead)).toEqual([]);
+});
+
+test("another source's loop plays only from Reddit's media hosts, over https", async ({
+  page,
+}) => {
+  await routeGifMp4s(page);
+  const elsewhere = [];
+  await page.route(
+    /^(?:https:\/\/videohost\.example|http:\/\/v\.redd\.it)\//,
+    (route) => {
+      elsewhere.push(route.request().url());
+      return fulfillSilentVideo(route);
+    },
+  );
+  await openGridSource(page, [
+    redditVideoSlide(1),
+    // Any slide may loop, not only a GIF.
+    gifSlide(2, { title: "Unmarked", fromGif: false }),
+    redditVideoSlide(3, {
+      title: "Hosted clip",
+      thumbVideo: "https://videohost.example/clip3.mp4",
+    }),
+    redditVideoSlide(4, {
+      title: "Plain clip",
+      thumbVideo: "http://v.redd.it/clip4/CMAF_1080.mp4",
+    }),
+  ]);
+  await expect
+    .poll(() => gridLoops(page))
+    .toEqual([
+      {
+        tile: "Clip 1, video",
+        src: "https://v.redd.it/clip1/CMAF_360.mp4",
+        playing: true,
+      },
+      { tile: "Unmarked, video", src: gifSlide(2).thumbVideo, playing: true },
+    ]);
+  for (const name of ["Hosted clip, video", "Plain clip, video"]) {
+    await expect(gridTile(page, name).locator("img")).toHaveClass(
+      /redditp__tile-image--loaded/,
+    );
+  }
+  expect(elsewhere).toEqual([]);
+});
+
+test("a GIF card's Reddit MP4 loops in its tile, and a GIF without one keeps its tile", async ({
+  page,
+}) => {
+  await routeGifMp4s(page);
+  const still = "https://preview.redd.it/cardgif2.gif";
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/gifcards/",
+    `<shreddit-post id="t3_gifcard1" post-title="Card loop" content-href="https://i.redd.it/cardgif1.gif" permalink="/r/gifcards/comments/gifcard1/post/">
+      <video src="https://preview.redd.it/cardgif1.gif?format=mp4&amp;s=m" poster="https://preview.redd.it/cardgif1.gif?format=png8&amp;s=p"></video>
+    </shreddit-post>
+    <shreddit-post id="t3_gifcard2" post-title="Card still" content-href="https://i.redd.it/cardgif2.gif" permalink="/r/gifcards/comments/gifcard2/post/">
+      <img data-post-media-primary alt="Card still" srcset="${still}?width=320&amp;format=png8&amp;s=1 320w, ${still}?width=640&amp;format=png8&amp;s=2 640w" width="640" height="480">
+    </shreddit-post>
+    <shreddit-post id="t3_gifcard3" post-title="Card copies" content-href="https://i.redd.it/cardgif3.gif" permalink="/r/gifcards/comments/gifcard3/post/">
+      <img data-post-media-primary alt="Card copies" srcset="https://preview.redd.it/cardgif3.gif?width=640&amp;s=1 640w" width="640" height="480">
+    </shreddit-post>
+    <div class="thing link" data-url="https://i.redd.it/cardgif4.gif" data-permalink="/r/gifcards/comments/gifcard4/post/"><a class="title">Old GIF</a></div>`,
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const loop = gridTile(page, "Card loop, video").locator("video");
+  await expect(loop).toHaveAttribute(
+    "src",
+    "https://preview.redd.it/cardgif1.gif?format=mp4&s=m",
+  );
+  await expect(loop).toHaveClass(/redditp__tile-video--shown/);
+  // A still copy of a GIF stands in for it.
+  await expect(gridTile(page, "Card still").locator("img")).toHaveAttribute(
+    "src",
+    `${still}?width=640&format=png8&s=2`,
+  );
+  // A copy that is a GIF again is no still, so the GIF itself shows, as it
+  // does without any copy.
+  await expect(gridTile(page, "Card copies").locator("img")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/cardgif3.gif",
+  );
+  await expect(gridTile(page, "Old GIF").locator("img")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/cardgif4.gif",
+  );
+  await expect(page.locator(".redditp__grid video")).toHaveCount(1);
+});
+
+test("a GIF player's tile loops the narrowest of its MP4s that is wide enough, as Reddit signed it", async ({
+  page,
+}) => {
+  await routeGifMp4s(page);
+  await page.route("https://packaged-media.redd.it/**", fulfillSilentVideo);
+  const packaged = (height) =>
+    new RegExp(
+      `^https://packaged-media\\.redd\\.it/dvf13m3fhorh1/pb/m2-res_${height}p\\.mp4\\?`,
+    );
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/HighQualityGifs/",
+    gifPlayersFixture,
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  // An uploaded GIF's player names one MP4, which loops as it is: its
+  // signed query is never changed.
+  const upload = gridTile(page, "Let's get this over with, video");
+  await expect(upload.locator("video")).toHaveAttribute(
+    "src",
+    "https://preview.redd.it/mqm32x4ox9sh1.gif?width=1100&format=mp4&s=ca0442188ad7d663c0a2912e69a0c8973d235928",
+  );
+  await expect(upload.locator("video")).toHaveClass(
+    /redditp__tile-video--shown/,
+  );
+  // A video posted as a GIF loops its 640 pixel MP4, not its largest.
+  const posted = gridTile(
+    page,
+    "Only have 15 years experience and all..., video",
+  );
+  await expect(posted.locator("video")).toHaveAttribute("src", packaged(480));
+  await expect(posted.locator("video")).toHaveClass(
+    /redditp__tile-video--shown/,
+  );
+  await expect(posted.locator("img")).toHaveAttribute(
+    "src",
+    /^https:\/\/external-preview\.redd\.it\/only-have-15-years-experience/,
+  );
+  // Reddit marks both as GIFs, so the GIFs filter shows both.
+  await page.keyboard.press("o");
+  await page.keyboard.press("o");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^2 posts · GIFs only/,
+  );
+  await expect(page.locator(".redditp__grid .redditp__tile")).toHaveCount(2);
+  // The slideshow still plays the largest MP4.
+  await gridTile(
+    page,
+    "Only have 15 years experience and all..., video",
+  ).click();
+  await expect(page.locator(".redditp__video")).toHaveAttribute(
+    "src",
+    packaged(1080),
+  );
+});
+
+test("a feed's Reddit video players loop a small rendition, from the MP4s the card names or else the manifest, and a YouTube post never loops", async ({
+  page,
+}) => {
+  const manifests = await routeManifests(page, () =>
+    dashManifest(LANDSCAPE_RENDITIONS),
+  );
+  await page.route("https://packaged-media.redd.it/**", fulfillSilentVideo);
+  let players = 0;
+  await page.route("https://www.youtube.com/**", (route) => {
+    players += 1;
+    return route.abort();
+  });
+  const packagedUrl = (height) =>
+    `https://packaged-media.redd.it/feedclip2/pb/m2-res_${height}p.mp4?m=DASHPlaylist.mpd&v=1&e=1790665200&s=${height}`;
+  // The MP4s that a player names with their sizes, as its attribute holds
+  // them.
+  const packagedJson = JSON.stringify({
+    playbackMp4s: {
+      duration: 30,
+      permutations: [
+        [220, 392],
+        [270, 480],
+        [360, 640],
+        [480, 854],
+        [720, 1280],
+        [1080, 1920],
+      ].map(([height, width]) => ({
+        source: {
+          url: packagedUrl(height),
+          dimensions: { width, height },
+          videoCodec: "H264",
+        },
+      })),
+    },
+  })
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;");
+  const player = (id, attributes = "") =>
+    `<shreddit-player src="https://v.redd.it/${id}/HLSPlaylist.m3u8?f=hd%2ChlsSpecOrder&amp;v=1&amp;a=1793239893" ${attributes} player-type="in_feed_player" post-type="video" poster="https://external-preview.redd.it/${id}.jpeg?width=640&amp;format=pjpg&amp;s=p" preview="https://v.redd.it/${id}/CMAF_96.mp4"></shreddit-player>`;
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/videos/",
+    `<shreddit-post id="t3_feedclip1" post-title="Feed clip" post-type="video" domain="v.redd.it" content-href="https://v.redd.it/feedclip1" permalink="/r/videos/comments/feedclip1/clip/">
+      ${player("feedclip1")}
+    </shreddit-post>
+    <shreddit-post id="t3_feedclip2" post-title="Packaged clip" post-type="video" domain="v.redd.it" content-href="https://v.redd.it/feedclip2" permalink="/r/videos/comments/feedclip2/clip/">
+      ${player("feedclip2", `packaged-media-json="${packagedJson}"`)}
+    </shreddit-post>
+    <shreddit-post id="t3_ytclip" post-title="YouTube clip" content-href="https://www.youtube.com/watch?v=l74r1s8y7uY" permalink="/r/videos/comments/ytclip/clip/"></shreddit-post>`,
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  await expect
+    .poll(() => gridLoops(page))
+    .toEqual([
+      {
+        tile: "Feed clip, video",
+        src: "https://v.redd.it/feedclip1/CMAF_360.mp4",
+        playing: true,
+      },
+      {
+        tile: "Packaged clip, video",
+        src: packagedUrl(360),
+        playing: true,
+      },
+    ]);
+  // Only the player that names no sizes needed its manifest.
+  expect(manifests.map((request) => request.url)).toEqual([
+    "https://v.redd.it/feedclip1/DASHPlaylist.mpd",
+  ]);
+  const youtube = gridTile(page, "YouTube clip, video");
+  await expect(youtube.locator("img")).toHaveAttribute(
+    "src",
+    "https://i.ytimg.com/vi/l74r1s8y7uY/hqdefault.jpg",
+  );
+  await expect(youtube.locator("video")).toHaveCount(0);
+  await expect(youtube).toHaveAttribute("data-loop", "no-copy");
+  await expect(page.locator(".redditp__grid iframe")).toHaveCount(0);
+  expect(players).toBe(0);
+  // They are still videos to the Show filter.
+  await page.keyboard.press("o");
+  await page.keyboard.press("o");
+  await page.keyboard.press("o");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^3 posts · videos only/,
+  );
+  // The slideshow still plays the largest MP4.
+  await gridTile(page, "Packaged clip, video").click();
+  await expect(page.locator(".redditp__video")).toHaveAttribute(
+    "src",
+    packagedUrl(1080),
+  );
+});
+
+test("a RedGIFs post's tile loops Reddit's copy of the clip, which Reddit's data for the post names", async ({
+  page,
+}) => {
+  const still = "https://external-preview.redd.it/redgifs-kinglet.jpg";
+  const copy = "https://v.redd.it/kyuaevw0lcsh1/CMAF_1080.mp4";
+  const manifests = await routeManifests(page, () =>
+    dashManifest(PORTRAIT_RENDITIONS),
+  );
+  let players = 0;
+  await page.route("https://www.redgifs.com/**", (route) => {
+    players += 1;
+    return route.fulfill({
+      contentType: "text/html",
+      body: "<!doctype html><title>Player</title>",
+    });
+  });
+  await page.route(POST_INFO_RE, (route) =>
+    route.fulfill(
+      postInfo([
+        {
+          name: "t3_1wsat28",
+          domain: "redgifs.com",
+          over_18: true,
+          preview: {
+            ...redditPreview(still, 1080, 1920),
+            reddit_video_preview: {
+              bitrate_kbps: 5000,
+              fallback_url: copy,
+              has_audio: false,
+              height: 1920,
+              width: 1080,
+              scrubber_media_url: "https://v.redd.it/kyuaevw0lcsh1/CMAF_96.mp4",
+              dash_url: "https://v.redd.it/kyuaevw0lcsh1/DASHPlaylist.mpd",
+              duration: 33,
+              hls_url: "https://v.redd.it/kyuaevw0lcsh1/HLSPlaylist.m3u8",
+              is_gif: true,
+              transcoding_status: "completed",
+            },
+          },
+        },
+      ]),
+    ),
+  );
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/NSFW_GIF/",
+    redgifsEmbedFixture,
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const tile = gridTile(page, "Audrey Hollander, video");
+  await expect(tile.locator("img")).toHaveAttribute("src", previewCopy(still));
+  // The clip is 1080 by 1920, so the tile loops the copy 360 wide.
+  await expect
+    .poll(() => gridLoops(page))
+    .toEqual([
+      {
+        tile: "Audrey Hollander, video",
+        src: "https://v.redd.it/kyuaevw0lcsh1/CMAF_360.mp4",
+        playing: true,
+      },
+    ]);
+  expect(manifests.map((request) => request.url)).toEqual([
+    "https://v.redd.it/kyuaevw0lcsh1/DASHPlaylist.mpd",
+  ]);
+  await expect(page.locator(".redditp__grid iframe")).toHaveCount(0);
+  expect(players).toBe(0);
+  // RedGIFs is still a video to the Show filter.
+  await page.keyboard.press("o");
+  await page.keyboard.press("o");
+  await page.keyboard.press("o");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 post · videos only/,
+  );
+  // The slideshow still loads the player.
+  await tile.click();
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    "https://www.redgifs.com/ifr/cumbersomeshorttermkinglet?autoplay=1&muted=1&mute=1&sound=false",
+  );
+  await expect.poll(() => players).toBe(1);
+});
+
+test("a live Reddit video whose player names nothing loops from its post's link, and a clip with a card picture asks Reddit's data for its loop", async ({
+  page,
+}) => {
+  const requests = [];
+  await page.route(POST_INFO_RE, (route) => {
+    requests.push(postInfoIds(route.request()));
+    return route.fulfill(
+      postInfo([
+        {
+          name: "t3_framed1",
+          domain: "videohost.example",
+          preview: {
+            ...redditPreview(
+              "https://external-preview.redd.it/framedclip.jpg",
+              720,
+              1280,
+            ),
+            reddit_video_preview: {
+              fallback_url: "https://v.redd.it/framedcopy/CMAF_1080.mp4",
+              width: 720,
+              height: 1280,
+              is_gif: true,
+            },
+          },
+        },
+        // Reddit keeps no copy of this one.
+        { name: "t3_nodata1", domain: "videohost.example" },
+      ]),
+    );
+  });
+  await page.route("https://videohost.example/**", (route) => route.abort());
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/liveclips/",
+    `<shreddit-post id="t3_bare1" post-title="Bare player" post-type="video" domain="v.redd.it" content-href="https://v.redd.it/bareclip1" permalink="/r/liveclips/comments/bare1/clip/">
+      <shreddit-player></shreddit-player>
+    </shreddit-post>
+    <shreddit-post id="t3_framed1" post-title="Framed clip" post-type="link" content-href="https://videohost.example/watch/clip1" permalink="/r/liveclips/comments/framed1/post/">
+      <faceplate-img src="https://external-preview.redd.it/framedclip.jpg?width=640" width="720" height="1280" alt="Framed clip"></faceplate-img>
+    </shreddit-post>
+    <shreddit-post id="t3_nodata1" post-title="Unknown clip" post-type="link" content-href="https://videohost.example/watch/clip2" permalink="/r/liveclips/comments/nodata1/post/">
+      <faceplate-img src="https://external-preview.redd.it/unknownclip.jpg?width=640" width="640" height="360" alt="Unknown clip"></faceplate-img>
+    </shreddit-post>
+    <shreddit-post id="t3_ytlive" post-title="YouTube clip" content-href="https://www.youtube.com/watch?v=l74r1s8y7uY" permalink="/r/liveclips/comments/ytlive/clip/"></shreddit-post>
+    <shreddit-post id="t3_pic1" post-title="Picture" content-href="https://i.redd.it/livepic1.jpg" permalink="/r/liveclips/comments/pic1/post/"></shreddit-post>`,
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const grid = page.locator(".redditp__grid");
+  await expect
+    .poll(async () =>
+      (await gridLoops(page)).map((loop) => [loop.src, loop.playing]),
+    )
+    .toEqual([
+      ["https://v.redd.it/bareclip1/CMAF_360.mp4", true],
+      ["https://v.redd.it/framedcopy/CMAF_360.mp4", true],
+    ]);
+  // Only the clips whose cards name no loop were asked about, together.
+  expect(requests).toEqual([["t3_framed1", "t3_nodata1"]]);
+  await expect(gridTile(page, "Framed clip, video")).toHaveAttribute(
+    "data-loop",
+    "playing",
+  );
+  await expect(gridTile(page, "Unknown clip, video")).toHaveAttribute(
+    "data-loop",
+    "no-data",
+  );
+  await expect(gridTile(page, "YouTube clip, video")).toHaveAttribute(
+    "data-loop",
+    "no-copy",
+  );
+  await expect(gridTile(page, "Picture")).toHaveAttribute("data-loop", "none");
+  await expect(grid).toHaveAttribute("data-still-requests", "1");
+  await expect(grid).toHaveAttribute("data-still-failures", "0");
+  // The card's picture stays the clip's still.
+  await expect(
+    gridTile(page, "Framed clip, video").locator("img"),
+  ).toHaveAttribute(
+    "src",
+    "https://external-preview.redd.it/framedclip.jpg?width=640",
+  );
+});
+
+test("a player's tile shows a still of it, never the player, and a failed still keeps its card", async ({
+  page,
+}) => {
+  const cardStill = "https://external-preview.redd.it/framedclip.jpg";
+  const fileStill = "https://external-preview.redd.it/fileclip.jpg";
+  await page.route(
+    (url) => url.href.startsWith(cardStill),
+    (route) => route.fulfill(svgImage(720, 1280)),
+  );
+  await page.route(
+    "https://i.ytimg.com/vi/lostclip001/hqdefault.jpg",
+    (route) => route.abort(),
+  );
+  // Counts the players that load, which only the slideshow may do.
+  let players = 0;
+  await page.route("https://videohost.example/**", (route) => {
+    const url = route.request().url();
+    if (url.endsWith(".mp4")) return fulfillSilentVideo(route);
+    players += 1;
+    return route.fulfill({
+      contentType: "text/html",
+      body: "<!doctype html><title>Player</title>",
+    });
+  });
+  await page.route("https://www.youtube.com/**", (route) => {
+    players += 1;
+    return route.abort();
+  });
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/framedclips/",
+    `<shreddit-post id="t3_framed1" post-title="Framed clip" post-type="link" content-href="https://videohost.example/watch/clip1" permalink="/r/framedclips/comments/framed1/post/">
+      <faceplate-img src="${cardStill}?width=640&amp;crop=smart&amp;auto=webp" width="720" height="1280" alt="Framed clip"></faceplate-img>
+    </shreddit-post>
+    <shreddit-post id="t3_framed2" post-title="YouTube clip" content-href="https://www.youtube.com/watch?v=l74r1s8y7uY" permalink="/r/framedclips/comments/framed2/post/"></shreddit-post>
+    <shreddit-post id="t3_framed3" post-title="Lost clip" content-href="https://youtu.be/lostclip001" permalink="/r/framedclips/comments/framed3/post/"></shreddit-post>
+    <shreddit-post id="t3_framed4" post-title="File clip" post-type="link" content-href="https://videohost.example/files/clip4.mp4" permalink="/r/framedclips/comments/framed4/post/">
+      <faceplate-img src="${fileStill}?width=640" width="640" height="360" alt="File clip"></faceplate-img>
+    </shreddit-post>`,
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const grid = page.locator(".redditp__grid");
+  const framed = gridTile(page, "Framed clip, video");
+  await expect(framed.locator("img")).toHaveAttribute(
+    "src",
+    `${cardStill}?width=640&crop=smart&auto=webp`,
+  );
+  await expect(framed.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  expect(await tileShape(framed)).toBeCloseTo(1280 / 720, 2);
+  // Without a picture in its card, a YouTube player shows YouTube's still.
+  await expect(
+    gridTile(page, "YouTube clip, video").locator("img"),
+  ).toHaveAttribute("src", "https://i.ytimg.com/vi/l74r1s8y7uY/hqdefault.jpg");
+  // A still that fails leaves the card, and the slide.
+  const lost = gridTile(page, "Lost clip, video");
+  await expect(lost.locator(".redditp__tile-kind")).toHaveText(
+    "Embedded video",
+  );
+  await expect(lost.locator("img")).toHaveCount(0);
+  // A video without a poster borrows its card's picture as well.
+  await expect(
+    gridTile(page, "File clip, video").locator("img"),
+  ).toHaveAttribute("src", `${fileStill}?width=640`);
+  await expect(grid.locator("iframe, video")).toHaveCount(0);
+  expect(players).toBe(0);
+  await expect(page.locator(".redditp__count")).not.toContainText(
+    "unavailable",
+  );
+
+  // The slideshow is as it was: the video has no poster, and the player
+  // loads.
+  await gridTile(page, "File clip, video").click();
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveAttribute(
+    "src",
+    "https://videohost.example/files/clip4.mp4",
+  );
+  await expect(video).toHaveAttribute("poster", "");
+  await page.keyboard.press("Escape");
+  await framed.click();
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    "https://videohost.example/ifr/clip1?autoplay=1&muted=1&mute=1&sound=false",
+  );
+  await expect.poll(() => players).toBe(1);
+});
+
+// Reddit's data for posts as /api/info.json answers with it: a listing of the
+// posts it knows among those asked for.
+function postInfo(posts) {
+  return {
+    status: 200,
+    contentType: "application/json; charset=UTF-8",
+    body: JSON.stringify({
+      kind: "Listing",
+      data: {
+        after: null,
+        dist: posts.length,
+        children: posts.map((data) => ({ kind: "t3", data })),
+        before: null,
+      },
+    }),
+  };
+}
+
+// The posts that a request for Reddit's data asks about.
+function postInfoIds(request) {
+  return (new URL(request.url()).searchParams.get("id") || "")
+    .split(",")
+    .filter(Boolean)
+    .sort();
+}
+
+// Reddit's preview of a post, its copy of the video's first frame, as its
+// data gives it without raw_json (&amp; for &): the still itself and the
+// copies of it narrower than it. `image` adds to or replaces its fields.
+function redditPreview(base, width, height, image = {}) {
+  const copy = (copyWidth) => ({
+    url: `${base}?width=${copyWidth}&amp;crop=smart&amp;auto=webp&amp;s=c${copyWidth}`,
+    width: copyWidth,
+    height: Math.round((copyWidth * height) / width),
+  });
+  return {
+    images: [
+      {
+        source: { url: `${base}?auto=webp&amp;s=full`, width, height },
+        resolutions: [108, 216, 320, 640, 960, 1080]
+          .filter((copyWidth) => copyWidth < width)
+          .map(copy),
+        variants: {},
+        id: "preview",
+        ...image,
+      },
+    ],
+    enabled: false,
+  };
+}
+
+// The 640 pixel copy that redditPreview lists for a still.
+function previewCopy(base) {
+  return `${base}?width=640&crop=smart&auto=webp&s=c640`;
+}
+
+test("a player's tile without a picture takes its still from Reddit's data for the post", async ({
+  page,
+}) => {
+  const still = (name) => `https://external-preview.redd.it/${name}.jpg`;
+  const blurred = "https://preview.redd.it/blurred-nsfwclip.jpg";
+  const oembedStill = "https://thumbs.videohost.example/oembedclip-poster.jpg";
+  // Every picture the page asks for.
+  const pictures = [];
+  await page.route(
+    /^https:\/\/(?:external-preview\.redd\.it|preview\.redd\.it|thumbs\.videohost\.example)\//,
+    (route) => {
+      const url = route.request().url();
+      pictures.push(url);
+      if (url.includes("brokenclip")) return route.abort();
+      if (url.includes("portrait")) return route.fulfill(svgImage(360, 640));
+      if (url.startsWith(oembedStill)) return route.fulfill(svgImage(480, 640));
+      return route.fulfill(svgImage(640, 480));
+    },
+  );
+  // Counts the players that load, which only the slideshow may do.
+  let players = 0;
+  await page.route(
+    /^https:\/\/(?:www\.redgifs\.com|videohost\.example)\//,
+    (route) => {
+      if (route.request().url().endsWith(".mp4")) {
+        return fulfillSilentVideo(route);
+      }
+      players += 1;
+      return route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><title>Player</title>",
+      });
+    },
+  );
+  const requests = [];
+  await page.route(POST_INFO_RE, async (route) => {
+    const request = route.request();
+    requests.push({
+      ids: postInfoIds(request),
+      rawJson: new URL(request.url()).searchParams.get("raw_json"),
+      cookie: (await request.allHeaders()).cookie || "",
+    });
+    return route.fulfill(
+      postInfo([
+        {
+          name: "t3_1wsat28",
+          domain: "redgifs.com",
+          over_18: true,
+          preview: redditPreview(still("redgifs-kinglet"), 1280, 960),
+          // The preview wins over the oEmbed's thumbnail.
+          secure_media: {
+            type: "redgifs.com",
+            oembed: {
+              provider_name: "RedGIFs",
+              thumbnail_url: "https://thumbs.videohost.example/unused.jpg",
+              thumbnail_width: 640,
+              thumbnail_height: 480,
+            },
+          },
+        },
+        {
+          // An NSFW post's own source is missing here, and its variants are
+          // blurred copies; the real copies are its resolutions.
+          name: "t3_nsfwclip",
+          over_18: true,
+          thumbnail: "nsfw",
+          preview: redditPreview(still("nsfwclip"), 1280, 960, {
+            source: undefined,
+            variants: {
+              obfuscated: {
+                source: {
+                  url: `${blurred}?blur=40&amp;format=pjpg&amp;s=o`,
+                  width: 1280,
+                  height: 960,
+                },
+                resolutions: [
+                  {
+                    url: `${blurred}?width=640&amp;blur=40&amp;s=o640`,
+                    width: 640,
+                    height: 480,
+                  },
+                ],
+              },
+              nsfw: {
+                source: {
+                  url: `${blurred}?blur=40&amp;format=pjpg&amp;s=n`,
+                  width: 1280,
+                  height: 960,
+                },
+                resolutions: [
+                  {
+                    url: `${blurred}?width=640&amp;blur=40&amp;s=n640`,
+                    width: 640,
+                    height: 480,
+                  },
+                ],
+              },
+            },
+          }),
+        },
+        {
+          // No preview: the player's oEmbed thumbnail stands in.
+          name: "t3_oembedclip",
+          media: {
+            oembed: {
+              thumbnail_url: `${oembedStill}?a=1&amp;b=2`,
+              thumbnail_width: 480,
+              thumbnail_height: 640,
+            },
+          },
+        },
+        {
+          name: "t3_fileclip",
+          preview: redditPreview(still("portrait-fileclip"), 720, 1280),
+        },
+        {
+          name: "t3_brokenclip",
+          preview: redditPreview(still("brokenclip"), 1280, 720),
+        },
+        // Reddit knows nothing of t3_missingclip.
+      ]),
+    );
+  });
+  const clip = (id, title, href) =>
+    `<shreddit-post id="t3_${id}" post-title="${title}" post-type="link" content-href="${href}" permalink="/r/NSFW_GIF/comments/${id}/clip/"></shreddit-post>`;
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/NSFW_GIF/",
+    `${redgifsEmbedFixture}
+    ${clip("nsfwclip", "NSFW clip", "https://videohost.example/watch/nsfwclip")}
+    ${clip("oembedclip", "oEmbed clip", "https://videohost.example/watch/oembedclip")}
+    ${clip("fileclip", "File clip", "https://videohost.example/files/fileclip.mp4")}
+    ${clip("brokenclip", "Broken clip", "https://videohost.example/watch/brokenclip")}
+    ${clip("missingclip", "Missing clip", "https://videohost.example/watch/missingclip")}
+    ${clip("picture", "Picture post", "https://i.redd.it/picture1.jpg")}`,
+    { openInGrid: true },
+  );
+  await page
+    .context()
+    .addCookies([
+      { name: "session", value: "viewer", url: "https://www.reddit.com/" },
+    ]);
+  await injectExtension(page);
+
+  const grid = page.locator(".redditp__grid");
+  const redgifs = gridTile(page, "Audrey Hollander, video");
+  await expect(redgifs.locator("img")).toHaveAttribute(
+    "src",
+    previewCopy(still("redgifs-kinglet")),
+  );
+  await expect(redgifs.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  expect(await tileShape(redgifs)).toBeCloseTo(0.75, 2);
+  // The players that came into range together share one request, with the
+  // viewer's session; the picture post needs none.
+  expect(requests).toEqual([
+    {
+      ids: [
+        "t3_1wsat28",
+        "t3_brokenclip",
+        "t3_fileclip",
+        "t3_missingclip",
+        "t3_nsfwclip",
+        "t3_oembedclip",
+      ],
+      rawJson: "1",
+      cookie: "session=viewer",
+    },
+  ]);
+  // An NSFW post's tile shows its real copy, never a blurred one.
+  const nsfw = gridTile(page, "NSFW clip, video");
+  await expect(nsfw.locator("img")).toHaveAttribute(
+    "src",
+    previewCopy(still("nsfwclip")),
+  );
+  await expect(nsfw.locator("img")).toHaveClass(/redditp__tile-image--loaded/);
+  expect(pictures.filter((url) => /blur/.test(url))).toEqual([]);
+  const oembed = gridTile(page, "oEmbed clip, video");
+  await expect(oembed.locator("img")).toHaveAttribute(
+    "src",
+    `${oembedStill}?a=1&b=2`,
+  );
+  await expect(oembed.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  expect(await tileShape(oembed)).toBeCloseTo(640 / 480, 2);
+  // A video without a poster takes the still for its tile alone.
+  const file = gridTile(page, "File clip, video");
+  await expect(file.locator("img")).toHaveAttribute(
+    "src",
+    previewCopy(still("portrait-fileclip")),
+  );
+  await expect(file.locator("img")).toHaveClass(/redditp__tile-image--loaded/);
+  expect(await tileShape(file)).toBeCloseTo(640 / 360, 2);
+  // A still that fails, and a post Reddit said nothing of, keep their cards
+  // and their slides.
+  for (const name of ["Broken clip, video", "Missing clip, video"]) {
+    await expect(
+      gridTile(page, name).locator(".redditp__tile-kind"),
+    ).toHaveText("Embedded video");
+    await expect(gridTile(page, name).locator("img")).toHaveCount(0);
+  }
+  await expect
+    .poll(() => pictures.filter((url) => url.includes("brokenclip")).length)
+    .toBeGreaterThan(0);
+  // Reddit's data named no loop for them, and the grid says how its asking
+  // went.
+  for (const name of ["Missing clip, video", "File clip, video"]) {
+    await expect(gridTile(page, name)).toHaveAttribute("data-loop", "no-data");
+  }
+  await expect(gridTile(page, "Picture post")).toHaveAttribute(
+    "data-loop",
+    "none",
+  );
+  await expect(grid).toHaveAttribute("data-still-requests", "1");
+  await expect(grid).toHaveAttribute("data-still-failures", "0");
+  await expect(grid).not.toHaveAttribute("data-still-gave-up");
+  await expect(page.locator(".redditp__count")).toHaveText(/^7 posts/);
+  await expect(page.locator(".redditp__count")).not.toContainText(
+    "unavailable",
+  );
+  // The grid tiles' columns kept their tiles in place.
+  await expect(grid.locator(".redditp__tile")).toHaveCount(7);
+  await expect(grid.locator("iframe, video")).toHaveCount(0);
+  expect(players).toBe(0);
+
+  // The slideshow is as it was: the frame loads, and the video has no
+  // poster.
+  await redgifs.click();
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    "https://www.redgifs.com/ifr/cumbersomeshorttermkinglet?autoplay=1&muted=1&mute=1&sound=false",
+  );
+  await expect.poll(() => players).toBe(1);
+  await page.keyboard.press("Escape");
+  await file.click();
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveAttribute(
+    "src",
+    "https://videohost.example/files/fileclip.mp4",
+  );
+  await expect(video).toHaveAttribute("poster", "");
+  await page.keyboard.press("Escape");
+  await expect(file).toBeFocused();
+  // Once per post per open: the grid asked no more, and asks again only
+  // once the viewer opens afresh.
+  expect(requests).toHaveLength(1);
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(redgifs.locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  expect(requests).toHaveLength(2);
+});
+
+test("the grid stops asking Reddit's data for stills after three failures in a row", async ({
+  page,
+}) => {
+  // Reddit's answers in turn: an error, a challenge page, the posts' data,
+  // an answer that is not JSON, a block, and JSON without posts.
+  const answers = [
+    () => ({ status: 500, contentType: "text/plain", body: "Server error" }),
+    () => ({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: "<!doctype html><title>Reddit - Prove your humanity</title><p>Please wait for verification.</p>",
+    }),
+    (ids) =>
+      postInfo(
+        ids.map((name) => ({
+          name,
+          preview: redditPreview(
+            `https://external-preview.redd.it/${name}.jpg`,
+            1280,
+            960,
+          ),
+        })),
+      ),
+    () => ({
+      status: 200,
+      contentType: "application/json",
+      body: "<html><body>Too many requests</body></html>",
+    }),
+    () => ({
+      status: 403,
+      contentType: "text/html",
+      body: "<!doctype html><title>Blocked</title>",
+    }),
+    () => ({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "Forbidden", error: 403 }),
+    }),
+  ];
+  const requests = [];
+  await page.route(POST_INFO_RE, (route) => {
+    const ids = postInfoIds(route.request());
+    const answer = answers[Math.min(requests.length, answers.length - 1)];
+    requests.push(ids);
+    return route.fulfill(answer(ids));
+  });
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/framedclips/",
+    // Enough that the tiles in range at first leave some for later.
+    Array.from(
+      { length: 300 },
+      (_, index) =>
+        `<shreddit-post id="t3_frame${index + 1}" post-title="Frame ${index + 1}" post-type="link" content-href="https://videohost.example/watch/frame${index + 1}" permalink="/r/framedclips/comments/frame${index + 1}/clip/"></shreddit-post>`,
+    ).join(""),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const grid = page.locator(".redditp__grid");
+  await expect(grid.locator(".redditp__tile")).toHaveCount(300);
+  await expect.poll(() => requests.length).toBeGreaterThan(0);
+  // Down the grid, a little at a time, so each step asks on its own.
+  const screen = await grid.evaluate((element) => element.clientHeight);
+  for (let top = screen / 2; ; top += screen / 2) {
+    await grid.evaluate((element, value) => {
+      element.scrollTop = value;
+    }, top);
+    await page.waitForTimeout(150);
+    const end = await grid.evaluate(
+      (element) =>
+        element.scrollTop + element.clientHeight >= element.scrollHeight - 1,
+    );
+    if (end) break;
+  }
+  await page.waitForTimeout(300);
+  // The third request's answer counted, so it took three more failures.
+  expect(requests).toHaveLength(6);
+  const asked = requests.flat();
+  expect(new Set(asked).size).toBe(asked.length);
+  // The grid says so, and so does every tile, by what came of its post.
+  await expect(grid).toHaveAttribute("data-still-requests", "6");
+  await expect(grid).toHaveAttribute("data-still-failures", "5");
+  await expect(grid).toHaveAttribute("data-still-gave-up", "");
+  const loopState = (name) =>
+    gridTile(page, `Frame ${name.replace("t3_frame", "")}, video`).getAttribute(
+      "data-loop",
+    );
+  expect(await loopState(requests[0][0])).toBe("info-failed");
+  expect(await loopState(requests[2][0])).toBe("no-data");
+  expect(await loopState(requests[5][0])).toBe("info-failed");
+  const neverAsked = Array.from(
+    { length: 300 },
+    (_, index) => `t3_frame${index + 1}`,
+  ).filter((name) => !asked.includes(name));
+  expect(neverAsked.length).toBeGreaterThan(0);
+  expect(await loopState(neverAsked[0])).toBe("info-capped");
+  // Only the tiles of the posts Reddit answered for show a picture; the
+  // others keep their cards, and every slide stays.
+  const answered = requests[2];
+  expect(answered.length).toBeGreaterThan(0);
+  for (const name of answered) {
+    const number = name.replace("t3_frame", "");
+    await expect(
+      gridTile(page, `Frame ${number}, video`).locator("img"),
+    ).toHaveAttribute(
+      "src",
+      previewCopy(`https://external-preview.redd.it/${name}.jpg`),
+    );
+  }
+  await expect(grid.locator(".redditp__tile-image")).toHaveCount(
+    answered.length,
+  );
+  await expect(page.locator(".redditp__count")).toHaveText(/^300 posts/);
+  expect(asked.length).toBeLessThan(300);
+});
+
+test("posts from another source are never read from Reddit for stills", async ({
+  page,
+}) => {
+  const requests = [];
+  await page.route(POST_INFO_RE, (route) => {
+    requests.push(route.request().url());
+    return route.abort();
+  });
+  await openGridSource(page, [
+    gridSlide(1, {
+      title: "Framed",
+      kind: "embed",
+      url: "https://videohost.example/ifr/framed1",
+    }),
+    gridSlide(2),
+  ]);
+  await expect(
+    gridTile(page, "Framed, video").locator(".redditp__tile-kind"),
+  ).toHaveText("Embedded video");
+  await expect(gridTile(page, "Grid slide 2").locator("img")).toHaveClass(
+    /redditp__tile-image--loaded/,
+  );
+  await page.waitForTimeout(300);
+  expect(requests).toEqual([]);
+});
+
+test("a gallery's full-size JPEG transcodes load from i.redd.it, and its tiles from 640 pixel copies", async ({
+  page,
+}) => {
+  const figure = (id, extension) => {
+    const base = `https://preview.redd.it/apple-pie-v0-${id}.${extension}`;
+    return `<figure><img alt="Pie gallery" srcset="${base}?width=640&amp;crop=smart&amp;auto=webp&amp;s=a 640w, ${base}?width=3024&amp;format=pjpg&amp;auto=webp&amp;s=b 3024w" width="3024" height="4032"></figure>`;
+  };
+  await page.route(/apple-pie-v0-pie\d\.\w+\?width=640/, (route) =>
+    route.fulfill(svgImage(640, 853)),
+  );
+  await startPresentation(
+    page,
+    `<shreddit-post post-title="Pie gallery" gallery post-type="gallery" content-href="https://www.reddit.com/gallery/piegal" permalink="/r/food/comments/piegal/pie/">
+      <gallery-carousel>${figure("pie1", "jpg")}${figure("pie2", "png")}${figure("pie3", "webp")}</gallery-carousel>
+    </shreddit-post>`,
+  );
+  const image = page.locator(".redditp__image");
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/pie1.jpg");
+  await page.keyboard.press("ArrowRight");
+  // A PNG keeps its transcode, since its original can weigh far more.
+  await expect(image).toHaveAttribute(
+    "src",
+    "https://preview.redd.it/apple-pie-v0-pie2.png?width=3024&format=pjpg&auto=webp&s=b",
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/pie3.webp");
+
+  await page.keyboard.press("v");
+  const tile = gridTile(page, "Pie gallery, 1 of 3");
+  await expect(tile.locator("img")).toHaveAttribute(
+    "src",
+    "https://preview.redd.it/apple-pie-v0-pie1.jpg?width=640&crop=smart&auto=webp&s=a",
+  );
+  expect(await tileShape(tile)).toBeCloseTo(4032 / 3024, 2);
+});
+
 // Seven posts in page order, one of each kind the Show filter tells apart:
 // an image, a GIF, a Reddit video, an embed, an imgur GIFV, a link post, and
 // a second image.
@@ -2476,7 +4580,7 @@ test("images only hides video, embed and GIF posts in the slideshow and the grid
       grid.getByRole("button", { name: new RegExp(`^${name}`) }),
     ).toHaveCount(0);
   }
-  await expect(grid.locator(".redditp__tile-play")).toHaveCount(0);
+  await expect(grid.getByRole("button", { name: /, video$/ })).toHaveCount(0);
   await expect(count).toHaveText(/^2 posts · images only/);
 
   // With the controls collapsed, the + button carries the dot instead.
@@ -2584,11 +4688,9 @@ test("O cycles all, images, GIFs, videos and back", async ({ page }) => {
   const grid = page.locator(".redditp__grid");
   await expect(grid.locator(".redditp__tile")).toHaveCount(2);
   for (const name of ["Mix clip, video", "Mix interview, video"]) {
-    await expect(
-      page
-        .getByRole("button", { name, exact: true })
-        .locator(".redditp__tile-play"),
-    ).toHaveCount(1);
+    await expect(page.getByRole("button", { name, exact: true })).toHaveCount(
+      1,
+    );
   }
 
   await page.keyboard.press("o");
@@ -2662,7 +4764,9 @@ test("a filtered load keeps scrolling past non-matching posts until one matches"
 
   await page.keyboard.press("v");
   await expect(page.locator(".redditp__tile")).toHaveCount(2);
-  await expect(page.locator(".redditp__tile-play")).toHaveCount(0);
+  await expect(
+    page.locator(".redditp__grid").getByRole("button", { name: /, video$/ }),
+  ).toHaveCount(0);
 });
 
 test("a filter with no matches says so and the gear still changes it", async ({
@@ -2774,7 +4878,7 @@ test("an upgraded search thumbnail that turns out to be a video leaves the image
     "https://i.redd.it/fsearch3.jpg",
   );
   await expect(tiles).toHaveCount(1);
-  await expect(match.locator(".redditp__tile-play")).toHaveCount(0);
+  await expect(match).not.toHaveAccessibleName(/, video$/);
   await expect(page.locator(".redditp__count")).toHaveText(
     /^1 post · images only/,
   );
@@ -2896,6 +5000,135 @@ test("middle-click on the slide's picture opens its media in a new tab", async (
   await expect(page.locator("#redditp-presentation")).toBeVisible();
   await expect(page.locator(".redditp__title")).toHaveText("New tab post 1");
   await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+});
+
+test("a click on the slide's picture goes back to the grid at that post's tile", async ({
+  page,
+}) => {
+  await routeNewTabs(page);
+  await startPresentation(page, newTabPosts);
+  const grid = page.locator(".redditp__grid");
+  const image = page.locator(".redditp__image");
+  await expect(image).toHaveCSS("cursor", "pointer");
+
+  await page.keyboard.press("v");
+  await page
+    .getByRole("button", { name: "New tab post 2", exact: true })
+    .click();
+  await expect(grid).toBeHidden();
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/newtab-2.jpg");
+
+  await image.click();
+  await expect(grid).toBeVisible();
+  await expect(page.locator(".redditp__stage")).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "New tab post 2", exact: true }),
+  ).toBeFocused();
+  expect(page.context().pages()).toHaveLength(1);
+
+  // After moving on, the click goes back to the new slide's tile.
+  await page.keyboard.press("v");
+  await expect(grid).toBeHidden();
+  await page.keyboard.press("ArrowLeft");
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/newtab-1.jpg");
+  await image.click();
+  await expect(grid).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "New tab post 1", exact: true }),
+  ).toBeFocused();
+});
+
+test("Ctrl+click on the slide's picture opens it in a new tab and stays in the slideshow", async ({
+  page,
+}) => {
+  await routeNewTabs(page);
+  await startPresentation(page, newTabPosts);
+  const image = page.locator(".redditp__image");
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/newtab-1.jpg");
+
+  const [mediaPage] = await Promise.all([
+    page.context().waitForEvent("page"),
+    image.click({ modifiers: ["ControlOrMeta"] }),
+  ]);
+  await mediaPage.waitForLoadState();
+  expect(mediaPage.url()).toBe("https://i.redd.it/newtab-1.jpg");
+  await mediaPage.close();
+
+  await expect(page.locator(".redditp__grid")).toBeHidden();
+  await expect(page.locator(".redditp__stage")).toBeVisible();
+  await expect(page.locator(".redditp__title")).toHaveText("New tab post 1");
+});
+
+test("a mouse drag across the picture swipes, and never goes to the grid", async ({
+  page,
+}) => {
+  await routeNewTabs(page);
+  await startPresentation(page, newTabPosts);
+  const grid = page.locator(".redditp__grid");
+  const title = page.locator(".redditp__title");
+  const image = page.locator(".redditp__image");
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/newtab-1.jpg");
+  const box = await image.boundingBox();
+  const y = box.y + box.height / 2;
+  async function drag(fromX, toX) {
+    await page.mouse.move(fromX, y);
+    await page.mouse.down();
+    await page.mouse.move(toX, y, { steps: 5 });
+    await page.mouse.up();
+  }
+
+  // Too short to swipe, too long to be a click: nothing happens.
+  await drag(box.x + box.width / 2, box.x + box.width / 2 - 30);
+  await expect(title).toHaveText("New tab post 1");
+  await expect(grid).toBeHidden();
+  // A swipe back on the first slide goes nowhere, and ends on the same
+  // picture it started on, so a click follows it; that is no click.
+  await drag(box.x + box.width / 2 - 100, box.x + box.width / 2 + 100);
+  await expect(title).toHaveText("New tab post 1");
+  await expect(grid).toBeHidden();
+  // A swipe forward changes the slide.
+  await drag(box.x + box.width / 2 + 100, box.x + box.width / 2 - 100);
+  await expect(title).toHaveText("New tab post 2");
+  await expect(image).toHaveAttribute("src", "https://i.redd.it/newtab-2.jpg");
+  await expect(grid).toBeHidden();
+
+  // The next plain click is a click again.
+  await image.click();
+  await expect(grid).toBeVisible();
+});
+
+test("a click on a slideshow video plays or pauses it and stays in the slideshow", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `<div class="thing link" data-url="https://v.redd.it/clickclip" data-permalink="/r/videos/comments/clickclip/post/"><a class="title">Click clip</a><video src="https://v.redd.it/clickclip/DASH_480.mp4" poster="https://external-preview.redd.it/clickclip.png"></video></div>${newTabPosts}`,
+  );
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveAttribute(
+    "src",
+    "https://v.redd.it/clickclip/DASH_480.mp4",
+  );
+  await expect
+    .poll(() => video.evaluate((element) => element.paused))
+    .toBe(false);
+  const box = await video.boundingBox();
+  // Well above the browser's control strip.
+  const point = { x: box.width / 2, y: box.height / 3 };
+
+  await video.click({ position: point });
+  await expect
+    .poll(() => video.evaluate((element) => element.paused))
+    .toBe(true);
+  await expect(page.locator(".redditp__grid")).toBeHidden();
+  await expect(page.locator(".redditp__title")).toHaveText("Click clip");
+
+  await video.click({ position: point });
+  await expect
+    .poll(() => video.evaluate((element) => element.paused))
+    .toBe(false);
+  await expect(page.locator(".redditp__grid")).toBeHidden();
+  await expect(page.locator(".redditp__stage")).toBeVisible();
 });
 
 test("Ctrl+click or middle-click on a grid tile opens its media and stays in the grid", async ({
@@ -3346,8 +5579,64 @@ test("background loads stop after four in a row", async ({ page }) => {
   expect(await scrollCalls(page)).toBe(8);
 });
 
-// Seven posts: a picture, a Reddit video with a poster, a YouTube embed, and
-// four more pictures. Pictures are "<prefix>-<post number>.jpg", so two pages
+test("a search the filter ended waits for the last post, and next there wraps at once", async ({
+  page,
+}) => {
+  // Paused, so only the posts rendered by each scroll drive the loads.
+  await pauseClock(page);
+  await routeMediaMix(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/sparsefeed/",
+    `${[1, 2, 3].map((number) => mixImagePost(`sparse${number}`, `Sparse ${number}`)).join("")}<div style="height: 4000px"></div>`,
+    { showGifs: false, showVideos: false },
+  );
+  // Every scroll renders one more video post, which images only hides, the
+  // way an endless feed of other media would.
+  await instrumentScroll(page, {
+    template: mixVideoPost("hidden{n}", "Hidden clip {n}"),
+  });
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("Sparse 1");
+  // Few slides are left, so a load starts at once. It gives up after
+  // fifteen batches without a match, and nothing loads after it.
+  await expect.poll(() => scrollCalls(page)).toBe(15);
+  await page.waitForTimeout(300);
+  expect(await scrollCalls(page)).toBe(15);
+  await expect(count).toHaveText("1 / 3 · images only");
+
+  // Moving on leaves Reddit alone until the last post, which looks again.
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Sparse 2");
+  await page.waitForTimeout(300);
+  expect(await scrollCalls(page)).toBe(15);
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Sparse 3");
+  await expect.poll(() => scrollCalls(page)).toBe(30);
+  await page.waitForTimeout(300);
+  expect(await scrollCalls(page)).toBe(30);
+  await expect(count).toHaveText("3 / 3 · images only");
+
+  // That search found nothing either, so next wraps without another.
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Sparse 1");
+  await expect(count).toHaveText("1 / 3 · images only");
+  await page.waitForTimeout(300);
+  expect(await scrollCalls(page)).toBe(30);
+
+  // A filter change searches afresh, once.
+  await page.keyboard.press("o");
+  await expect(page.locator(".redditp__empty h2")).toHaveText(
+    "Nothing here matches the filter",
+  );
+  await expect(count).toHaveText("0 posts · GIFs only");
+  expect(await scrollCalls(page)).toBe(45);
+});
+
+// Ten posts: a picture, a Reddit video with a poster, a YouTube embed, and
+// seven more pictures. Pictures are "<prefix>-<post number>.jpg", so two pages
 // never share a URL. The player is Reddit's own custom element, which fetches
 // nothing by itself.
 function aheadPosts(prefix) {
@@ -3357,11 +5646,11 @@ function aheadPosts(prefix) {
     picture(1),
     `<shreddit-post id="t3_${prefix}2" post-title="Ahead clip" post-type="video" content-href="https://v.redd.it/${prefix}clip" permalink="/r/ahead/comments/${prefix}2/post/"><shreddit-player src="https://v.redd.it/${prefix}clip/HLSPlaylist.m3u8" preview="https://v.redd.it/${prefix}clip/DASH_480.mp4" poster="https://external-preview.redd.it/${prefix}clip.png"></shreddit-player></shreddit-post>`,
     `<shreddit-post id="t3_${prefix}3" post-title="Ahead interview" content-href="https://www.youtube.com/watch?v=l74r1s8y7uY" permalink="/r/ahead/comments/${prefix}3/post/"></shreddit-post>`,
-    ...[4, 5, 6, 7].map(picture),
+    ...[4, 5, 6, 7, 8, 9, 10].map(picture),
   ].join("");
 }
 
-test("the next three pictures load ahead, and the filter is respected", async ({
+test("the next six pictures load ahead, and the filter is respected", async ({
   page,
 }) => {
   const requested = new Set();
@@ -3388,16 +5677,18 @@ test("the next three pictures load ahead, and the filter is respected", async ({
   );
   await injectExtension(page);
   await expect(title).toHaveText("Picture 1");
-  // The next three slides are the video, the embed, and picture 4.
+  // The next six slides are the video, the embed, and pictures 4 to 7.
   await expectRequested("https://external-preview.redd.it/allclip.png");
-  await expectRequested("https://i.redd.it/all-4.jpg");
+  for (const number of [4, 5, 6, 7]) {
+    await expectRequested(`https://i.redd.it/all-${number}.jpg`);
+  }
   await page.waitForTimeout(300);
-  expect(requested.has("https://i.redd.it/all-5.jpg")).toBe(false);
+  expect(requested.has("https://i.redd.it/all-8.jpg")).toBe(false);
   await page.keyboard.press("ArrowRight");
   await expect(title).toHaveText("Ahead clip");
-  await expectRequested("https://i.redd.it/all-5.jpg");
+  await expectRequested("https://i.redd.it/all-8.jpg");
 
-  // With images only, the next three are pictures 4 to 6, and the hidden
+  // With images only, the next six are pictures 4 to 9, and the hidden
   // video's poster is left alone.
   await openRoutedPage(
     page,
@@ -3407,24 +5698,159 @@ test("the next three pictures load ahead, and the filter is respected", async ({
   );
   await injectExtension(page);
   await expect(title).toHaveText("Picture 1");
-  for (const number of [4, 5, 6]) {
+  for (const number of [4, 5, 6, 7, 8, 9]) {
     await expectRequested(`https://i.redd.it/only-${number}.jpg`);
   }
   await page.waitForTimeout(300);
-  expect(requested.has("https://i.redd.it/only-7.jpg")).toBe(false);
+  expect(requested.has("https://i.redd.it/only-10.jpg")).toBe(false);
   expect(requested.has("https://external-preview.redd.it/onlyclip.png")).toBe(
     false,
   );
 });
 
-test("the preload cache keeps six pictures and is dropped on close", async ({
+test("the slideshow reads the next two Reddit videos in ahead, plays them from there with its usual sound, and lets them go once behind", async ({
+  page,
+}) => {
+  const clipA = "https://v.redd.it/warma/DASH_480.mp4";
+  const clipB = "https://preview.redd.it/warmb.gif?format=mp4&s=b";
+  const clipC = "https://v.redd.it/warmc/DASH_480.mp4";
+  const elsewhere = "https://videohost.example/warm.mp4";
+  const requested = [];
+  await page.route(/^https:\/\/(?:v|preview)\.redd\.it\/warm/, (route) => {
+    requested.push(route.request().url());
+    return fulfillSilentVideo(route);
+  });
+  await page.route("https://videohost.example/**", (route) => {
+    requested.push(route.request().url());
+    return fulfillSilentVideo(route);
+  });
+  const clip = (number, title, url) =>
+    gridSlide(number, {
+      title,
+      kind: "video",
+      url,
+      poster: `https://external-preview.redd.it/warm${number}.png`,
+    });
+  const slides = [
+    gridSlide(1, { title: "Picture 1" }),
+    clip(2, "Clip A", clipA),
+    gridSlide(3, { title: "Picture 3" }),
+    clip(4, "Clip B", clipB),
+    clip(5, "Clip C", clipC),
+    clip(6, "Clip elsewhere", elsewhere),
+  ];
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/warmsource/",
+    '<meta name="redditp-host" content="test">',
+    { sound: true },
+  );
+  // Every video element made, in order.
+  await page.evaluate(() => {
+    window.madeVideos = [];
+    const create = document.createElement.bind(document);
+    document.createElement = (name, options) => {
+      const made = create(name, options);
+      if (String(name).toLowerCase() === "video") window.madeVideos.push(made);
+      return made;
+    };
+  });
+  await injectExtension(page);
+  await page.evaluate((list) => {
+    window.__redditpPresentation.open({
+      kind: "test",
+      start: () => Promise.resolve({ slides: list }),
+      loadMore: () => Promise.resolve({ slides: [] }),
+      hasMore: () => false,
+    });
+  }, slides);
+  const title = page.locator(".redditp__title");
+  await expect(title).toHaveText("Picture 1");
+  // The videos in no document, each as the latest one made for its file
+  // left it.
+  const warm = () =>
+    page.evaluate(() => {
+      const latest = new Map();
+      window.madeVideos.forEach((video) => {
+        const src = video.getAttribute("src");
+        if (src) latest.set(src, video);
+      });
+      return Array.from(latest.values())
+        .filter((video) => !video.isConnected)
+        .map((video) => ({
+          src: video.getAttribute("src"),
+          preload: video.preload,
+          muted: video.muted,
+          paused: video.paused,
+        }));
+    });
+  // The first two videos among the next six slides, and not the one on
+  // another host.
+  await expect.poll(warm).toEqual([
+    { src: clipA, preload: "auto", muted: true, paused: true },
+    { src: clipB, preload: "auto", muted: true, paused: true },
+  ]);
+  await expect.poll(() => requested.includes(clipA)).toBe(true);
+  await expect.poll(() => requested.includes(clipB)).toBe(true);
+  // The slideshow's video is the one read in, and plays with sound, as the
+  // settings say.
+  const shownIsWarm = (src) =>
+    page.evaluate(
+      (value) =>
+        document.querySelector(".redditp__video") ===
+        window.madeVideos.find((video) => video.getAttribute("src") === value),
+      src,
+    );
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Clip A");
+  expect(await shownIsWarm(clipA)).toBe(true);
+  const shown = page.locator(".redditp__video");
+  await expect
+    .poll(() => shown.evaluate((video) => [video.paused, video.muted]))
+    .toEqual([false, false]);
+  expect(
+    await shown.evaluate((video) => [
+      video.controls,
+      video.className,
+      video.poster,
+    ]),
+  ).toEqual([
+    true,
+    "redditp__video",
+    "https://external-preview.redd.it/warm2.png",
+  ]);
+  await expect
+    .poll(async () => (await warm()).map((video) => video.src))
+    .toEqual([clipB, clipC]);
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Clip B");
+  expect(await shownIsWarm(clipB)).toBe(true);
+  // Back at the start, the video no longer ahead is let go.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect(title).toHaveText("Picture 1");
+  expect(
+    await page.evaluate(
+      (value) =>
+        window.madeVideos
+          .filter((video) => !video.isConnected)
+          .some((video) => video.getAttribute("src") === value),
+      clipC,
+    ),
+  ).toBe(false);
+  expect(requested).not.toContain(elsewhere);
+});
+
+test("the preload cache keeps twelve pictures and is dropped on close", async ({
   page,
 }) => {
   await routeGridImages(page);
   await openRoutedPage(
     page,
     "https://www.reddit.com/r/cachefeed/",
-    gridImagePosts(12),
+    gridImagePosts(24),
     {},
   );
   // Records every picture fetched ahead, which the extension creates with
@@ -3447,47 +5873,148 @@ test("the preload cache keeps six pictures and is dropped on close", async ({
     );
   const title = page.locator(".redditp__title");
   await expect(title).toHaveText("Post 1");
-  for (let press = 0; press < 5; press += 1) {
+  for (let press = 0; press < 10; press += 1) {
     await page.keyboard.press("ArrowRight");
   }
-  await expect(title).toHaveText("Post 6");
-  for (let press = 0; press < 5; press += 1) {
+  await expect(title).toHaveText("Post 11");
+  for (let press = 0; press < 10; press += 1) {
     await page.keyboard.press("ArrowLeft");
   }
   await expect(title).toHaveText("Post 1");
-  // Pictures 2 to 9 were fetched once on the way; 2 and 3 then fell out of
-  // the six kept and were fetched again on the way back.
+  // Pictures 2 to 17 were fetched once on the way; 2 to 5 then fell out of
+  // the twelve kept and were fetched again on the way back.
   const created = await preloaded();
-  expect(created).toHaveLength(10);
-  expect(created.filter((number) => number === "2")).toHaveLength(2);
-  expect(created.filter((number) => number === "3")).toHaveLength(2);
+  expect(created).toHaveLength(20);
+  for (const number of ["2", "3", "4", "5"]) {
+    expect(created.filter((item) => item === number)).toHaveLength(2);
+  }
+  expect(created.filter((item) => item === "6")).toHaveLength(1);
 
   // Closing drops the cache, so the next open fetches ahead afresh.
   await page.evaluate(() => window.__redditpPresentation.toggle());
   await expect(page.locator("#redditp-presentation")).toBeHidden();
   await page.evaluate(() => window.__redditpPresentation.toggle());
   await expect(title).toHaveText("Post 1");
-  await expect.poll(async () => (await preloaded()).length).toBe(13);
-  expect((await preloaded()).slice(10)).toEqual(["2", "3", "4"]);
+  await expect.poll(async () => (await preloaded()).length).toBe(26);
+  expect((await preloaded()).slice(20)).toEqual(["2", "3", "4", "5", "6", "7"]);
 });
 
-test("the grid starts loading three screens before its end", async ({
+// Opens the grid on a source that hands over `start` at once, then `batch`
+// posts of `pool` each time the viewer asks for more, as long as it has any.
+// window.gridLoadMores counts the asking. `settings` add to the saved
+// settings.
+async function openPooledGridSource(page, start, pool, batch, settings = {}) {
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/gridsource/",
+    '<meta name="redditp-host" content="test">',
+    { openInGrid: true, ...settings },
+  );
+  await injectExtension(page);
+  await page.evaluate(
+    (value) => {
+      window.gridLoadMores = 0;
+      let given = 0;
+      window.__redditpPresentation.open({
+        kind: "test",
+        start: () => Promise.resolve({ slides: value.start }),
+        loadMore: () => {
+          window.gridLoadMores += 1;
+          const slides = value.pool.slice(given, given + value.batch);
+          given += slides.length;
+          return Promise.resolve({ slides });
+        },
+        hasMore: () => given < value.pool.length,
+      });
+    },
+    { start, pool, batch },
+  );
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+}
+
+// Image posts of the grid source numbered from `first`, `count` of them, in
+// the shape of the picture that the media hosts answer with, so that no tile
+// moves as the pictures arrive.
+function gridSlides(first, count) {
+  return Array.from({ length: count }, (_, index) =>
+    gridSlide(first + index, { width: 800, height: 600 }),
+  );
+}
+
+const gridLoadMores = (page) => page.evaluate(() => window.gridLoadMores);
+
+test("the grid starts loading within eight screens of its end", async ({
+  page,
+}) => {
+  // 4 columns of tiles 240 pixels apart: 120 posts are 10 screens.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openPooledGridSource(page, gridSlides(1, 120), gridSlides(121, 400), 8);
+  const grid = page.locator(".redditp__grid");
+  await expect(gridTile(page, "Grid slide 120")).toBeAttached();
+  await page.waitForTimeout(500);
+  expect(await gridLoadMores(page)).toBe(0);
+  // A screen and a half down, the end comes within eight screens below the
+  // view, and a load brings it back out of reach.
+  await grid.evaluate((element) => {
+    element.scrollTop = element.clientHeight * 1.5;
+  });
+  await expect.poll(() => gridLoadMores(page)).toBe(1);
+  await expect(gridTile(page, "Grid slide 128")).toBeAttached();
+  await page.waitForTimeout(500);
+  expect(await gridLoadMores(page)).toBe(1);
+  expect(await grid.evaluate((element) => element.scrollTop)).toBe(1080);
+});
+
+test("the grid loads at most six times in a row by itself, then again once scrolled half a screen", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
-  await routeGridImages(page);
-  await startPresentation(page, gridImagePosts(24));
-  const count = page.locator(".redditp__count");
-  // Far from the end, the slideshow loads nothing yet.
-  await expect(count).toHaveText("1 / 24");
-  await page.keyboard.press("v");
-  await expect(count).toHaveText("24 posts · loading more");
-  await expect(page.locator(".redditp__grid-status")).toHaveText(
-    "Loading more posts…",
+  // Batches too small to fill eight screens in six loads.
+  await openPooledGridSource(page, gridSlides(1, 16), gridSlides(17, 400), 8);
+  const grid = page.locator(".redditp__grid");
+  await expect.poll(() => gridLoadMores(page)).toBe(6);
+  await page.waitForTimeout(500);
+  expect(await gridLoadMores(page)).toBe(6);
+  await expect(page.locator(".redditp__grid .redditp__tile")).toHaveCount(64);
+  await expect(page.locator(".redditp__grid-status")).toBeHidden();
+  const scrollTo = (screens) =>
+    grid.evaluate((element, value) => {
+      element.scrollTop = element.clientHeight * value;
+    }, screens);
+  // A little scrolling is not enough.
+  await scrollTo(0.3);
+  await page.waitForTimeout(500);
+  expect(await gridLoadMores(page)).toBe(6);
+  // Half a screen starts another row of six.
+  await scrollTo(0.6);
+  await expect.poll(() => gridLoadMores(page)).toBe(12);
+  await page.waitForTimeout(500);
+  expect(await gridLoadMores(page)).toBe(12);
+});
+
+test("a Show filter that the grid's new posts never match stops after fifteen batches", async ({
+  page,
+}) => {
+  // Images only, and the source has nothing but videos after its first
+  // posts, without end.
+  const hidden = Array.from({ length: 400 }, (_, index) =>
+    gridSlide(index + 5, {
+      kind: "video",
+      url: `https://v.redd.it/hidden${index + 5}/DASH_480.mp4`,
+      title: `Hidden clip ${index + 5}`,
+    }),
   );
-  expect(
-    await page.locator(".redditp__grid").evaluate((grid) => grid.scrollTop),
-  ).toBe(0);
+  await openPooledGridSource(page, gridSlides(1, 4), hidden, 4, {
+    showGifs: false,
+    showVideos: false,
+  });
+  await expect.poll(() => gridLoadMores(page)).toBe(15);
+  await expect(page.locator(".redditp__grid-status")).toHaveText(
+    /^No more images/,
+  );
+  await page.waitForTimeout(500);
+  expect(await gridLoadMores(page)).toBe(15);
+  await expect(page.locator(".redditp__grid .redditp__tile")).toHaveCount(4);
 });
 
 test("next on the last slide wraps at once when the feed has ended", async ({

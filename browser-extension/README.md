@@ -80,7 +80,8 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - C: open the current post's comments in a new tab
 - I: open the current slide's original media in a new tab
 - A: toggle auto-advance (the same as the **Auto** button)
-- Swipe horizontally: previous or next slide (slideshow only)
+- Swipe horizontally, or drag the picture with the mouse: previous or next slide
+  (slideshow only)
 
 Previous-slide controls stop on the first slide instead of wrapping to the end
 of the slideshow. On an individual Reddit post, next-slide controls likewise
@@ -97,36 +98,128 @@ The post title in the title panel links to the post on Reddit and opens it in a
 new tab. Middle-click, or Ctrl+click (Cmd+click on a Mac), the picture or video
 in the slideshow, or a tile in the grid, to open that slide's hosted file in a
 new tab: the same file as the **media** link and I. A plain click still plays or
-pauses a video, and a plain click on a tile still opens the slideshow there.
+pauses a video, and a plain click on a tile still opens the slideshow there. A
+plain click or tap on the slideshow's picture goes to the grid, as V does.
 
 The grid shows every loaded post as a tile, and each image of a gallery as a
 numbered tile of its own. Click or tap a tile, or focus it and press Enter, to
 open the slideshow at that slide; Escape then returns to the grid at the same
 tile, while the × button still closes presentation mode. The arrow keys, Page
-Up/Page Down, and Home/End scroll the grid. Scrolling to within about three
-screens of the end of the grid loads more posts, and search results that show
-only a small thumbnail upgrade to their actual media as their tiles come into
-view, two at a time. The grid turns auto-advance off and starts no video or
-embedded player: video tiles show the post's poster, and players load only in
-the slideshow. Turn on **Open in grid view** in the settings panel to start
-presentation mode in the grid.
+Up/Page Down, and Home/End scroll the grid. The grid gets ahead of you, since a
+computer can afford the data and a tile that pops in is worse: it starts loading
+more posts once its end is within about eight screens, up to six loads in a row
+while you do not scroll (half a screen of scrolling allows six more), and search
+results that show only a small thumbnail upgrade to their actual media as their
+tiles come within about six screens below the view or two above it, two at a
+time. Tiles load Reddit's smaller copy of a picture, about 640 pixels wide,
+where the page or the archive names one, take the picture's shape before it
+arrives, and start loading about six screens before they scroll into view from
+below, or two from above. The grid turns auto-advance off and starts no player
+with sound or controls, and no embedded player: video tiles show the post's
+poster, an embedded player's tile shows a still of it (Reddit's preview, the
+post card's picture, or YouTube's own still) or else an "Embedded video" card,
+and a GIF's tile loops a silent MP4 of it over its still, where Reddit made one.
+Where the player names several MP4s, as for a video posted as a GIF, the tile
+loops the narrowest one at least 640 pixels wide; an uploaded GIF's player names
+only one.
+
+A video that Reddit hosts on v.redd.it loops over its tile's still the same way:
+a Reddit video, a crossposted one, and a clip on a host such as RedGIFs or imgur
+of which Reddit keeps a copy (its `reddit_video_preview`, which the archive
+stores and which a live tile finds in the post data that the grid asks Reddit
+for, as below). The tile loops the smallest of the video's silent renditions
+that is at least 360 pixels across its short side, or the largest of a smaller
+video, and reads which renditions there are from the video's manifest on
+v.redd.it (`DASHPlaylist.mpd`, without your cookies, as its tile comes within
+the pictures' reach, twelve at a time with those of tiles in view first, once
+per video until the tab reloads), since their names differ from one year's
+videos to the next; where the post's card already lists its MP4s with their
+sizes, it picks from those instead. A Reddit video whose player names nothing
+yet when the grid reads the post, as before Reddit fills the player in, loops
+all the same: the post's own link names the video on v.redd.it. Where the
+manifest or the chosen rendition fails, the tile loops the video's own file, or
+keeps its still when it has none. YouTube tiles always stay stills.
+
+A loop joins its tile once the tile is within about a screen below the view or
+half a screen above it, and leaves again once the tile scrolls further away.
+Ahead of the view it reads itself in, paused, so that it plays the moment its
+tile shows: the nearest six at a time, and only once every loop in view plays,
+so the tiles you see get the network first; until then a loop ahead reads
+nothing at all. A loop shows over its still once it has a picture of its own,
+which is as a rule before its tile comes into view. Every tile in view loops, up
+to 80 at once, which covers a full 2560x1440 grid of the widest tiles, and all
+of them start at once; none do when the system asks for reduced motion or the
+browser for less data. A loop reads a few megabytes of its video, so a screen of
+video tiles costs some 40 MB, and the grid reads about a screen more of them
+ahead of the view. Players load only in the slideshow. Turn on **Open in grid
+view** in the settings panel to start presentation mode in the grid.
+
+Each tile says what its loop is doing in a `data-loop` attribute, which the
+browser's developer tools show in their Elements panel:
+
+- `none`: a picture, link or text post, with nothing to loop
+- `no-copy`: a GIF or video whose card names no copy on Reddit to loop, and for
+  which the grid does not ask Reddit's data: a YouTube post, or another source's
+  post, such as an older archive record
+- `asking`: the grid asks `/api/info.json` for the post's data, or will once the
+  tile comes within reach
+- `no-data`: Reddit's data for the post named no copy to loop
+- `info-failed`: the request for the post's data failed
+- `info-capped`: the grid stopped asking after failed requests, before this
+  post's turn
+- `off`: loops are off, for reduced motion or Data Saver, or because the browser
+  lacks IntersectionObserver
+- `idle`: the tile is too far from the view for its loop
+- `resolving`: its video's manifest is being read
+- `waiting`: ahead of the view, having read nothing yet, waiting to read in
+- `buffering`: reading in, paused, ahead of the view
+- `ready`: read in, paused, ahead of the view
+- `starting`: in view, loading until it can play
+- `playing`: playing in view
+- `capped`: in view, while 80 other loops play
+- `refused`: the browser refused to play it, as under an autoplay policy; it
+  tries again once the tile comes back within reach
+- `failed`: its video, and anything to fall back to, failed to load
+
+The grid itself says how its asking for Reddit's data goes this time
+presentation mode is open: `data-still-requests` counts the requests,
+`data-still-failures` those that failed, and `data-still-gave-up` is there once
+it has stopped asking.
+
+A post whose card shows no picture at all, such as a RedGIFs post in a current
+Reddit feed, would leave its tile with only the "Embedded video" or "Video"
+card, and a clip whose card names nothing to loop would stay still. As such
+tiles come within about six screens below the view, or two above it, the grid
+asks Reddit for those posts' data (`/api/info.json` on the page's own origin,
+with your Reddit session), up to 100 posts in one request and two requests at a
+time, once per post each time presentation mode opens; YouTube posts are never
+asked about, since Reddit keeps no copy of them. A tile without a picture then
+shows Reddit's preview of the post, its copy about 640 pixels wide, or else the
+thumbnail that the player itself names; never the blurred copy that Reddit keeps
+of an NSFW picture, and a tile loops Reddit's copy of the clip where the data
+names one. A still that fails to load leaves the card, and the post stays. After
+three failed requests in a row, such as a challenge page instead of data, the
+grid stops asking until presentation mode opens again. The slideshow is
+unchanged: it still loads the player.
 
 The **Show** checkboxes in the settings panel choose which media the slideshow
 and the grid show: images, GIFs, and videos. The **images**, **GIFs**, and
 **videos** buttons in the bottom-left controls do the same, as does O: a lit
 button's type is shown, and a struck-through one is hidden. GIFs include imgur
-GIF and GIFV links, which play as video. Link and text posts appear only while
-all three are on, and one type always stays on, so the last lit button, like the
-last ticked box, cannot be turned off. The buttons stay in the controls in the
-grid, and also while a filter hides every loaded post. With images only, a link
-post's preview picture does not count as an image. While a filter is on, the
-slide counter says so, as in `3 / 12 · images only`, and a dot marks the gear
-button, or the + button when the controls are collapsed. Loading more posts
-keeps scrolling Reddit until a matching post arrives, and gives up after 15
-batches of new posts without a match, or when Reddit adds nothing for 12
-seconds. Search results that show only a thumbnail stay until their post is
-read, then drop out if they do not match. The choice is saved with the other
-settings.
+GIF and GIFV links, which play as video, and videos that Reddit's player marks
+as GIFs. Link and text posts appear only while all three are on, and one type
+always stays on, so the last lit button, like the last ticked box, cannot be
+turned off. The buttons stay in the controls in the grid, and also while a
+filter hides every loaded post. With images only, a link post's preview picture
+does not count as an image. While a filter is on, the slide counter says so, as
+in `3 / 12 · images only`, and a dot marks the gear button, or the + button when
+the controls are collapsed. Loading more posts keeps scrolling Reddit until a
+matching post arrives, and gives up after 15 batches of new posts without a
+match, or when Reddit adds nothing for 12 seconds. After such a search, the
+slideshow looks again only from its last post, where next then wraps at once, or
+once the filter changes. Search results that show only a thumbnail stay until
+their post is read, then drop out if they do not match. The choice is saved with
+the other settings.
 
 Pictures and videos that fail to load leave the slideshow and the grid instead
 of turning into an "Image unavailable" card, and the slide counter says how many
@@ -156,16 +249,19 @@ mode is open.
 The slideshow loads more posts before it runs out. Once fewer than 8 slides are
 left after the current one, it scrolls the underlying Reddit feed in the
 background and adds the newly rendered posts without moving the slideshow, up to
-4 loads in a row. The pictures of the next 3 slides are fetched early too, so
-they show at once, unless the browser asks to save data. A load scrolls Reddit
-to the end again about once a second and waits up to 12 seconds for new posts
-before treating the feed as ended, so a slow feed still gets through. The slide
-counter shows `loading more` only on the last post, while a load is still
-running; pressing next there queues the move. If Reddit then adds nothing for 12
-seconds, the slideshow wraps to the first slide, and once the feed is known to
-have ended, next on the last slide wraps at once. Single-post `/comments/` pages
-do not trigger this feed-loading scroll. Closing presentation mode scrolls the
-Reddit page back to where it was.
+4 loads in a row. The pictures of the next 6 slides are fetched early too, and
+the files of the next one or two Reddit-hosted videos among them are read in
+ahead, muted and paused, so that they show and start at once with the usual
+sound setting; a video read in ahead is let go once the slideshow is no longer
+before it. None of this happens when the browser asks to save data. A load
+scrolls Reddit to the end again about once a second and waits up to 12 seconds
+for new posts before treating the feed as ended, so a slow feed still gets
+through. The slide counter shows `loading more` only on the last post, while a
+load is still running; pressing next there queues the move. If Reddit then adds
+nothing for 12 seconds, the slideshow wraps to the first slide, and once the
+feed is known to have ended, next on the last slide wraps at once. Single-post
+`/comments/` pages do not trigger this feed-loading scroll. Closing presentation
+mode scrolls the Reddit page back to where it was.
 
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 Firefox does it in `about:addons` under the gear menu's **Manage Extension
@@ -179,7 +275,12 @@ pulls the posts from the [Arctic Shift](https://arctic-shift.photon-reddit.com)
 archive into the browser's own storage (IndexedDB) and shows them in the same
 slideshow and grid as presentation mode, with the same keys, buttons, and Show
 filter. A GIF post plays as the MP4 that Reddit made of the GIF, which is a
-fraction of its size.
+fraction of its size. Posts stored before the archive kept Reddit's copies of
+RedGIFs and imgur clips have none, so their tiles stay still until the archive
+is deleted and pulled again. A gallery's JPEG and WebP pictures load from
+i.redd.it, which serves them at once, rather than from preview.redd.it's
+full-size copies, which that host makes on demand and which can take seconds to
+start.
 
 Open it with the **archive** button or H in presentation mode, or with the small
 round icon at the bottom right of a subreddit's listing pages. Either one opens
@@ -293,6 +394,12 @@ On a direct video post, redditp initializes Reddit's dormant adaptive player
 before opening it. Reddit's low-frame-rate `CMAF_96.mp4` seek preview is never
 used as a playback source. Dormant video cards in listings are initialized and
 upgraded to their live player when their slide is reached.
+
+A gallery on current Reddit names each picture's full-size copy on
+preview.redd.it. For a JPEG or WebP (`format=pjpg`), redditp loads the uploaded
+file from i.redd.it instead, since preview.redd.it makes those copies on demand
+and a first request for one can take seconds; a PNG keeps its copy, since its
+original can weigh far more.
 
 Some search result formats expose only a small custom thumbnail. When one of
 those slides is shown, redditp reads that post's normal Reddit HTML in the

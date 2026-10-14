@@ -115,6 +115,56 @@
   }
   // redditp-grid-layout:end
 
+  // redditp-grid-rendition:start
+  // Which of Reddit's smaller copies of a picture a grid tile loads.
+  // content.js and archive.js carry this block word for word, and it stays
+  // DOM-free, so nodejs/test-embedit.js can check both copies. Grid columns
+  // are 300 to 600 CSS pixels wide on a computer, and about 170 to 200 on a
+  // phone, whose screen has 2 or 3 device pixels to the CSS pixel, so a copy
+  // GRID_THUMB_WIDTH pixels wide looks sharp in any column at a fraction of
+  // the original's weight.
+  const GRID_THUMB_WIDTH = 640;
+
+  // The narrowest of a picture's copies that is at least GRID_THUMB_WIDTH
+  // wide, from a list of { url, width }. When none is that wide, the
+  // picture is small already, so its tile loads the picture itself: null,
+  // unless orWidest asks for the widest copy instead, as for a GIF, whose
+  // file weighs far more than any copy of it. Copies without a URL or a
+  // width are passed over.
+  function gridRendition(copies, orWidest) {
+    let narrowest = null;
+    let widest = null;
+    (Array.isArray(copies) ? copies : []).forEach((copy) => {
+      if (!copy || typeof copy.url !== "string" || !copy.url) return;
+      const width = Number(copy.width);
+      if (!Number.isFinite(width) || width <= 0) return;
+      if (!widest || width > Number(widest.width)) widest = copy;
+      if (
+        width >= GRID_THUMB_WIDTH &&
+        (!narrowest || width < Number(narrowest.width))
+      ) {
+        narrowest = copy;
+      }
+    });
+    return narrowest || (orWidest ? widest : null);
+  }
+
+  // Whether a copy is a still picture. Reddit's copies of a GIF keep the
+  // .gif name, and are stills only when their format says so; without one
+  // they are GIFs again, often of megabytes.
+  function isStillCopy(url) {
+    if (typeof url !== "string") return false;
+    const decoded = url.replace(/&amp;/g, "&");
+    if (!/\.gif(?:$|[?#])/i.test(decoded)) return true;
+    try {
+      const format = new URL(decoded).searchParams.get("format") || "";
+      return /^(?:png8?|p?jpg)$/i.test(format);
+    } catch (_error) {
+      return false;
+    }
+  }
+  // redditp-grid-rendition:end
+
   // redditp-media-filter:start
   // Media types for the Show filter. Like the grid layout block, this stays
   // DOM-free and self-contained, so nodejs/test-embedit.js can evaluate it on
@@ -256,11 +306,18 @@
   // slides follow the current one, more posts load in the background, up to
   // PREFETCH_ROUNDS loads in a row. The pictures of the next PRELOAD_AHEAD
   // slides are fetched early, and the PRELOAD_CACHE_SIZE most recent of them
-  // stay referenced until they show.
+  // stay referenced until they show, which covers the way there and back.
+  // Of the next PRELOAD_AHEAD slides, the first WARM_VIDEOS_AHEAD videos
+  // whose file is on one of WARM_VIDEO_HOST_RE, Reddit's own media hosts,
+  // are read in ahead too, so that they start at once. On a computer a
+  // picture ahead costs little, and a slide that shows late costs a lot.
   const PREFETCH_AHEAD = 8;
   const PREFETCH_ROUNDS = 4;
-  const PRELOAD_AHEAD = 3;
-  const PRELOAD_CACHE_SIZE = 6;
+  const PRELOAD_AHEAD = 6;
+  const PRELOAD_CACHE_SIZE = 12;
+  const WARM_VIDEOS_AHEAD = 2;
+  const WARM_VIDEO_HOST_RE =
+    /^(?:v|i|preview|external-preview|packaged-media)\.redd\.it$/i;
 
   // Whether the slideshow should load more posts now. The last post always
   // does. Before it, loading starts once few slides are left, unless the
@@ -289,6 +346,33 @@
         url = slide.poster;
       }
       if (url && !urls.includes(url)) urls.push(url);
+    });
+    return urls;
+  }
+
+  // The videos to read in before the next few slides show: the files of the
+  // first WARM_VIDEOS_AHEAD video slides among the next PRELOAD_AHEAD, where
+  // Reddit hosts them over https, each once. Reddit's own players, whose
+  // video the slideshow borrows from the page, other hosts' videos and
+  // stream playlists are left alone.
+  function warmVideoUrls(slides, index) {
+    const urls = [];
+    slides.slice(index + 1, index + 1 + PRELOAD_AHEAD).forEach((slide) => {
+      if (urls.length >= WARM_VIDEOS_AHEAD || slide?.kind !== "video") return;
+      let parsed;
+      try {
+        parsed = new URL(slide.url);
+      } catch (_error) {
+        return;
+      }
+      if (
+        parsed.protocol === "https:" &&
+        WARM_VIDEO_HOST_RE.test(parsed.hostname) &&
+        !/\.(?:m3u8|mpd)$/i.test(parsed.pathname) &&
+        !urls.includes(slide.url)
+      ) {
+        urls.push(slide.url);
+      }
     });
     return urls;
   }
@@ -397,6 +481,8 @@
     nativeRestores: new WeakMap(),
     oldOverflow: "",
     pointerStart: null,
+    // The last press moved too far to count as a tap.
+    pointerDragged: false,
     settings: Object.assign({}, DEFAULT_SETTINGS),
     settingsLoaded: false,
     settingsOpen: false,
@@ -416,35 +502,96 @@
     // A load from the grid found no new posts. Cleared when the grid is
     // shown again, so a sentinel left in range stops scrolling Reddit.
     gridExhausted: false,
+    // Loads in a row that the end of the grid started by itself, and where
+    // the grid was scrolled when the first of them started (see
+    // gridLoadWanted).
+    gridLoads: 0,
+    gridLoadTop: 0,
     // Thumbnail slides waiting for the grid to upgrade them, and how many of
     // those upgrades are in flight.
     gridEnrichQueue: [],
     gridEnrichActive: 0,
     // Failed upgrades in a row; the grid stops asking after a few.
     gridEnrichFailures: 0,
+    // Players' slides waiting for a still from Reddit's data, how many
+    // requests for them are in flight, and how many failed in a row.
+    gridStillQueue: [],
+    gridStillActive: 0,
+    gridStillFailures: 0,
+    // Requests for Reddit's data made this open, and how many failed.
+    gridStillRequests: 0,
+    gridStillFailed: 0,
     // Posts the running load has found so far, shown or not.
     loadFound: 0,
-    // Set when a load ends because Reddit added nothing for LOAD_IDLE_MS,
-    // and cleared when a load finds posts. While it is set, only the last
-    // post starts loads, and next on the last slide wraps at once.
+    // Set when a load ends because Reddit added nothing for LOAD_IDLE_MS, or
+    // because the filter hid FILTERED_MAX_ROUNDS batches in a row, and
+    // cleared when a load finds posts and ends otherwise, or the filter
+    // changes. While it is set, only the last post starts loads, and next on
+    // the last slide wraps at once.
     feedExhausted: false,
     // How many loads the running background prefetch has started, the first
     // included; 0 when the running load is not a prefetch.
     prefetchLoads: 0,
     // Pictures fetched ahead of the slideshow: URL -> Image, oldest first.
     preloads: new Map(),
+    // Videos read ahead of the slideshow: URL -> a video element in no
+    // document (see warmVideosAhead).
+    warmVideos: new Map(),
     // Where the Reddit page was scrolled when presentation mode opened.
     pageScrollY: 0,
     // Pictures and videos this open dropped, or left out, because they
     // failed to load.
     unavailable: 0,
   };
-  // Grid tile -> { slide, height }, the height in column widths.
+  // Grid tile -> { slide, height, loadPicture, loop, loopSrc, inRange,
+  // visible, video, buffer, loopFailed, loopState }: the height in column
+  // widths; the function that starts loading the tile's picture, until it
+  // has started; and the tile's loop (see addGridLoop): the loop that its
+  // slide names, what the tile plays of it once that is known (see
+  // gridLoopSource), whether the tile is within the loop's range (see
+  // GRID_LOOP_MARGIN) and in view, its video element while it has one,
+  // whether that reads itself in (see gridLoopPlan), whether the loop
+  // failed, and what the tile's data-loop attribute says of it (see
+  // setGridLoopState).
   const gridTileInfo = new WeakMap();
-  // Watches the grid's thumbnail tiles, where supported.
+  // Watches the grid's thumbnail tiles, and the tiles of players without a
+  // picture or a loop (see wantsGridStill), where supported.
   let gridObserver = null;
   // Watches the end of the grid, further ahead than the tiles.
   let gridEndObserver = null;
+  // Watches the tiles whose pictures have not started loading, where
+  // supported.
+  let gridPictureObserver = null;
+  // Watches which tiles with a loop are within the loop's range, where
+  // supported.
+  let gridLoopRangeObserver = null;
+  // Watches which tiles with a loop are in view, where supported.
+  let gridLoopObserver = null;
+  // The tiles whose loops are in the grid, in the order they arrived.
+  const gridLoopTiles = new Set();
+  // What Reddit videos' tiles play, until the tab reloads: video id -> the
+  // rendition that their manifest names (see videoLoopRendition), or ""
+  // where it could not be read, for the GRID_MANIFEST_CACHE_SIZE videos read
+  // last.
+  const videoLoopSources = new Map();
+  // Video id -> the tiles within the loop's range that wait for its
+  // manifest, while it waits to be read or is being read.
+  const manifestWaiters = new Map();
+  // The ids of the videos whose manifests wait to be read, in the order
+  // their tiles asked, and of those being read.
+  let manifestQueue = [];
+  const manifestsReading = new Set();
+  // The ids of the videos whose manifests tiles within the picture's range
+  // asked for ahead of their loops (see prefetchGridManifest), until read.
+  const manifestsAhead = new Set();
+  // The animation frame that syncs the grid's loops after their media
+  // events, while one is pending (see scheduleGridLoopSync).
+  let gridLoopSyncFrame = 0;
+  // The viewer's reduced motion preference, where the browser reports one.
+  const reducedMotion =
+    typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)")
+      : null;
   // The page watch of the load that is waiting for Reddit, if any.
   let feedWatch = null;
   // Post elements already read this open, so a load that looks again and
@@ -455,14 +602,152 @@
   const FEED_GROWTH_SELECTOR = POST_SELECTOR + ",a[href*='/comments/']";
   // Slides the grid has tried to upgrade: once each, per open.
   const gridEnrichTried = new WeakSet();
+  // Players' slides the grid has asked Reddit's data about: once each, per
+  // open.
+  const gridStillTried = new WeakSet();
+  // What Reddit's data brought for those players' slides: "asking" while
+  // the request is in flight, then "loop", "no-data" when it named no loop,
+  // or "info-failed" when the request failed (see restingGridLoopState).
+  const gridStillOutcomes = new WeakMap();
   // The media keys of the page's pictures and videos that failed to load in
   // this tab, so later opens leave them out. A reload forgets them.
   const liveDeadKeys = new Set();
+
+  // redditp-grid-ahead:start
+  // How far ahead of its view the grid gets tiles ready, and in what order.
+  // The extension runs on computers, where a few more megabytes cost little
+  // and a tile that pops in as it scrolls into view costs a lot, so the grid
+  // loads greedily, above all in the direction it is read: down. What it
+  // holds stays bounded all the same: a picture is small, and a loop leaves
+  // again once its tile is well out of range. Like the blocks above, this
+  // stays DOM-free, so nodejs/test-embedit.js can evaluate it on its own.
   const GRID_ENRICH_CONCURRENCY = 2;
   const GRID_ENRICH_MAX_FAILURES = 3;
-  // A load can take a while, so the grid starts one within three screens of
-  // its end.
-  const GRID_LOAD_MARGIN = "300% 0px";
+  // A load can take a while, and a screen of small tiles holds many posts,
+  // so the grid starts one within eight screens of its end.
+  const GRID_LOAD_MARGIN = "800% 0px";
+  // The grid starts at most this many loads in a row by itself; after that,
+  // only once the viewer has scrolled it (see gridLoadWanted). Filling eight
+  // screens can take many loads, and a load whose posts all fail, or a Show
+  // filter that lets one post in hundreds through, could otherwise keep
+  // Reddit scrolling while the viewer sits still.
+  const GRID_LOAD_ROUNDS = 6;
+  // A tile's picture starts loading once the tile is within two screens
+  // above the grid's view or six below it, so that even a fast scroll down
+  // finds it loaded. The browser's own lazy loading looks too little ahead
+  // inside a scrolling element such as the grid. A picture never unloads.
+  const GRID_PICTURE_MARGIN = "200% 0px 600% 0px";
+  // Thumbnail upgrades, players' stills from Reddit's data, and Reddit
+  // videos' manifests come as far ahead as pictures, so that what they bring
+  // is there before the tile shows too.
+  const GRID_STILL_MARGIN = GRID_PICTURE_MARGIN;
+  // A loop comes once its tile is within half a screen above the view or a
+  // screen below it, and goes once the tile scrolls further away, so that
+  // the grid holds a few screens' worth of loops at most. Ahead of the view
+  // a loop reads itself in, paused (see gridLoopPlan), so that it plays the
+  // moment its tile shows. Until it has a picture of its own, the tile shows
+  // its still.
+  const GRID_LOOP_MARGIN = "50% 0px 100% 0px";
+  // At most this many loops play at once, in the tiles in view; the rest in
+  // view wait under their stills. It covers the most tiles that fit in view
+  // at 2560x1440: 8 columns of tiles 311 pixels wide and, at their widest
+  // (see tileHeightRatio), 156 tall, of which 10 can show at once in each.
+  const GRID_MAX_PLAYING_LOOPS = 80;
+  // At most this many loops read themselves in ahead of the view at once,
+  // nearest first, and none before every loop in view plays or can: those
+  // in view get the network first. A loop has read itself in once it holds
+  // all of itself, or GRID_LOOP_READ_SECONDS past where it is: enough to
+  // play on while the browser reads the rest; or once the browser stops
+  // reading it before that.
+  const GRID_MAX_BUFFERING_LOOPS = 6;
+  const GRID_LOOP_READ_SECONDS = 5;
+  // A Reddit video's tile reads the video's manifest once the tile comes
+  // within the picture's range, many manifests at a time, those of tiles in
+  // view first, then those within the loop's range, and each once per video
+  // (see videoLoopSources). A manifest weighs a kilobyte or two, and
+  // v.redd.it serves many at once over one connection.
+  const GRID_MANIFEST_CONCURRENCY = 12;
+  const GRID_MANIFEST_CACHE_SIZE = 500;
+  // A player whose card has no picture, such as a RedGIFs frame, gets its
+  // tile's still, and a GIF or video that its card names no loop for gets
+  // its loop, from Reddit's own data for the post, which the grid asks for
+  // as the tiles come into range: for up to GRID_STILL_BATCH posts in one
+  // request, the most that Reddit answers for, GRID_STILL_CONCURRENCY
+  // requests at a time, and at most once per post per open. Several failed
+  // requests in a row stop the asking until the next open.
+  const GRID_STILL_BATCH = 100;
+  const GRID_STILL_CONCURRENCY = 2;
+  const GRID_STILL_MAX_FAILURES = 3;
+
+  // What each loop in the grid does next. loops are each { visible, top,
+  // distance, ready, buffer }: whether its tile is in view, where its tile
+  // starts, how far from the view it is, whether it has enough to play, and
+  // whether it reads itself in ahead of the view ("reading"), has done so
+  // ("read"), or was never asked to (""). Returns, for each loop in view,
+  // from the top of the view down, "play" for the first
+  // GRID_MAX_PLAYING_LOOPS and "cap" for the rest. All start at once: loops
+  // started a few at a time start later, since those started first go on
+  // reading themselves in. Ahead of the view: "buffer", paused, for the loops
+  // asked to read in already and, once every loop that plays has enough to,
+  // for more of the nearest, while fewer than GRID_MAX_BUFFERING_LOOPS are
+  // reading; and "wait", paused, for the rest, which have read nothing yet.
+  function gridLoopPlan(loops) {
+    const plan = loops.map(() => "wait");
+    let playing = 0;
+    let started = true;
+    loops
+      .map((_loop, index) => index)
+      .filter((index) => loops[index].visible)
+      .sort((a, b) => loops[a].top - loops[b].top)
+      .forEach((index) => {
+        if (playing >= GRID_MAX_PLAYING_LOOPS) {
+          plan[index] = "cap";
+          return;
+        }
+        plan[index] = "play";
+        playing += 1;
+        if (!loops[index].ready) started = false;
+      });
+    let reading = 0;
+    const ahead = [];
+    loops.forEach((loop, index) => {
+      if (loop.visible) return;
+      if (loop.buffer) {
+        plan[index] = "buffer";
+        if (loop.buffer === "reading") reading += 1;
+      } else {
+        ahead.push(index);
+      }
+    });
+    if (!started) return plan;
+    ahead
+      .sort((a, b) => loops[a].distance - loops[b].distance)
+      .forEach((index) => {
+        if (reading >= GRID_MAX_BUFFERING_LOOPS) return;
+        plan[index] = "buffer";
+        reading += 1;
+      });
+    return plan;
+  }
+
+  // Whether a loop has read itself in (see GRID_LOOP_READ_SECONDS), from
+  // what it holds, as [start, end] spans in seconds, where it is and how
+  // long it lasts.
+  function gridLoopReadIn(spans, time, duration) {
+    if (!(duration > 0)) return false;
+    const until = Math.min(duration, time + GRID_LOOP_READ_SECONDS) - 0.1;
+    return spans.some(([start, end]) => start <= time + 0.1 && end >= until);
+  }
+
+  // Whether the end of the grid may start another load, after `loads` in a
+  // row that it started by itself, with the grid scrolled by `scrolled`
+  // pixels since the first of them, on a screen `screen` pixels tall: while
+  // it has started fewer than GRID_LOAD_ROUNDS, or once the viewer has
+  // scrolled half a screen, which starts a new row.
+  function gridLoadWanted(loads, scrolled, screen) {
+    return loads < GRID_LOAD_ROUNDS || Math.abs(scrolled) >= screen / 2;
+  }
+  // redditp-grid-ahead:end
 
   function absoluteUrl(value) {
     if (!value || value === "#") return "";
@@ -536,6 +821,83 @@
       image.getAttribute("data-lazy-src");
     if (!raw || raw.startsWith("data:") || raw.startsWith("blob:")) return "";
     return absoluteUrl(raw.replace(/&amp;/g, "&"));
+  }
+
+  // The pictures a listing card may show for its post, most specific first.
+  const CARD_IMAGE_SELECTOR =
+    "gallery-carousel figure img:not([role='presentation']), faceplate-img[data-testid='search_post_thumbnail'], faceplate-img[src], faceplate-img[data-lazy-src], img[data-post-media-primary], img.preview-image, img:not([role='presentation'])";
+
+  function sizeAttribute(image, name) {
+    const value = Number(image.getAttribute(name));
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+
+  function srcsetOf(image) {
+    return srcsetCandidates(
+      image.getAttribute("srcset") ||
+        image.getAttribute("data-lazy-srcset") ||
+        "",
+    );
+  }
+
+  // What the grid needs of a picture in the card `node`, whose full URL is
+  // `url`: thumb, the smaller still copy a tile loads, from the element's
+  // srcset (see gridRendition), and the picture's size from its width and
+  // height attributes, with "" and 0 for what the element does not say; and
+  // for a GIF, thumbVideo, a small silent loop of it (see cardGifLoop). A
+  // GIF with neither keeps its tile playing the GIF itself.
+  function cardPicture(node, image, url) {
+    const gif = GIF_URL_RE.test(url);
+    const copy = gridRendition(srcsetOf(image), gif);
+    return {
+      thumb: copy && isStillCopy(copy.url) ? absoluteUrl(copy.url) : "",
+      thumbVideo: gif ? cardGifLoop(node, url) : "",
+      width: sizeAttribute(image, "width"),
+      height: sizeAttribute(image, "height"),
+    };
+  }
+
+  // The MP4 that Reddit made of a GIF (see isRedditGifMp4), where the card
+  // has one among its players' and pictures' sources: the narrowest that is
+  // wide enough, or the widest, where they say their widths. Only a copy of
+  // the same upload counts; "" when the card has none.
+  function cardGifLoop(node, url) {
+    const found = [];
+    node.querySelectorAll("video[src], source[src]").forEach((media) => {
+      found.push({ url: media.getAttribute("src"), width: 0 });
+    });
+    node.querySelectorAll(CARD_IMAGE_SELECTOR).forEach((image) => {
+      found.push(...srcsetOf(image), {
+        url: image.getAttribute("src"),
+        width: 0,
+      });
+    });
+    const loops = found
+      .map((candidate) => ({
+        url: absoluteUrl((candidate.url || "").replace(/&amp;/g, "&")),
+        width: candidate.width,
+      }))
+      .filter(
+        (candidate) =>
+          isRedditGifMp4(candidate.url) && sameRedditUpload(candidate.url, url),
+      );
+    const loop = gridRendition(loops, true) || loops[0];
+    return loop ? loop.url : "";
+  }
+
+  // What the grid needs (see cardPicture) of a link straight to a Reddit
+  // upload, from the card's preview of it. Only a preview that is a copy of
+  // that same upload counts, though a GIF's loop may be in a card without
+  // one; null when the card has neither.
+  function uploadPicture(node, sourceUrl) {
+    if (!redditUpload(sourceUrl)) return null;
+    const preview = Array.from(node.querySelectorAll(CARD_IMAGE_SELECTOR)).find(
+      (image) =>
+        usefulImage(image) && sameRedditUpload(imageUrl(image), sourceUrl),
+    );
+    if (preview) return cardPicture(node, preview, sourceUrl);
+    const loop = GIF_URL_RE.test(sourceUrl) ? cardGifLoop(node, sourceUrl) : "";
+    return loop ? { thumbVideo: loop } : null;
   }
 
   function firstHref(node, selectors) {
@@ -624,12 +986,19 @@
 
   // redditp-media-urls:start
   // Which URLs are pictures or videos, the key that two URLs of the same file
-  // share, and the player frame for a link to a video host. Like the blocks
-  // above, this stays DOM-free, so nodejs/test-embedit.js can evaluate it on
-  // its own. A page that hosts the viewer reads the same rules from
+  // share, which upload Reddit's copies of a picture come from, a srcset's
+  // candidates, and the player frame for a link to a video host, with its
+  // still where the host has one at a known address. Like the blocks above,
+  // this stays DOM-free, so nodejs/test-embedit.js can evaluate it on its
+  // own. A page that hosts the viewer reads the URL rules from
   // window.__redditpPresentation.media.
   const IMAGE_URL_RE = /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i;
   const VIDEO_URL_RE = /\.(?:m3u8|mp4|webm)(?:$|[?#])/i;
+  // Reddit keeps an uploaded picture at i.redd.it/<id>.<ext>, and
+  // preview.redd.it serves resized and re-encoded copies of it at the same
+  // path, or at /<title>-v0-<id>.<ext>, with the size and format in the
+  // query.
+  const REDDIT_UPLOAD_PATH_RE = /^\/(?:[^/]*-v0-)?([a-z0-9]+)\.([a-z0-9]+)$/i;
 
   function isVideoUrl(url) {
     if (VIDEO_URL_RE.test(url)) return true;
@@ -647,6 +1016,82 @@
     } catch (_error) {
       return url;
     }
+  }
+
+  // The upload behind a picture on i.redd.it or preview.redd.it, as
+  // { host, id, extension, format }, or null for any other URL.
+  function redditUpload(url) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (_error) {
+      return null;
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (host !== "i.redd.it" && host !== "preview.redd.it") return null;
+    const match = REDDIT_UPLOAD_PATH_RE.exec(parsed.pathname);
+    if (!match) return null;
+    return {
+      host,
+      id: match[1],
+      extension: match[2],
+      format: parsed.searchParams.get("format") || "",
+    };
+  }
+
+  // Whether two URLs are copies of the same upload.
+  function sameRedditUpload(first, second) {
+    const a = redditUpload(first);
+    const b = redditUpload(second);
+    return Boolean(a && b && a.id.toLowerCase() === b.id.toLowerCase());
+  }
+
+  // The upload itself for one of preview.redd.it's full-size transcodes
+  // (format=pjpg) of a JPEG or WebP, or "". The host makes those on demand,
+  // so a first request for one can take seconds, while i.redd.it serves the
+  // file it has, of about the same weight. A PNG keeps its transcode, since
+  // the original can weigh many times more.
+  function redditOriginalUrl(url) {
+    const upload = redditUpload(url);
+    if (
+      !upload ||
+      upload.host !== "preview.redd.it" ||
+      upload.format !== "pjpg" ||
+      !/^(?:jpe?g|webp)$/i.test(upload.extension)
+    ) {
+      return "";
+    }
+    return `https://i.redd.it/${upload.id}.${upload.extension}`;
+  }
+
+  // Whether a URL is the MP4 that Reddit's hosts make of a GIF: the GIF's
+  // own address asked for format=mp4. It weighs a fraction of the GIF.
+  function isRedditGifMp4(url) {
+    try {
+      const parsed = new URL(url);
+      return (
+        /^(?:i|preview|external-preview)\.redd\.it$/i.test(parsed.hostname) &&
+        /\.gif$/i.test(parsed.pathname) &&
+        parsed.searchParams.get("format") === "mp4"
+      );
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  // A srcset's candidates as { url, width }, the width from a "640w"
+  // descriptor and 0 for any other. Older markup escapes & as &amp;.
+  function srcsetCandidates(srcset) {
+    if (typeof srcset !== "string") return [];
+    return srcset
+      .replace(/&amp;/g, "&")
+      .split(",")
+      .map((part) => {
+        const bits = part.trim().split(/\s+/);
+        const descriptor = /^(\d+(?:\.\d+)?)w$/i.exec(bits[1] || "");
+        return { url: bits[0], width: descriptor ? Number(descriptor[1]) : 0 };
+      })
+      .filter((candidate) => candidate.url);
   }
 
   function externalMedia(sourceUrl) {
@@ -668,6 +1113,14 @@
           kind: "video",
           url: `https://i.imgur.com/${match[1]}.mp4`,
           fromGif: true,
+        };
+      }
+      // A link to a video file is a video, which a picture would fail to
+      // show.
+      if (extension === "mp4" || extension === "webm") {
+        return {
+          kind: "video",
+          url: `https://i.imgur.com/${match[1]}.${extension}`,
         };
       }
       return {
@@ -718,6 +1171,22 @@
     return null;
   }
 
+  // A still of the video in a player frame, where its host serves one at a
+  // known address: YouTube does for its players (see externalMedia). ""
+  // for any other frame.
+  function embedStill(url) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (_error) {
+      return "";
+    }
+    const match = /^\/embed\/([\w-]+)$/.exec(parsed.pathname);
+    return parsed.hostname === "www.youtube.com" && match
+      ? `https://i.ytimg.com/vi/${match[1]}/hqdefault.jpg`
+      : "";
+  }
+
   // A slide is meant to start playing on its own, and to start silent unless
   // the viewer asked for sound. Both have to be requested in the URL, because
   // the frame cannot be scripted before it exists. Hosts spell the mute
@@ -755,6 +1224,341 @@
     );
   }
   // redditp-media-urls:end
+
+  // redditp-grid-media:start
+  // What a grid tile shows where a post's card or record leaves it short,
+  // and what its loop plays: a still for a player whose card has no
+  // picture, from Reddit's own data for the post; the loop that a GIF
+  // player's tile plays; and the small rendition of a video on v.redd.it
+  // that its tile loops, from the sizes its player names or from the
+  // video's manifest. Like the blocks above, this stays DOM-free, so
+  // nodejs/test-embedit.js can evaluate it, together with the grid rendition
+  // and media URL blocks that it reads; the manifest comes in parsed.
+  const POST_FULLNAME_RE = /^t3_[a-z0-9]+$/i;
+  // The short side, in pixels, of the rendition of a Reddit video that its
+  // tile loops. On a computer the grid's columns are about 300 to 480 CSS
+  // pixels wide (see gridColumnCount), and a tile crops its video to fill
+  // it, so a clip 360 pixels across its short side fills its column in
+  // either orientation: a portrait clip is then 360 wide, and a landscape
+  // clip 640 wide, sharp even at two device pixels to the CSS pixel. The
+  // next size up, 480, weighs about half as much again, for a silent
+  // preview under a caption.
+  const GRID_LOOP_SHORT_SIDE = 360;
+  // The hosts that a loop may come from (see gridLoopUrl).
+  const GRID_LOOP_HOST_RE = /^(?:v|i|preview|external-preview)\.redd\.it$/i;
+
+  // A post's fullname, t3_<id>, from its card's post key, or else from the
+  // id in its comments URL; "" when neither names one.
+  function postFullname(postKey, commentsUrl) {
+    if (typeof postKey === "string" && POST_FULLNAME_RE.test(postKey)) {
+      return postKey;
+    }
+    const match = /\/comments\/([a-z0-9]+)(?:[/?#]|$)/i.exec(
+      typeof commentsUrl === "string" ? commentsUrl : "",
+    );
+    return match ? `t3_${match[1]}` : "";
+  }
+
+  // A URL from Reddit's data, with &amp; decoded, or "" for anything but an
+  // absolute http(s) URL.
+  function dataUrl(value) {
+    if (typeof value !== "string" || !value) return "";
+    try {
+      const url = new URL(value.replace(/&amp;/g, "&"));
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? url.href
+        : "";
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function dataSize(value) {
+    const size = Number(value);
+    return Number.isFinite(size) && size > 0 ? size : 0;
+  }
+
+  // A picture from Reddit's data as { url, width, height }, or null for one
+  // that is blurred, as the copies in an NSFW post's variants.nsfw and
+  // variants.obfuscated are, or that is no still (see isStillCopy).
+  function dataStill(url, width, height) {
+    const still = dataUrl(url);
+    if (!still || /[?&]blur=/i.test(still) || !isStillCopy(still)) {
+      return null;
+    }
+    return { url: still, width: dataSize(width), height: dataSize(height) };
+  }
+
+  // A still for the grid tile of a player whose card shows no picture, from
+  // the post's data as Reddit's API gives it (a child's data in
+  // /api/info.json): { url, thumb, width, height }, where url is the still,
+  // thumb the copy of it about GRID_THUMB_WIDTH wide that the tile loads
+  // (see gridRendition), or "", and width and height the still's size, 0
+  // when unknown; or null. The still is Reddit's preview of the post, its
+  // copy of the video's first frame, or else the thumbnail that the
+  // player's oEmbed names. Only the preview's own source and resolutions are
+  // read, never its variants, which for an NSFW post are blurred.
+  function postStill(post) {
+    if (!post || typeof post !== "object") return null;
+    const image = Array.isArray(post.preview?.images)
+      ? post.preview.images[0]
+      : null;
+    const copies = (Array.isArray(image?.resolutions) ? image.resolutions : [])
+      .map((entry) => dataStill(entry?.url, entry?.width, entry?.height))
+      .filter(Boolean);
+    // Without a source of its own, the widest copy stands in for it.
+    const source = image?.source;
+    const still =
+      dataStill(source?.url, source?.width, source?.height) ||
+      copies.reduce(
+        (widest, copy) =>
+          !widest || copy.width > widest.width ? copy : widest,
+        null,
+      );
+    if (still) {
+      const copy = gridRendition(copies);
+      return {
+        url: still.url,
+        thumb: copy && copy.url !== still.url ? copy.url : "",
+        width: still.width,
+        height: still.height,
+      };
+    }
+    const oembed = [post.secure_media, post.media]
+      .map((media) =>
+        dataStill(
+          media?.oembed?.thumbnail_url,
+          media?.oembed?.thumbnail_width,
+          media?.oembed?.thumbnail_height,
+        ),
+      )
+      .find(Boolean);
+    return oembed ? Object.assign({ thumb: "" }, oembed) : null;
+  }
+
+  // The MP4s that a Reddit player's packaged-media-json names, as { url,
+  // width, height }, with 0 for a size it does not say. Reddit signs these
+  // URLs, so each is taken as it is.
+  function packagedMp4s(packagedJson) {
+    let permutations = [];
+    try {
+      permutations = JSON.parse(packagedJson || "null")?.playbackMp4s
+        ?.permutations;
+    } catch (_error) {
+      permutations = [];
+    }
+    const mp4s = [];
+    (Array.isArray(permutations) ? permutations : []).forEach((item) => {
+      const url = dataUrl(item?.source?.url);
+      if (!url) return;
+      mp4s.push({
+        url,
+        width: dataSize(item.source.dimensions?.width),
+        height: dataSize(item.source.dimensions?.height),
+      });
+    });
+    return mp4s;
+  }
+
+  // The loop that a GIF player's tile plays, from the MP4s the player names:
+  // the narrowest that is wide enough, or else the widest (see
+  // gridRendition). Its src is Reddit's MP4 of the uploaded GIF, whose width
+  // the query says; a video posted as a GIF names its MP4s and their sizes
+  // in packaged-media-json instead (see packagedMp4s). Reddit signs these
+  // URLs, so each is taken as it is. "" when the player names none.
+  function gifPlayerLoop(src, packagedJson) {
+    const loops = [];
+    const source = dataUrl(src);
+    if (isRedditGifMp4(source)) {
+      loops.push({
+        url: source,
+        width: dataSize(new URL(source).searchParams.get("width")),
+      });
+    }
+    loops.push(...packagedMp4s(packagedJson));
+    const loop = gridRendition(loops, true) || loops[0];
+    return loop ? loop.url : "";
+  }
+
+  // The id of a video on v.redd.it, from any of its URLs: the video's own
+  // (https://v.redd.it/<id>), or a file or playlist in its folder. "" for
+  // any other URL.
+  function redditVideoId(url) {
+    const match = /^https:\/\/v\.redd\.it\/([a-z0-9]+)(?:[/?#]|$)/i.exec(
+      typeof url === "string" ? url : "",
+    );
+    return match ? match[1] : "";
+  }
+
+  // The DASH manifest of a video on v.redd.it, which lists the video's
+  // renditions with their sizes. Reddit serves it unsigned, to any origin.
+  function dashManifestUrl(id) {
+    return `https://v.redd.it/${id}/DASHPlaylist.mpd`;
+  }
+
+  // Whether a URL is a file of a video on v.redd.it that plays by itself:
+  // not its manifest or playlist, and not the 96 pixel copy that Reddit's
+  // player seeks with.
+  function redditVideoFile(url) {
+    if (!redditVideoId(url)) return false;
+    const path = new URL(url).pathname;
+    return (
+      /^\/[a-z0-9]+\/[^/]+$/i.test(path) &&
+      !/\.(?:mpd|m3u8)$/i.test(path) &&
+      !/_96(?:\.mp4)?$/i.test(path)
+    );
+  }
+
+  // The loop of a tile whose video is on v.redd.it, from the URLs that its
+  // player or post names: the first of them that is a file of the video
+  // (see redditVideoFile), which the tile trades for the smaller rendition
+  // that the video's manifest names, and falls back to; or else the
+  // manifest itself, with nothing to fall back to. "" when none of them is
+  // on v.redd.it.
+  function redditPlayerLoop(urls) {
+    let id = "";
+    let file = "";
+    (Array.isArray(urls) ? urls : []).forEach((value) => {
+      const url = dataUrl(value);
+      const urlId = redditVideoId(url);
+      if (!urlId || (id && urlId !== id)) return;
+      id = urlId;
+      if (!file && redditVideoFile(url)) file = url;
+    });
+    if (!id) return "";
+    return file || dashManifestUrl(id);
+  }
+
+  // The renditions of a video with a picture that a DASH manifest lists, as
+  // { url, width, height, bandwidth }; never its audio. Each URL comes from
+  // the manifest's own BaseURL, since Reddit has named them differently over
+  // the years (CMAF_360.mp4, DASH_360.mp4, DASH_360, DASH_1_2_M), not always
+  // after their size, and refuses a name that is guessed. A rendition
+  // outside the video's own folder on v.redd.it is passed over. `doc` is the
+  // manifest at manifestUrl, parsed as XML.
+  function dashVideoRenditions(doc, manifestUrl) {
+    const id = redditVideoId(manifestUrl);
+    if (!id || !doc || typeof doc.getElementsByTagName !== "function") {
+      return [];
+    }
+    const folder = `https://v.redd.it/${id}/`;
+    const attribute = (node, name) =>
+      node && typeof node.getAttribute === "function"
+        ? node.getAttribute(name) || ""
+        : "";
+    const renditions = [];
+    Array.prototype.forEach.call(
+      doc.getElementsByTagName("Representation"),
+      (representation) => {
+        // Older manifests say what a rendition is on the rendition, newer
+        // ones on its adaptation set.
+        const set = representation.parentNode;
+        const types = [representation, set]
+          .map(
+            (node) =>
+              `${attribute(node, "mimeType")} ${attribute(node, "contentType")}`,
+          )
+          .join(" ");
+        if (/audio/i.test(types)) return;
+        const width = dataSize(attribute(representation, "width"));
+        const height = dataSize(attribute(representation, "height"));
+        const base = representation.getElementsByTagName("BaseURL")[0];
+        const name = base ? (base.textContent || "").trim() : "";
+        if (!width || !height || !name) return;
+        let url = "";
+        try {
+          url = new URL(name, manifestUrl).href;
+        } catch (_error) {
+          return;
+        }
+        if (!url.startsWith(folder)) return;
+        renditions.push({
+          url,
+          width,
+          height,
+          bandwidth: dataSize(attribute(representation, "bandwidth")),
+        });
+      },
+    );
+    return renditions;
+  }
+
+  // The rendition of a video that its tile loops, from a list of { url,
+  // width, height, bandwidth }: the smallest that is at least
+  // GRID_LOOP_SHORT_SIDE pixels across its short side, or else, for a
+  // smaller video, the largest. Of two the same size, the lighter is
+  // smaller. Renditions without a URL or a size are passed over; null when
+  // none is left.
+  function videoLoopRendition(renditions) {
+    const shortSide = (item) => Math.min(item.width, item.height);
+    const compare = (a, b) =>
+      shortSide(a) - shortSide(b) || a.bandwidth - b.bandwidth;
+    let smallest = null;
+    let largest = null;
+    (Array.isArray(renditions) ? renditions : []).forEach((rendition) => {
+      if (!rendition || typeof rendition.url !== "string" || !rendition.url) {
+        return;
+      }
+      const item = {
+        url: rendition.url,
+        width: dataSize(rendition.width),
+        height: dataSize(rendition.height),
+        bandwidth: dataSize(rendition.bandwidth),
+      };
+      if (!item.width || !item.height) return;
+      if (!largest || compare(item, largest) > 0) largest = item;
+      if (
+        shortSide(item) >= GRID_LOOP_SHORT_SIDE &&
+        (!smallest || compare(item, smallest) < 0)
+      ) {
+        smallest = item;
+      }
+    });
+    return smallest || largest;
+  }
+
+  // The loop of a Reddit video player's tile from the MP4s that its
+  // packaged-media-json names with their sizes (see videoLoopRendition), so
+  // that the tile needs no manifest; "" when it names none with a size.
+  function packagedVideoLoop(packagedJson) {
+    const loop = videoLoopRendition(packagedMp4s(packagedJson));
+    return loop ? loop.url : "";
+  }
+
+  // The loop of a post's tile from its data as Reddit's API gives it: the
+  // file on v.redd.it of Reddit's own copy of the clip that the post links
+  // to on a host such as RedGIFs (preview.reddit_video_preview), or else of
+  // the post's own video. Its tile trades it for a smaller rendition (see
+  // redditPlayerLoop). "" when the post has neither.
+  function postLoop(post) {
+    if (!post || typeof post !== "object") return "";
+    return (
+      [
+        post.preview?.reddit_video_preview,
+        post.secure_media?.reddit_video,
+        post.media?.reddit_video,
+      ]
+        .map((video) => dataUrl(video?.fallback_url))
+        .find(redditVideoFile) || ""
+    );
+  }
+
+  // A loop that another source names, where it may play: an https URL on
+  // one of Reddit's media hosts, so that no source can have the grid load a
+  // video from anywhere else. "" for any other.
+  function gridLoopUrl(url) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (_error) {
+      return "";
+    }
+    return parsed.protocol === "https:" &&
+      GRID_LOOP_HOST_RE.test(parsed.hostname)
+      ? parsed.href
+      : "";
+  }
+  // redditp-grid-media:end
 
   function packagedVideoUrl(player) {
     const raw = player.getAttribute("packaged-media-json");
@@ -892,18 +1696,32 @@
     const seen = new Set();
     // postMedia marks the post's own media, as opposed to a preview image
     // scraped out of a listing card for a post that links somewhere else.
-    // fromGif marks a video that a host converted from a GIF.
-    function add(kind, url, poster, postMedia, fromGif) {
+    // fromGif marks a video that a host converted from a GIF. picture, where
+    // the card says, is what the grid needs of the picture (see
+    // cardPicture): thumb, the smaller copy a tile loads, its size, and a
+    // loop. A video that is Reddit's MP4 of a GIF is its own loop, and a
+    // video on v.redd.it loops a smaller rendition of itself (see
+    // redditPlayerLoop).
+    function add(kind, url, poster, postMedia, fromGif, picture) {
       const normalized = absoluteUrl(url);
       const key = canonicalMediaKey(normalized);
       if (!normalized || seen.has(key)) return;
       seen.add(key);
+      const thumb = absoluteUrl(picture?.thumb);
+      const gifMp4 = kind === "video" && isRedditGifMp4(normalized);
       media.push({
         kind,
         url: normalized,
         poster: absoluteUrl(poster),
         postMedia: Boolean(postMedia),
-        fromGif: Boolean(fromGif),
+        fromGif: Boolean(fromGif) || gifMp4,
+        thumb: thumb === normalized ? "" : thumb,
+        thumbVideo:
+          absoluteUrl(picture?.thumbVideo) ||
+          (gifMp4 ? normalized : "") ||
+          (kind === "video" ? redditPlayerLoop([normalized]) : ""),
+        width: picture?.width || 0,
+        height: picture?.height || 0,
       });
     }
 
@@ -917,6 +1735,7 @@
         url: sourceUrl,
         poster: absoluteUrl(nativeVideo.getAttribute("poster")),
         nativeElement: nativeVideo,
+        thumbVideo: redditPlayerLoop([sourceUrl]),
       });
       return media;
     }
@@ -946,8 +1765,19 @@
           return;
         }
         const image = figure.querySelector("img:not([role='presentation'])");
-        if (image && usefulImage(image))
-          add("image", imageUrl(image), "", true);
+        if (image && usefulImage(image)) {
+          const url = imageUrl(image);
+          // A full-size transcode is slow to start, so the slide loads the
+          // upload itself where that is safe (see redditOriginalUrl).
+          add(
+            "image",
+            redditOriginalUrl(url) || url,
+            "",
+            true,
+            false,
+            cardPicture(node, image, url),
+          );
+        }
       });
       if (media.length) return media;
     }
@@ -956,12 +1786,16 @@
       const preview = player.getAttribute("preview") || "";
       const isSeekPreview = /\/CMAF_96\.mp4(?:$|[?#])/i.test(preview);
       const packagedUrl = packagedVideoUrl(player);
+      // What says where the player's video is on v.redd.it, whose tile then
+      // loops a small rendition of it (see redditPlayerLoop).
+      const videoUrls = [player.getAttribute("src"), preview, sourceUrl];
       if (!packagedUrl && isSeekPreview && player.ownerDocument === document) {
         media.push({
           kind: "pending-native-video",
           url: absoluteUrl(player.getAttribute("src")) || sourceUrl,
           poster: absoluteUrl(player.getAttribute("poster")),
           playerElement: player,
+          thumbVideo: redditPlayerLoop(videoUrls),
         });
         return;
       }
@@ -971,7 +1805,30 @@
         absoluteUrl(playablePreview) ||
         absoluteUrl(player.getAttribute("src")) ||
         firstHref(player, ["source"]);
-      add("video", playerUrl, player.getAttribute("poster"));
+      // Reddit marks the player of a GIF, whether uploaded as one or posted
+      // as a video; its tile loops the smallest adequate MP4 it names (see
+      // gifPlayerLoop), while the slideshow plays the largest. Any other
+      // player's tile loops the rendition that suits a tile among the MP4s
+      // it names with their sizes, or else among those that its video's
+      // manifest names.
+      const gifLoop = player.hasAttribute("gif")
+        ? gifPlayerLoop(
+            absoluteUrl(player.getAttribute("src")),
+            player.getAttribute("packaged-media-json"),
+          )
+        : "";
+      const loop =
+        gifLoop ||
+        packagedVideoLoop(player.getAttribute("packaged-media-json")) ||
+        redditPlayerLoop([playerUrl, ...videoUrls]);
+      add(
+        "video",
+        playerUrl,
+        player.getAttribute("poster"),
+        false,
+        Boolean(gifLoop),
+        loop ? { thumbVideo: loop } : null,
+      );
     });
     // A shreddit-player may also contain its HLS source element. That is an
     // alternate rendition of the same post, not a second slide (and Chromium
@@ -1001,16 +1858,15 @@
 
     if (IMAGE_URL_RE.test(sourceUrl)) {
       // Prefer the post's original image over a second, lower-resolution
-      // preview of the same image found inside the listing card.
-      add("image", sourceUrl, "", true);
+      // preview of the same image found inside the listing card. That
+      // preview still gives the grid its smaller copy.
+      add("image", sourceUrl, "", true, false, uploadPicture(node, sourceUrl));
     } else {
-      node
-        .querySelectorAll(
-          "gallery-carousel figure img:not([role='presentation']), faceplate-img[data-testid='search_post_thumbnail'], faceplate-img[src], faceplate-img[data-lazy-src], img[data-post-media-primary], img.preview-image, img:not([role='presentation'])",
-        )
-        .forEach((image) => {
-          if (usefulImage(image)) add("image", imageUrl(image));
-        });
+      node.querySelectorAll(CARD_IMAGE_SELECTOR).forEach((image) => {
+        if (!usefulImage(image)) return;
+        const url = imageUrl(image);
+        add("image", url, "", false, false, cardPicture(node, image, url));
+      });
     }
 
     if (isVideoUrl(sourceUrl)) add("video", sourceUrl);
@@ -1024,7 +1880,31 @@
         add(iframeMedia.kind, iframeMedia.url, "", false, iframeMedia.fromGif);
       }
     });
+    lendCardStill(media);
     return media;
+  }
+
+  // The grid never loads a player frame, so a frame's tile shows a still of
+  // it: the card's own preview picture of the post, where the card has one,
+  // or else the still that the frame's host keeps (see embedStill). A video
+  // without a poster borrows the card's picture too, as its tile's still
+  // alone, so that the slideshow's player stays as it was. No slide is
+  // added or taken away. A tile left without a picture asks Reddit's data
+  // for one later (see wantsGridStill).
+  function lendCardStill(media) {
+    const card = media.find((item) => item.kind === "image" && !item.postMedia);
+    media.forEach((item) => {
+      if (item.kind === "embed") {
+        item.poster = card ? card.url : embedStill(item.url);
+        item.thumb = card ? card.thumb : "";
+        item.width = card ? card.width : 0;
+        item.height = card ? card.height : 0;
+      } else if (item.kind === "video" && !item.poster && !item.thumb && card) {
+        item.thumb = card.thumb || card.url;
+        item.width = card.width;
+        item.height = card.height;
+      }
+    });
   }
 
   function selectPostNodes() {
@@ -1096,6 +1976,14 @@
       const media = mediaFromNode(node, source);
       if (!media.length)
         media.push({ kind: "link", url: source || comments, poster: "" });
+      // A Reddit video whose player said nothing of the video when it was
+      // read, as before Reddit fills it in, still loops in its tile: the
+      // post's own link (content-href, or data-url on old Reddit) names the
+      // video on v.redd.it, whose manifest says what to loop (see
+      // redditPlayerLoop).
+      if (media.length === 1 && !media[0].thumbVideo) {
+        media[0].thumbVideo = redditPlayerLoop([source]);
+      }
       const isGallery = isGalleryPost(node);
       const needsEnrichment =
         Boolean(comments) &&
@@ -1167,7 +2055,15 @@
   // that is the post's own media needs postMedia: true; without it, it
   // counts as the preview of a link, which any filter hides. wants(slide)
   // says whether the Show filter would show a slide, so a source can size
-  // its batches.
+  // its batches. A player frame's poster is a still of it, which its grid
+  // tile shows, since the grid loads no frame. A slide may name thumb, a
+  // smaller copy of its picture (a video's or a frame's poster) that its
+  // grid tile loads instead; width and height, the picture's size, which
+  // shapes its tile before the picture arrives; and thumbVideo, a silent
+  // MP4 on one of Reddit's media hosts that the tile loops over the still:
+  // a small MP4 of a GIF, or a file of a video on v.redd.it, whether the
+  // post's own or Reddit's copy of a clip elsewhere, which the tile trades
+  // for a smaller rendition (see gridLoopSource).
   const liveSource = {
     kind: "live",
     hasMore: () => true,
@@ -1213,6 +2109,10 @@
         sourceUrl: "",
         postKey: "",
         poster: "",
+        thumb: "",
+        thumbVideo: "",
+        width: 0,
+        height: 0,
         postMedia: false,
         fromGif: false,
         galleryItem: 0,
@@ -1230,8 +2130,21 @@
       result[key] = result[key] == null ? "" : String(result[key]);
     });
     if (!SOURCE_SLIDE_KINDS.includes(result.kind)) result.kind = "link";
-    ["url", "poster", "sourceUrl", "commentsUrl"].forEach((key) => {
+    [
+      "url",
+      "poster",
+      "thumb",
+      "thumbVideo",
+      "sourceUrl",
+      "commentsUrl",
+    ].forEach((key) => {
       result[key] = absoluteHttpUrl(result[key]);
+    });
+    // A tile loops only a video from Reddit's own media hosts.
+    result.thumbVideo = gridLoopUrl(result.thumbVideo);
+    ["width", "height"].forEach((key) => {
+      const size = Number(result[key]);
+      result[key] = Number.isFinite(size) && size > 0 ? size : 0;
     });
     result.media = mediaCategory(result.kind, result.url, result.fromGif);
     return result;
@@ -1300,15 +2213,23 @@
         });
       }
       const isGallery = isGalleryPost(detailNode);
+      // The thumbnail's own smaller copy and size say nothing about the
+      // post's media.
       const replacements = detailMedia.map((item, index) =>
-        Object.assign({}, slide, item, {
-          sourceUrl: detailSource || slide.sourceUrl,
-          galleryItem: isGallery ? index + 1 : 0,
-          galleryTotal: isGallery ? detailMedia.length : 0,
-          needsEnrichment: false,
-          mediaUnknown: false,
-          media: mediaCategory(item.kind, item.url, item.fromGif),
-        }),
+        Object.assign(
+          {},
+          slide,
+          { thumb: "", thumbVideo: "", width: 0, height: 0 },
+          item,
+          {
+            sourceUrl: detailSource || slide.sourceUrl,
+            galleryItem: isGallery ? index + 1 : 0,
+            galleryTotal: isGallery ? detailMedia.length : 0,
+            needsEnrichment: false,
+            mediaUnknown: false,
+            media: mediaCategory(item.kind, item.url, item.fromGif),
+          },
+        ),
       );
 
       const fullIndex = state.allSlides.findIndex(
@@ -1761,8 +2682,13 @@
   }
 
   // Grid tiles are built from slide data alone. The grid never creates a
-  // player, loads a third-party frame, or touches Reddit's own video element;
-  // a video tile shows the post's poster when it has one.
+  // player with controls or sound, loads a third-party frame, or touches
+  // Reddit's own video element; a video tile shows the post's poster when it
+  // has one, a player frame's tile its still (see lendCardStill), a
+  // player's tile without either the still from Reddit's data for the post
+  // (see applyGridStill), and the tile of a GIF, or of a video that Reddit
+  // keeps on v.redd.it, may loop a small silent MP4 of it over its still
+  // (see addGridLoop).
   function isGridVideo(slide) {
     return (
       slide.kind === "video" ||
@@ -1781,48 +2707,101 @@
     return card;
   }
 
-  // ownMedia marks the slide's own picture, which takes the slide with it
-  // when it fails; a video's poster keeps a card instead. A tile that has
-  // left the grid since drops nothing.
-  function gridTileImage(tile, url, fallbackLabel, slide, ownMedia) {
+  // A tile shows thumb, a smaller copy of its picture, where the slide has
+  // one, and otherwise the picture itself, original. Whether a picture
+  // failed is only ever judged on the original: a copy that fails to load,
+  // or that turns out to be a host's placeholder, makes way for the
+  // original, once, and the original decides. ownMedia marks the slide's own
+  // picture, which takes the slide with it when it fails; a video's poster
+  // or a player's still that fails, or turns out to be a placeholder, makes
+  // way for a card instead. A tile that has left the grid since drops
+  // nothing. Returns the image and the function that starts its loading,
+  // which the grid calls as the tile comes within range (see
+  // GRID_PICTURE_MARGIN).
+  function gridTileImage(
+    tile,
+    thumb,
+    original,
+    fallbackLabel,
+    slide,
+    ownMedia,
+  ) {
     const image = element("img", "redditp__tile-image", "");
     image.alt = "";
-    image.setAttribute("loading", "lazy");
     image.setAttribute("decoding", "async");
+    let url = thumb || original;
     const dropsSlide = () =>
       ownMedia && dropsWhenDead(slide) && state.gridTiles.get(slide) === tile;
-    image.addEventListener(
-      "load",
-      () => {
-        if (
-          dropsSlide() &&
-          isPlaceholderImage(url, image.naturalWidth, image.naturalHeight)
-        ) {
-          dropDeadSlide(slide);
-          return;
-        }
-        setGridTileHeight(
-          tile,
-          tileHeightRatio(image.naturalWidth, image.naturalHeight),
-        );
+    function useOriginal() {
+      if (!original || url === original) return false;
+      url = original;
+      image.src = url;
+      return true;
+    }
+    function settle() {
+      image.removeEventListener("load", onLoad);
+      image.removeEventListener("error", onError);
+    }
+    // The picture failed for good: the slide goes, or the tile keeps a card.
+    function fail() {
+      settle();
+      if (dropsSlide()) {
+        dropDeadSlide(slide);
+        return;
+      }
+      tile.querySelector(".redditp__tile-caption")?.remove();
+      image.replaceWith(gridTileCard(fallbackLabel, slide));
+      setGridTileHeight(tile, 0.75);
+    }
+    function onLoad() {
+      const width = image.naturalWidth;
+      const height = image.naturalHeight;
+      if (isPlaceholderImage(url, width, height)) {
+        if (!useOriginal()) fail();
+        return;
+      }
+      settle();
+      image.classList.add("redditp__tile-image--loaded");
+      setGridTileHeight(tile, tileHeightRatio(width, height));
+    }
+    function onError() {
+      if (!useOriginal()) fail();
+    }
+    image.addEventListener("load", onLoad);
+    image.addEventListener("error", onError);
+    return {
+      image,
+      load() {
+        image.src = url;
       },
-      { once: true },
-    );
-    image.addEventListener(
-      "error",
-      () => {
-        if (dropsSlide()) {
-          dropDeadSlide(slide);
-          return;
-        }
-        tile.querySelector(".redditp__tile-caption")?.remove();
-        image.replaceWith(gridTileCard(fallbackLabel, slide));
-        setGridTileHeight(tile, 0.75);
-      },
-      { once: true },
-    );
-    image.src = url;
-    return image;
+    };
+  }
+
+  // What a tile shows of its slide. An image's picture is its file, a
+  // video's is its poster, and a player frame's is its still; any of them
+  // may have a smaller copy for the tile (see gridTileImage). Returns the
+  // original, that copy or "", the URL the tile loads first or "" for none,
+  // and the label of the card that stands in for a missing picture.
+  function gridTilePicture(slide) {
+    let original = "";
+    let hasPicture = false;
+    let cardLabel = slide.body ? "Text post" : "Link";
+    if (slide.kind === "image") {
+      original = slide.url;
+      hasPicture = true;
+      cardLabel = "Image unavailable";
+    } else if (slide.kind === "embed") {
+      original = slide.poster;
+      hasPicture = true;
+      cardLabel = "Embedded video";
+    } else if (isGridVideo(slide)) {
+      original = slide.poster;
+      hasPicture = true;
+      cardLabel = "Video";
+    }
+    const thumb =
+      hasPicture && slide.thumb && slide.thumb !== original ? slide.thumb : "";
+    return { original, thumb, url: thumb || original, cardLabel };
   }
 
   function createGridTile(slide) {
@@ -1838,27 +2817,37 @@
       `${slide.title}${itemLabel}${isVideo ? ", video" : ""}`,
     );
 
-    let picture = "";
-    let cardLabel = slide.body ? "Text post" : "Link";
-    if (slide.kind === "image") {
-      picture = slide.url;
-      cardLabel = "Image unavailable";
-    } else if (slide.kind === "embed") {
-      cardLabel = "Embedded video";
-    } else if (isVideo) {
-      picture = slide.poster;
-      cardLabel = "Video";
-    }
-    const height = picture ? 1 : 0.75;
-    if (picture) {
+    const picture = gridTilePicture(slide);
+    // A picture of known size gets its shape before it arrives; the picture
+    // corrects it once it has loaded.
+    const height = picture.url
+      ? tileHeightRatio(slide.width, slide.height)
+      : 0.75;
+    let loadPicture = null;
+    if (picture.url) {
+      const tileImage = gridTileImage(
+        tile,
+        picture.thumb,
+        picture.original,
+        picture.cardLabel,
+        slide,
+        slide.kind === "image",
+      );
+      loadPicture = tileImage.load;
+      // Without IntersectionObserver the browser's own lazy loading decides
+      // when the picture loads.
+      if (!gridPictureObserver) {
+        tileImage.image.setAttribute("loading", "lazy");
+        loadPicture();
+        loadPicture = null;
+      }
       tile.append(
-        gridTileImage(tile, picture, cardLabel, slide, slide.kind === "image"),
+        tileImage.image,
         element("span", "redditp__tile-caption", slide.title),
       );
     } else {
-      tile.append(gridTileCard(cardLabel, slide));
+      tile.append(gridTileCard(picture.cardLabel, slide));
     }
-    if (isVideo) tile.append(element("span", "redditp__tile-play", "▶\uFE0E"));
     if (slide.galleryItem) {
       tile.append(
         element(
@@ -1868,9 +2857,561 @@
         ),
       );
     }
-    gridTileInfo.set(tile, { slide, height });
+    const info = {
+      slide,
+      height,
+      loadPicture,
+      // Without IntersectionObserver the grid shows stills only.
+      loop: gridLoopObserver ? slide.thumbVideo || "" : "",
+      loopSrc: "",
+      inRange: false,
+      visible: false,
+      video: null,
+      buffer: "",
+      loopFailed: false,
+      loopState: "",
+    };
+    gridTileInfo.set(tile, info);
+    setGridLoopState(tile, restingGridLoopState(info));
     tile.style.aspectRatio = String(1 / height);
     return tile;
+  }
+
+  // Says on a tile, in its data-loop attribute, what its loop is doing, so
+  // that why a tile does or does not move can be read in the browser's
+  // developer tools (see the README): "none", "no-copy", "asking",
+  // "no-data", "info-failed", "info-capped", "off", "failed", "refused" or
+  // "idle" (see restingGridLoopState), "resolving" while its video's
+  // manifest is read, and "waiting", "buffering", "ready", "starting",
+  // "playing" or "capped" (see syncGridLoops). The attribute changes only
+  // with the state.
+  function setGridLoopState(tile, loopState) {
+    const info = gridTileInfo.get(tile);
+    if (!info || info.loopState === loopState) return;
+    info.loopState = loopState;
+    tile.setAttribute("data-loop", loopState);
+  }
+
+  // What a tile's loop is doing while the tile has no video element. A tile
+  // without a loop says "none" for a picture, link or text post; for a GIF
+  // or video, "no-copy" when its card names no loop and the grid does not
+  // ask Reddit's data for one, as for a YouTube post or another source's;
+  // "asking" while it does, or will once the tile is within reach;
+  // "no-data" when the data named none; "info-failed" when the request
+  // failed; and "info-capped" once the grid has stopped asking (see
+  // pumpGridStills). A tile with a loop says "off" when loops are turned
+  // off, by reduced motion or Data Saver, or cannot play without
+  // IntersectionObserver; "failed" when the loop failed for good; and
+  // "idle" while the tile is out of the loop's range.
+  function restingGridLoopState(info) {
+    const slide = info.slide;
+    if (!info.loop) {
+      if (slide.thumbVideo && !gridLoopObserver) return "off";
+      if (!isGridVideo(slide) && slide.media !== "gif") return "none";
+      const outcome = gridStillOutcomes.get(slide);
+      if (outcome && outcome !== "loop") return outcome;
+      if (!wantsGridStill(slide)) return "no-copy";
+      return state.gridStillFailures >= GRID_STILL_MAX_FAILURES
+        ? "info-capped"
+        : "asking";
+    }
+    if (info.loopFailed) return "failed";
+    return gridLoopsAllowed() ? "idle" : "off";
+  }
+
+  // Starts loading a tile's picture, once.
+  function startGridPicture(tile) {
+    const info = gridTileInfo.get(tile);
+    if (!info?.loadPicture) return;
+    const load = info.loadPicture;
+    info.loadPicture = null;
+    load();
+  }
+
+  // A player's tile that shows only its card takes the still that its slide
+  // has gained since (see applyGridStill), in the card's place, and loads it
+  // as any tile's picture loads. The tile keeps its place in its column,
+  // whose height stays in step (see setGridTileHeight). A still that fails
+  // brings the card back, and the slide stays.
+  function showGridStill(slide) {
+    const tile = state.gridTiles.get(slide);
+    const info = tile && gridTileInfo.get(tile);
+    const card = tile?.querySelector(".redditp__tile-card");
+    const picture = gridTilePicture(slide);
+    if (!info || info.slide !== slide || !card || !picture.url) return;
+    const tileImage = gridTileImage(
+      tile,
+      picture.thumb,
+      picture.original,
+      picture.cardLabel,
+      slide,
+      false,
+    );
+    card.replaceWith(tileImage.image);
+    // Over the loop, if the tile has one, as in a new tile.
+    (info.video || tileImage.image).after(
+      element("span", "redditp__tile-caption", slide.title),
+    );
+    if (slide.width && slide.height) {
+      setGridTileHeight(tile, tileHeightRatio(slide.width, slide.height));
+    }
+    if (gridPictureObserver) {
+      info.loadPicture = tileImage.load;
+      // Observed afresh, so that a tile already in range is reported now.
+      gridPictureObserver.unobserve(tile);
+      gridPictureObserver.observe(tile);
+    } else {
+      tileImage.image.setAttribute("loading", "lazy");
+      tileImage.load();
+    }
+  }
+
+  // Whether the grid is on screen.
+  function gridShowing() {
+    return state.open && state.view === "grid" && state.gridBuilt;
+  }
+
+  // A tile loops a small silent MP4 of its GIF or video (see
+  // gridLoopSource) over its still while the tile is in view, unless the
+  // viewer asks for reduced motion or for less data (Data Saver).
+  function gridLoopsAllowed() {
+    if (reducedMotion && reducedMotion.matches) return false;
+    const connection = navigator.connection;
+    return !(connection && connection.saveData);
+  }
+
+  // What a tile plays of the loop that its slide names (the slide's
+  // thumbVideo). A video on v.redd.it plays the rendition that its manifest
+  // names (see videoLoopRendition), or, where the manifest could not be
+  // read, the loop itself (see gridLoopFallback); any other loop plays as it
+  // is. null while the manifest waits to be read, and "" when there is
+  // nothing to play.
+  function gridLoopSource(loop) {
+    const id = redditVideoId(loop);
+    if (!id) return loop;
+    if (!videoLoopSources.has(id)) return null;
+    return videoLoopSources.get(id) || gridLoopFallback(loop);
+  }
+
+  // What a tile plays when the rendition it chose fails: the loop that its
+  // slide names, unless that is a video's manifest or playlist, which a
+  // video element cannot play.
+  function gridLoopFallback(loop) {
+    return !redditVideoId(loop) || redditVideoFile(loop) ? loop : "";
+  }
+
+  // Puts a loop in a tile within the loop's range (see GRID_LOOP_MARGIN). A
+  // Reddit video's tile first waits for the video's manifest (see
+  // waitForManifest). The loop shows over the still once it has a picture
+  // of its own, which is as a rule while its tile is still ahead of the
+  // view, so that the tile arrives looking as it will play; until then, and
+  // if it never does, the still shows. A loop that fails leaves for good,
+  // and only the loop: whether the slide failed is judged on its own media
+  // alone.
+  function addGridLoop(tile) {
+    const info = gridTileInfo.get(tile);
+    if (
+      !info?.loop ||
+      info.video ||
+      info.loopFailed ||
+      !info.inRange ||
+      state.gridTiles.get(info.slide) !== tile
+    ) {
+      return;
+    }
+    if (!gridLoopsAllowed()) {
+      setGridLoopState(tile, "off");
+      return;
+    }
+    if (!info.loopSrc) {
+      const source = gridLoopSource(info.loop);
+      if (source === null) {
+        setGridLoopState(tile, "resolving");
+        waitForManifest(tile, redditVideoId(info.loop));
+        return;
+      }
+      if (!source) {
+        info.loopFailed = true;
+        setGridLoopState(tile, "failed");
+        return;
+      }
+      info.loopSrc = source;
+    }
+    const video = element("video", "redditp__tile-video", "");
+    video.muted = true;
+    video.defaultMuted = true;
+    video.setAttribute("muted", "");
+    video.loop = true;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    // Nothing at all, until it gets to play or to read itself in ahead of
+    // the view (see syncGridLoops), so that the loops in view that start
+    // meanwhile have the network to themselves.
+    video.preload = "none";
+    video.setAttribute("aria-hidden", "true");
+    const show = () => {
+      if (info.video === video) {
+        video.classList.add("redditp__tile-video--shown");
+      }
+    };
+    video.addEventListener("loadeddata", show);
+    video.addEventListener("playing", show);
+    // What a loop can do and holds decides what the grid's loops do next
+    // (see gridLoopPlan).
+    ["canplay", "playing", "waiting", "suspend"].forEach((type) => {
+      video.addEventListener(type, () => {
+        if (info.video === video) scheduleGridLoopSync();
+      });
+    });
+    video.addEventListener("error", () => {
+      if (info.video !== video) return;
+      removeGridLoop(tile);
+      // A rendition that fails makes way for the loop that the slide names,
+      // once.
+      const fallback = gridLoopFallback(info.loop);
+      if (fallback && fallback !== info.loopSrc) {
+        info.loopSrc = fallback;
+        addGridLoop(tile);
+      } else {
+        info.loopFailed = true;
+        setGridLoopState(tile, "failed");
+      }
+      syncGridLoops();
+    });
+    video.src = info.loopSrc;
+    // Over the still, and under the caption and the gallery badge.
+    const picture = tile.querySelector(
+      ".redditp__tile-image, .redditp__tile-card",
+    );
+    if (picture) picture.after(video);
+    else tile.prepend(video);
+    info.video = video;
+    info.buffer = "";
+    gridLoopTiles.add(tile);
+    setGridLoopState(tile, "waiting");
+  }
+
+  // Takes a tile's loop out, and lets the browser release its decoder. A
+  // tile that waits for its video's manifest waits no more.
+  function removeGridLoop(tile) {
+    stopWaitingForManifest(tile);
+    gridLoopTiles.delete(tile);
+    const info = gridTileInfo.get(tile);
+    if (!info) return;
+    const video = info.video;
+    info.video = null;
+    info.buffer = "";
+    setGridLoopState(tile, restingGridLoopState(info));
+    if (!video) return;
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    video.remove();
+  }
+
+  // A Reddit video's tile waits for the video's manifest, which is read
+  // once per video (see videoLoopSources), GRID_MANIFEST_CONCURRENCY at a
+  // time; then its loop comes, if it is still within range.
+  function waitForManifest(tile, id) {
+    let waiting = manifestWaiters.get(id);
+    if (!waiting) {
+      waiting = new Set();
+      manifestWaiters.set(id, waiting);
+    }
+    if (!manifestsReading.has(id) && !manifestQueue.includes(id)) {
+      manifestQueue.push(id);
+    }
+    waiting.add(tile);
+    pumpManifests();
+  }
+
+  // A Reddit video's tile asks for the video's manifest as soon as the tile
+  // comes within the picture's range, behind the tiles that wait for theirs
+  // (see pumpManifests), so that its loop knows what to play before it
+  // comes. The manifest stays asked for when the tile scrolls away, since it
+  // weighs little and is kept (see videoLoopSources).
+  function prefetchGridManifest(tile) {
+    const info = gridTileInfo.get(tile);
+    const id = info?.loop ? redditVideoId(info.loop) : "";
+    if (
+      !id ||
+      videoLoopSources.has(id) ||
+      manifestsReading.has(id) ||
+      manifestsAhead.has(id) ||
+      !gridLoopsAllowed()
+    ) {
+      return;
+    }
+    manifestsAhead.add(id);
+    if (!manifestQueue.includes(id)) manifestQueue.push(id);
+    pumpManifests();
+  }
+
+  // A manifest that no tile waits for any more leaves the queue, unless a
+  // tile asked for it ahead, though one being read is read to the end.
+  function stopWaitingForManifest(tile) {
+    const id = redditVideoId(gridTileInfo.get(tile)?.loop);
+    const waiting = id ? manifestWaiters.get(id) : null;
+    if (!waiting) return;
+    waiting.delete(tile);
+    if (waiting.size) return;
+    manifestWaiters.delete(id);
+    const queued = manifestQueue.indexOf(id);
+    if (queued >= 0 && !manifestsAhead.has(id)) manifestQueue.splice(queued, 1);
+  }
+
+  // How soon a queued manifest is read: 0 while a tile in view waits for
+  // it, 1 while a tile within the loop's range does, and 2 while only tiles
+  // further ahead asked for it.
+  function manifestRank(id) {
+    const waiting = manifestWaiters.get(id);
+    if (!waiting || !waiting.size) return 2;
+    let rank = 1;
+    waiting.forEach((tile) => {
+      if (gridTileInfo.get(tile)?.visible) rank = 0;
+    });
+    return rank;
+  }
+
+  // Reads the queued manifests, GRID_MANIFEST_CONCURRENCY at a time, the
+  // soonest first (see manifestRank), and those equally soon in the order
+  // they were asked for. A fast scroll thus never leaves a tile in view
+  // waiting behind tiles that it passed or has yet to reach.
+  function pumpManifests() {
+    while (
+      manifestsReading.size < GRID_MANIFEST_CONCURRENCY &&
+      manifestQueue.length
+    ) {
+      let next = 0;
+      let nextRank = manifestRank(manifestQueue[0]);
+      for (
+        let index = 1;
+        nextRank > 0 && index < manifestQueue.length;
+        index += 1
+      ) {
+        const rank = manifestRank(manifestQueue[index]);
+        if (rank < nextRank) {
+          next = index;
+          nextRank = rank;
+        }
+      }
+      const id = manifestQueue.splice(next, 1)[0];
+      manifestsAhead.delete(id);
+      manifestsReading.add(id);
+      readVideoManifest(id)
+        .then((source) => {
+          rememberBounded(
+            videoLoopSources,
+            id,
+            source,
+            GRID_MANIFEST_CACHE_SIZE,
+          );
+          const waiting = manifestWaiters.get(id);
+          manifestWaiters.delete(id);
+          if (waiting) waiting.forEach((tile) => addGridLoop(tile));
+          syncGridLoops();
+        })
+        .finally(() => {
+          manifestsReading.delete(id);
+          pumpManifests();
+        });
+    }
+  }
+
+  // Reads a Reddit video's manifest, without the viewer's cookies, and
+  // resolves to the rendition that its tiles loop (see videoLoopRendition),
+  // or to "" when the browser cannot fetch or parse it, or it names none.
+  function readVideoManifest(id) {
+    if (typeof fetch !== "function" || typeof DOMParser !== "function") {
+      return Promise.resolve("");
+    }
+    const url = dashManifestUrl(id);
+    return fetch(url, { credentials: "omit" })
+      .then((response) => {
+        if (!response.ok)
+          throw new Error(`v.redd.it returned ${response.status}`);
+        return response.text();
+      })
+      .then((text) => {
+        const manifest = new DOMParser().parseFromString(
+          text,
+          "application/xml",
+        );
+        const rendition = videoLoopRendition(
+          dashVideoRenditions(manifest, url),
+        );
+        return rendition ? rendition.url : "";
+      })
+      .catch(() => "");
+  }
+
+  // Plays the loops of the tiles in view, reads in those ahead of the view,
+  // paused, and pauses the rest, as gridLoopPlan says from where each tile
+  // is. A hidden grid plays none and reads no more in. A loop reads
+  // anything only once it gets to play or to read ahead.
+  function syncGridLoops() {
+    const tiles = Array.from(gridLoopTiles).filter(
+      (tile) => gridTileInfo.get(tile)?.video,
+    );
+    if (!gridShowing()) {
+      tiles.forEach((tile) => {
+        const video = gridTileInfo.get(tile).video;
+        if (!video.paused) video.pause();
+      });
+      return;
+    }
+    let view = null;
+    const loops = tiles.map((tile) => {
+      const info = gridTileInfo.get(tile);
+      // A loop that reads itself in is done once it holds enough, or once
+      // the browser, having read as much as it will, stops reading it.
+      if (
+        info.buffer === "reading" &&
+        (gridLoopHolds(info.video) ||
+          info.video.networkState === info.video.NETWORK_IDLE)
+      ) {
+        info.buffer = "read";
+      }
+      const loop = {
+        visible: info.visible,
+        top: 0,
+        distance: 0,
+        ready: info.video.readyState >= info.video.HAVE_FUTURE_DATA,
+        buffer: info.buffer,
+      };
+      // Only a loop in view, or one that may start reading in, needs to know
+      // where it is.
+      if (info.visible || !info.buffer) {
+        view = view || grid.getBoundingClientRect();
+        const box = tile.getBoundingClientRect();
+        loop.top = box.top;
+        loop.distance = Math.max(box.top - view.bottom, view.top - box.bottom);
+      }
+      return loop;
+    });
+    // A loop that already held itself when asked to read in frees its place
+    // at once, since no more of its media events may come.
+    let freed = false;
+    gridLoopPlan(loops).forEach((action, index) => {
+      const tile = tiles[index];
+      const info = gridTileInfo.get(tile);
+      const video = info.video;
+      if (action === "play" || action === "buffer") {
+        if (!info.buffer) {
+          info.buffer = gridLoopHolds(video) ? "read" : "reading";
+          freed = freed || info.buffer === "read";
+        }
+        if (video.preload !== "auto") video.preload = "auto";
+      }
+      if (action === "play") {
+        if (video.paused) playGridLoop(tile, video);
+      } else if (!video.paused) {
+        video.pause();
+      }
+      let loopState = "waiting";
+      if (action === "play") {
+        loopState =
+          !video.paused && video.readyState >= video.HAVE_FUTURE_DATA
+            ? "playing"
+            : "starting";
+      } else if (action === "buffer") {
+        loopState = info.buffer === "read" ? "ready" : "buffering";
+      } else if (action === "cap") {
+        loopState = "capped";
+      }
+      setGridLoopState(tile, loopState);
+    });
+    if (freed) scheduleGridLoopSync();
+  }
+
+  // Whether a loop's video has read itself in (see gridLoopReadIn).
+  function gridLoopHolds(video) {
+    const spans = [];
+    const ranges = video.buffered;
+    for (let index = 0; index < ranges.length; index += 1) {
+      spans.push([ranges.start(index), ranges.end(index)]);
+    }
+    return gridLoopReadIn(spans, video.currentTime, video.duration);
+  }
+
+  // Syncs the grid's loops at the next animation frame, once for however
+  // many of their media events come before it.
+  function scheduleGridLoopSync() {
+    if (gridLoopSyncFrame) return;
+    gridLoopSyncFrame = requestAnimationFrame(() => {
+      gridLoopSyncFrame = 0;
+      syncGridLoops();
+    });
+  }
+
+  // The browser may refuse to play, as in iOS Low Power Mode or under an
+  // autoplay policy. The loop then leaves, and the still stays, until the
+  // tile comes within range again. A pause or a removal that cuts a start
+  // short is no refusal.
+  function playGridLoop(tile, video) {
+    function refused() {
+      if (gridTileInfo.get(tile)?.video !== video) return;
+      removeGridLoop(tile);
+      setGridLoopState(tile, "refused");
+      syncGridLoops();
+    }
+    let started;
+    try {
+      started = video.play();
+    } catch (_error) {
+      Promise.resolve().then(refused);
+      return;
+    }
+    if (started && typeof started.catch === "function") {
+      started.catch((error) => {
+        if (error?.name !== "AbortError") refused();
+      });
+    }
+  }
+
+  // A hidden grid keeps its loops, paused. Once it shows again, the tiles
+  // with loops that were within range are observed afresh, since the grid
+  // may have scrolled to another place meanwhile.
+  function rearmGridLoops() {
+    if (!gridLoopRangeObserver) return;
+    state.gridTiles.forEach((tile) => {
+      if (!gridTileInfo.get(tile)?.inRange) return;
+      gridLoopRangeObserver.unobserve(tile);
+      gridLoopRangeObserver.observe(tile);
+    });
+    syncGridLoops();
+  }
+
+  // A change of the reduced motion preference adds or takes out the loops
+  // of the tiles within range at once, and says so on every tile with a
+  // loop.
+  function onMotionPreference() {
+    if (!state.gridBuilt) return;
+    const allowed = gridLoopsAllowed();
+    state.gridTiles.forEach((tile) => {
+      const info = gridTileInfo.get(tile);
+      if (!info?.loop) return;
+      if (!allowed) {
+        removeGridLoop(tile);
+        return;
+      }
+      if (!info.video) setGridLoopState(tile, restingGridLoopState(info));
+      addGridLoop(tile);
+    });
+    syncGridLoops();
+  }
+
+  // Older Safari has only addListener on a media query list.
+  function watchMotionPreference(watch) {
+    if (!reducedMotion) return;
+    if (typeof reducedMotion.addEventListener === "function") {
+      if (watch) reducedMotion.addEventListener("change", onMotionPreference);
+      else reducedMotion.removeEventListener("change", onMotionPreference);
+    } else if (typeof reducedMotion.addListener === "function") {
+      if (watch) reducedMotion.addListener(onMotionPreference);
+      else reducedMotion.removeListener(onMotionPreference);
+    }
   }
 
   // Resizes a tile to its picture and keeps its column's running height in
@@ -1998,6 +3539,10 @@
       oldTile.nextElementSibling || oldTile.previousElementSibling;
     const newTiles = replacements.map(createGridTile);
     if (gridObserver) gridObserver.unobserve(oldTile);
+    if (gridPictureObserver) gridPictureObserver.unobserve(oldTile);
+    if (gridLoopRangeObserver) gridLoopRangeObserver.unobserve(oldTile);
+    if (gridLoopObserver) gridLoopObserver.unobserve(oldTile);
+    removeGridLoop(oldTile);
     oldTile.replaceWith(...newTiles);
     replacements.forEach((slide, index) => {
       state.gridTiles.set(slide, newTiles[index]);
@@ -2028,10 +3573,39 @@
       gridEndObserver.disconnect();
       gridEndObserver = null;
     }
-    // Upgrades still in flight count themselves down when they finish.
+    if (gridPictureObserver) {
+      gridPictureObserver.disconnect();
+      gridPictureObserver = null;
+    }
+    if (gridLoopRangeObserver) {
+      gridLoopRangeObserver.disconnect();
+      gridLoopRangeObserver = null;
+    }
+    if (gridLoopObserver) {
+      gridLoopObserver.disconnect();
+      gridLoopObserver = null;
+    }
+    Array.from(gridLoopTiles).forEach(removeGridLoop);
+    if (gridLoopSyncFrame) {
+      cancelAnimationFrame(gridLoopSyncFrame);
+      gridLoopSyncFrame = 0;
+    }
+    // Manifests being read are read to the end, and remembered.
+    manifestWaiters.clear();
+    manifestQueue = [];
+    manifestsAhead.clear();
+    // Upgrades and requests for stills still in flight count themselves
+    // down when they finish.
     state.gridEnrichQueue = [];
     state.gridEnrichFailures = 0;
+    state.gridStillQueue = [];
+    state.gridStillFailures = 0;
+    state.gridStillRequests = 0;
+    state.gridStillFailed = 0;
+    syncGridStillStatus();
     state.gridExhausted = false;
+    state.gridLoads = 0;
+    state.gridLoadTop = 0;
     gridColumns.replaceChildren();
     state.gridTiles.clear();
     state.gridColumnHeights = [];
@@ -2040,18 +3614,31 @@
     grid.scrollTop = 0;
   }
 
-  // Loading more posts and upgrading thumbnails both wait for the grid to
-  // be scrolled near them. Without IntersectionObserver the grid still
-  // shows and opens every post that is already loaded.
+  // Loading more posts, upgrading thumbnails, asking Reddit for players'
+  // stills, loading tiles' pictures and playing loops all wait for the grid
+  // to be scrolled near them. Without IntersectionObserver the grid still
+  // shows and opens every post that is already loaded, the browser's own
+  // lazy loading loads the pictures, no player's still is asked for, and
+  // nothing loops.
   function ensureGridObserver() {
     if (gridObserver || typeof IntersectionObserver !== "function") return;
     gridObserver = new IntersectionObserver(onGridIntersection, {
       root: grid,
-      // A screen ahead, so thumbnails upgrade before they show.
-      rootMargin: "100% 0px",
+      rootMargin: GRID_STILL_MARGIN,
+    });
+    gridPictureObserver = new IntersectionObserver(onGridPictureIntersection, {
+      root: grid,
+      rootMargin: GRID_PICTURE_MARGIN,
+    });
+    gridLoopRangeObserver = new IntersectionObserver(onGridLoopRange, {
+      root: grid,
+      rootMargin: GRID_LOOP_MARGIN,
+    });
+    gridLoopObserver = new IntersectionObserver(onGridLoopVisibility, {
+      root: grid,
     });
     // The sentinel sits under the tallest column, so it marks the real end.
-    // Widening the tiles' observer instead would upgrade thumbnails three
+    // Widening the tiles' observer instead would upgrade thumbnails eight
     // screens ahead too.
     gridEndObserver = new IntersectionObserver(
       (entries) => {
@@ -2063,16 +3650,77 @@
   }
 
   function observeGridTile(tile, slide) {
-    if (gridObserver && slide.needsEnrichment) gridObserver.observe(tile);
+    if (gridObserver && (slide.needsEnrichment || wantsGridStill(slide))) {
+      gridObserver.observe(tile);
+    }
+    const info = gridTileInfo.get(tile);
+    if (
+      gridPictureObserver &&
+      (info?.loadPicture || redditVideoId(info?.loop))
+    ) {
+      gridPictureObserver.observe(tile);
+    }
+    if (info?.loop) {
+      if (gridLoopRangeObserver) gridLoopRangeObserver.observe(tile);
+      if (gridLoopObserver) gridLoopObserver.observe(tile);
+    }
+  }
+
+  // A tile in range starts its picture, which then stays, and asks for its
+  // video's manifest, which is then kept, so the tile needs watching no
+  // more.
+  function onGridPictureIntersection(entries) {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      startGridPicture(entry.target);
+      prefetchGridManifest(entry.target);
+      gridPictureObserver?.unobserve(entry.target);
+    });
+  }
+
+  // A loop comes with its range (see GRID_LOOP_MARGIN) and goes with it. A
+  // hidden grid has nothing in range, though it keeps its loops (see
+  // rearmGridLoops).
+  function onGridLoopRange(entries) {
+    entries.forEach((entry) => {
+      const tile = entry.target;
+      const info = gridTileInfo.get(tile);
+      if (!info?.loop) return;
+      if (entry.isIntersecting) {
+        info.inRange = true;
+        addGridLoop(tile);
+      } else if (gridShowing()) {
+        info.inRange = false;
+        removeGridLoop(tile);
+      }
+    });
+    syncGridLoops();
+  }
+
+  // Loops play only in tiles in view.
+  function onGridLoopVisibility(entries) {
+    entries.forEach((entry) => {
+      const info = gridTileInfo.get(entry.target);
+      if (info) info.visible = entry.isIntersecting;
+    });
+    syncGridLoops();
   }
 
   function onGridIntersection(entries) {
     entries.forEach((entry) => {
       const info = gridTileInfo.get(entry.target);
       if (!info) return;
-      if (entry.isIntersecting) queueGridEnrichment(info.slide);
-      else dropGridEnrichment(info.slide);
+      if (entry.isIntersecting) {
+        queueGridEnrichment(info.slide);
+        queueGridStill(info.slide);
+      } else {
+        dropGridEnrichment(info.slide);
+        dropGridStill(info.slide);
+      }
     });
+    // Once all are queued, so that the players that came into range
+    // together share a request.
+    pumpGridStills();
   }
 
   // An observer reports only changes, so a sentinel that is still in range
@@ -2130,6 +3778,214 @@
           pumpGridEnrichment();
         });
     }
+  }
+
+  // Whether a slide's tile waits for Reddit's data for its post: a
+  // player's tile that would show no picture or has no loop, in the grid of
+  // the page's own posts, which has not asked for this post yet this open.
+  // Reddit keeps no copy of a YouTube video, and other sources' posts are
+  // never read from Reddit.
+  function wantsGridStill(slide) {
+    return (
+      activeSource === liveSource &&
+      (location.protocol === "https:" || location.protocol === "http:") &&
+      isGridVideo(slide) &&
+      (!gridTilePicture(slide).url || !slide.thumbVideo) &&
+      !/^https:\/\/www\.youtube\.com\//.test(slide.url || "") &&
+      !gridStillTried.has(slide) &&
+      Boolean(postFullname(slide.postKey, slide.commentsUrl))
+    );
+  }
+
+  // Says on the grid how its asking for Reddit's data goes, for anyone who
+  // wonders in the browser's developer tools (see the README): how many
+  // requests it made and how many failed this open, and whether it gave up.
+  function syncGridStillStatus() {
+    grid.setAttribute("data-still-requests", String(state.gridStillRequests));
+    grid.setAttribute("data-still-failures", String(state.gridStillFailed));
+    if (state.gridStillFailures >= GRID_STILL_MAX_FAILURES) {
+      grid.setAttribute("data-still-gave-up", "");
+    } else {
+      grid.removeAttribute("data-still-gave-up");
+    }
+  }
+
+  // Says afresh what the loops of these slides' tiles are doing, where the
+  // tiles have no loop (see restingGridLoopState).
+  function refreshLooplessStates(slides) {
+    slides.forEach((slide) => {
+      const tile = state.gridTiles.get(slide);
+      const info = tile && gridTileInfo.get(tile);
+      if (info && !info.loop)
+        setGridLoopState(tile, restingGridLoopState(info));
+    });
+  }
+
+  // Players' tiles in range wait for a still, and the grid asks for them in
+  // batches (see pumpGridStills).
+  function queueGridStill(slide) {
+    if (
+      !wantsGridStill(slide) ||
+      state.gridStillQueue.includes(slide) ||
+      state.gridStillFailures >= GRID_STILL_MAX_FAILURES
+    )
+      return;
+    state.gridStillQueue.push(slide);
+  }
+
+  // A tile scrolled out of range gives up its place in the queue, though a
+  // request already in flight carries on.
+  function dropGridStill(slide) {
+    const index = state.gridStillQueue.indexOf(slide);
+    if (index >= 0) state.gridStillQueue.splice(index, 1);
+  }
+
+  // Asks for the stills of up to GRID_STILL_BATCH waiting slides in one
+  // request, GRID_STILL_CONCURRENCY requests at a time. Several failures in
+  // a row, such as Reddit answering with a challenge page, stop the grid
+  // from asking again until the next open.
+  function pumpGridStills() {
+    while (
+      state.gridStillActive < GRID_STILL_CONCURRENCY &&
+      state.gridStillFailures < GRID_STILL_MAX_FAILURES &&
+      state.gridStillQueue.length
+    ) {
+      // The filter may have hidden some in the meantime.
+      const batch = state.gridStillQueue
+        .splice(0, GRID_STILL_BATCH)
+        .filter((slide) => state.slides.includes(slide));
+      if (!batch.length) continue;
+      batch.forEach((slide) => {
+        gridStillTried.add(slide);
+        gridStillOutcomes.set(slide, "asking");
+        // Its tile needs watching no more, unless it waits for an upgrade.
+        const tile = state.gridTiles.get(slide);
+        if (tile && gridObserver && !slide.needsEnrichment) {
+          gridObserver.unobserve(tile);
+        }
+      });
+      state.gridStillActive += 1;
+      state.gridStillRequests += 1;
+      syncGridStillStatus();
+      const openRequest = state.openRequest;
+      fetchGridStills(batch)
+        .then((answered) => {
+          // A result from before a close or reopen counts for nothing now.
+          if (openRequest !== state.openRequest) return;
+          if (answered === false) {
+            state.gridStillFailures += 1;
+            state.gridStillFailed += 1;
+          } else if (answered) {
+            state.gridStillFailures = 0;
+          }
+          batch.forEach((slide) => {
+            if (gridStillOutcomes.get(slide) !== "asking") return;
+            gridStillOutcomes.set(
+              slide,
+              answered === false ? "info-failed" : "no-data",
+            );
+          });
+          syncGridStillStatus();
+          // Once the grid gives up, every tile still waiting says so.
+          refreshLooplessStates(
+            state.gridStillFailures >= GRID_STILL_MAX_FAILURES
+              ? Array.from(state.gridTiles.keys())
+              : batch,
+          );
+        })
+        .finally(() => {
+          state.gridStillActive -= 1;
+          pumpGridStills();
+        });
+    }
+  }
+
+  // Asks Reddit, on the page's own origin and with the viewer's session,
+  // for the data of the slides' posts, and gives each slide the still that
+  // its post has (see postStill), and the loop, such as Reddit's copy of a
+  // RedGIFs clip (see postLoop). Resolves to true once Reddit has answered
+  // with its data, false when the request failed or Reddit answered with
+  // anything else, such as a challenge page, and undefined when there was
+  // nothing to ask.
+  async function fetchGridStills(slides) {
+    const waiting = new Map();
+    slides.forEach((slide) => {
+      const name = postFullname(slide.postKey, slide.commentsUrl).toLowerCase();
+      if (!name) return;
+      if (!waiting.has(name)) waiting.set(name, []);
+      waiting.get(name).push(slide);
+    });
+    if (!waiting.size) return undefined;
+    let children;
+    try {
+      const response = await fetch(
+        `${location.origin}/api/info.json?id=${Array.from(waiting.keys()).join(",")}&raw_json=1`,
+        { credentials: "include", headers: { Accept: "application/json" } },
+      );
+      if (!response.ok) throw new Error(`Reddit returned ${response.status}`);
+      if (/html/i.test(response.headers.get("content-type") || "")) {
+        throw new Error("Reddit answered with a page");
+      }
+      children = JSON.parse(await response.text())?.data?.children;
+      if (!Array.isArray(children)) throw new Error("Reddit named no posts");
+    } catch (_error) {
+      return false;
+    }
+    children.forEach((child) => {
+      const post = child?.data;
+      const name =
+        typeof post?.name === "string" ? post.name.toLowerCase() : "";
+      if (!waiting.has(name)) return;
+      const still = postStill(post);
+      const loop = postLoop(post);
+      waiting.get(name).forEach((slide) => {
+        if (still) applyGridStill(slide, still);
+        if (!loop) return;
+        gridStillOutcomes.set(slide, "loop");
+        applyGridLoop(slide, loop);
+      });
+    });
+    return true;
+  }
+
+  // Puts a loop from Reddit's data (see postLoop) on a player's slide that
+  // has none, and its tile watches for the loop's range as a new tile would.
+  // The tile is within the picture's range, since that is where the grid
+  // asks for the data, so it asks for its video's manifest at once. Only
+  // the tile reads it.
+  function applyGridLoop(slide, loop) {
+    if (slide.thumbVideo) return;
+    slide.thumbVideo = loop;
+    const tile = state.gridTiles.get(slide);
+    const info = tile && gridTileInfo.get(tile);
+    if (!info || info.slide !== slide || info.loop || !gridLoopObserver) {
+      return;
+    }
+    info.loop = loop;
+    setGridLoopState(tile, restingGridLoopState(info));
+    prefetchGridManifest(tile);
+    gridLoopRangeObserver.observe(tile);
+    gridLoopObserver.observe(tile);
+  }
+
+  // Puts a still from Reddit's data (see postStill) on a player's slide:
+  // thumb, the copy that its tile loads, and the still's size; and for a
+  // player frame, the still itself as its poster, which only its tile reads,
+  // since the slideshow loads the frame. A video's poster stays as it was,
+  // so that the slideshow's player is unchanged. The tile then shows it.
+  function applyGridStill(slide, still) {
+    if (gridTilePicture(slide).url) return;
+    if (slide.kind === "embed") {
+      slide.poster = still.url;
+      slide.thumb = still.thumb;
+    } else {
+      slide.thumb = still.thumb || still.url;
+    }
+    if (still.width && still.height) {
+      slide.width = still.width;
+      slide.height = still.height;
+    }
+    showGridStill(slide);
   }
 
   // Upgrades the slide in place. Its media type stays "video" on both paths,
@@ -2496,6 +4352,10 @@
     if (slide.kind === "image") {
       const img = element("img", "redditp__image", "");
       img.alt = slide.title;
+      // A mouse drag across the picture is a swipe. As a drag source, the
+      // picture would have the browser drag it instead and cancel the
+      // pointer, so the swipe would never end.
+      img.draggable = false;
       img.addEventListener(
         "load",
         () => {
@@ -2523,15 +4383,18 @@
       img.src = slide.url;
       mediaBox.append(img);
     } else if (slide.kind === "video") {
-      const video = element("video", "redditp__video", "");
-      video.src = slide.url;
+      // A video read in ahead (see warmVideosAhead) is already buffered.
+      const warm = takeWarmVideo(slide.url);
+      const video = warm || element("video", "redditp__video", "");
+      if (warm) video.className = "redditp__video";
+      else video.src = slide.url;
       video.poster = slide.poster || "";
       video.controls = true;
       video.playsInline = true;
       video.autoplay = true;
       video.muted = !state.settings.sound;
       video.loop = !state.autoPlaying;
-      video.preload = "metadata";
+      if (!warm) video.preload = "metadata";
       video.addEventListener("ended", () => {
         if (state.autoPlaying) move(1);
       });
@@ -2544,6 +4407,7 @@
       if (slide.poster) {
         const poster = element("img", "redditp__image", "");
         poster.alt = slide.title;
+        poster.draggable = false;
         poster.src = slide.poster;
         mediaBox.append(poster);
       } else {
@@ -2940,9 +4804,12 @@
 
     if (!state.open || request !== state.loadRequest) return null;
     // New posts show that the feed goes on; a load that waited out the idle
-    // window found its end.
+    // window found its end. A load whose every batch the filter hid, up to
+    // FILTERED_MAX_ROUNDS, has searched as far as the viewer goes by itself:
+    // the next search waits for the last post, as at the end of the feed,
+    // rather than starting again from every slide while few are left.
     if (found) state.feedExhausted = false;
-    if (verdict === "idle") state.feedExhausted = true;
+    if (verdict === "idle" || verdict === "rounds") state.feedExhausted = true;
     // A load that found nothing to show stops the grid loading on its own
     // until the grid is shown again or the filter changes; otherwise the
     // grid watches its end afresh.
@@ -2973,7 +4840,8 @@
       updateCount(false);
       // The new posts may be among the next few slides.
       if (added && state.view === "slideshow") preloadAhead();
-      continuePrefetch(found);
+      // A search that the filter ended goes no further in the background.
+      continuePrefetch(verdict === "rounds" ? 0 : found);
     }
     return added;
   }
@@ -3057,7 +4925,8 @@
 
   // Fetches the pictures of the next few slides so they show at once. The
   // few most recent stay referenced, so the browser keeps them until then.
-  // Data Saver turns this off.
+  // The next Reddit videos are read in too (see warmVideosAhead). Data Saver
+  // turns this off.
   function preloadAhead() {
     if (!state.open || state.view !== "slideshow") return;
     const connection = navigator.connection;
@@ -3071,6 +4940,55 @@
       }
       rememberBounded(state.preloads, url, image, PRELOAD_CACHE_SIZE);
     });
+    warmVideosAhead(warmVideoUrls(state.slides, state.index));
+  }
+
+  // Reads each of the next Reddit videos (see warmVideoUrls) into a muted,
+  // paused video element of its own, in no document, which the slideshow
+  // takes over when it gets there (see takeWarmVideo), so that the video
+  // starts at once, with the sound and settings that any slide's video
+  // has. A video that is no longer ahead, because the slideshow passed it or
+  // moved away, is let go.
+  function warmVideosAhead(urls) {
+    state.warmVideos.forEach((video, url) => {
+      if (urls.includes(url)) return;
+      state.warmVideos.delete(url);
+      releaseWarmVideo(video);
+    });
+    urls.forEach((url) => {
+      if (state.warmVideos.has(url)) return;
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.src = url;
+      state.warmVideos.set(url, video);
+    });
+  }
+
+  // The video read in ahead for this URL, which the slideshow now shows, or
+  // null. One that failed is let go, so the slideshow's own attempt shows
+  // the failure as usual.
+  function takeWarmVideo(url) {
+    const video = state.warmVideos.get(url);
+    if (!video) return null;
+    state.warmVideos.delete(url);
+    if (video.error) {
+      releaseWarmVideo(video);
+      return null;
+    }
+    return video;
+  }
+
+  // Stops reading a video in, and lets the browser release it.
+  function releaseWarmVideo(video) {
+    video.removeAttribute("src");
+    video.load();
+  }
+
+  function releaseWarmVideos() {
+    state.warmVideos.forEach(releaseWarmVideo);
+    state.warmVideos.clear();
   }
 
   // Counts the posts a load has looked at, for a filtered load's progress
@@ -3085,7 +5003,8 @@
   }
 
   // Scrolling near the end of the grid loads more posts the way the last
-  // slide does, without moving to them.
+  // slide does, without moving to them, up to GRID_LOAD_ROUNDS loads in a
+  // row while the viewer does not scroll (see gridLoadWanted).
   function loadMoreFromGrid() {
     if (
       isSinglePostPage() ||
@@ -3095,9 +5014,29 @@
       state.gridExhausted
     )
       return;
+    const scrolled = grid.scrollTop - state.gridLoadTop;
+    if (!gridLoadWanted(state.gridLoads, scrolled, grid.clientHeight)) return;
+    if (!state.gridLoads || Math.abs(scrolled) >= grid.clientHeight / 2) {
+      state.gridLoads = 0;
+      state.gridLoadTop = grid.scrollTop;
+    }
+    state.gridLoads += 1;
     state.advanceAfterLoad = false;
     state.prefetchLoads = 0;
     void loadMorePosts();
+  }
+
+  // A grid that has stopped loading by itself (see gridLoadWanted) looks at
+  // its end again once the viewer has scrolled half a screen.
+  function onGridScroll() {
+    if (
+      state.gridLoads < GRID_LOAD_ROUNDS ||
+      state.loadingMore ||
+      state.gridExhausted ||
+      Math.abs(grid.scrollTop - state.gridLoadTop) < grid.clientHeight / 2
+    )
+      return;
+    rearmGridSentinel();
   }
 
   // Stops a load in flight: its loop sees the newer request and gives up.
@@ -3312,10 +5251,14 @@
     state.returnToGrid = false;
     state.advanceAfterLoad = false;
     state.gridExhausted = false;
+    state.gridLoads = 0;
+    // The grid takes the network over from the slideshow.
+    releaseWarmVideos();
     setAutoPlaying(false);
     render();
     // display:none dropped the grid's scroll position.
     grid.scrollTop = state.gridScrollTop;
+    rearmGridLoops();
     focusInitialControl();
   }
 
@@ -3327,6 +5270,8 @@
     state.view = "slideshow";
     state.returnToGrid = true;
     state.index = index;
+    // The hidden grid's loops pause.
+    syncGridLoops();
     render();
     focusInitialControl();
   }
@@ -3535,6 +5480,26 @@
     else video.pause();
   }
 
+  // A plain click or tap on the slideshow's picture goes back to the grid,
+  // as V does. A drag that ends on the picture, such as a mouse swipe, is no
+  // click, and a Ctrl/Cmd click has already opened the picture in a new tab.
+  function showGridFromPicture(event) {
+    if (
+      event.button !== 0 ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.altKey ||
+      state.pointerDragged ||
+      state.view !== "slideshow"
+    )
+      return;
+    const picture = event.target.closest?.(".redditp__image");
+    if (!picture || picture.parentNode !== mediaBox) return;
+    event.preventDefault();
+    showGrid();
+  }
+
   function releaseVideoFocus(event) {
     const video = event.target;
     if (
@@ -3596,6 +5561,7 @@
     stopFeedWatch(feedWatch);
     state.prefetchLoads = 0;
     state.preloads.clear();
+    releaseWarmVideos();
     state.settingsOpen = false;
     settingsOverlay.hidden = true;
     clearTimeout(state.autoTimer);
@@ -3625,6 +5591,7 @@
     root.remove();
     document.removeEventListener("redditp:presentation-retire", retire);
     window.removeEventListener("message", onEmbedMessage);
+    watchMotionPreference(false);
   }
 
   // Opens on the Reddit page underneath, or on the source that a page
@@ -3659,6 +5626,7 @@
     state.feedExhausted = false;
     state.prefetchLoads = 0;
     state.preloads.clear();
+    releaseWarmVideos();
     state.allSlides = [];
     state.slides = [];
     state.unavailable = 0;
@@ -3894,6 +5862,7 @@
   // than pausing it.
   mediaBox.addEventListener("click", openMediaInNewTab, true);
   mediaBox.addEventListener("click", toggleVideoFromSurface, true);
+  mediaBox.addEventListener("click", showGridFromPicture);
   // After clicking "mute" and "unmute" the right-left arows failed to change
   // the current slide in Chrome (seemed to work in Firefox).
   // Media events do not bubble, so listen during capture.
@@ -3902,6 +5871,7 @@
   });
   document.addEventListener("redditp:presentation-retire", retire);
   window.addEventListener("message", onEmbedMessage);
+  watchMotionPreference(true);
   prevButton.addEventListener("click", () => move(-1));
   nextButton.addEventListener("click", () => move(1));
   autoButton.addEventListener("click", toggleAuto);
@@ -3919,11 +5889,13 @@
   // the grid.
   grid.addEventListener("click", openMediaInNewTab, true);
   grid.addEventListener("click", onGridClick);
+  grid.addEventListener("scroll", onGridScroll, { passive: true });
   [mediaBox, grid].forEach((surface) => {
     surface.addEventListener(MIDDLE_CLICK_EVENT, openMediaInNewTab);
     surface.addEventListener("mousedown", preventMiddleButtonScroll);
   });
   root.addEventListener("pointerdown", (event) => {
+    state.pointerDragged = false;
     state.pointerStart = {
       x: event.clientX,
       y: event.clientY,
@@ -3936,6 +5908,8 @@
     const dx = event.clientX - state.pointerStart.x;
     const dy = event.clientY - state.pointerStart.y;
     state.pointerStart = null;
+    // The click that follows a drag is no tap (see showGridFromPicture).
+    state.pointerDragged = Math.abs(dx) > 10 || Math.abs(dy) > 10;
     if (
       state.view === "slideshow" &&
       Math.abs(dx) > 55 &&
@@ -3962,6 +5936,7 @@
       isVideoUrl,
       canonicalMediaKey,
       externalMedia,
+      embedStill,
     },
   };
   if (!EMBEDDED) open();

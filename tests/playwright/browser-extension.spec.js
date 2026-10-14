@@ -931,6 +931,144 @@ test("the final slide loads old Reddit's next listing pages", async ({
   await expect(page.locator(".redditp__count")).toHaveText("1 / 3");
 });
 
+function oldListingPost(id, title) {
+  return `<div class="thing link" data-fullname="t3_${id}" data-url="https://i.redd.it/${id}.jpg" data-permalink="/r/aww/comments/${id}/post/"><a class="title">${title}</a></div>`;
+}
+
+async function openOldListing(page, url) {
+  await page.goto(url);
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+}
+
+// Old Reddit search results put the next link straight in .nav-buttons,
+// without the .next-button wrapper that listings use.
+test("the final slide loads old Reddit's next search results page", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/**", (route) => route.abort());
+  const search = "https://www.reddit.com/r/aww/search?q=cat&restrict_sr=on";
+  const result = (id, title) =>
+    `<div class="search-result search-result-link" data-fullname="t3_${id}"><a class="search-title" href="https://www.reddit.com/r/aww/comments/${id}/post/">${title}</a><a class="search-comments" href="https://www.reddit.com/r/aww/comments/${id}/post/">3 comments</a><a class="search-link" href="https://i.redd.it/${id}.jpg">https://i.redd.it/${id}.jpg</a></div>`;
+  await page.route(search, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `
+        <div class="search-result-listing">
+          <footer><div class="nav-buttons"><span class="nextprev">view more:
+            <a href="${search}&amp;type=sr&amp;count=3&amp;after=t5_one" rel="nofollow next">next ›</a>
+          </span></div></footer>
+        </div>
+        <div class="search-result-listing">
+          ${result("one", "First results post")}
+          <footer><div class="nav-buttons"><span class="nextprev">view more:
+            <a href="${search}&amp;count=25&amp;after=t3_one" rel="nofollow next">next ›</a>
+          </span></div></footer>
+        </div>
+      `,
+    }),
+  );
+  await page.route(`${search}&count=25&after=t3_one`, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<div class="search-result-listing">${result("two", "Second results post")}</div>`,
+    }),
+  );
+  await openOldListing(page, search);
+
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "First results post",
+  );
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "Second results post",
+  );
+});
+
+test("a next listing page that fails to load wraps and is retried", async ({
+  page,
+}) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route("https://i.redd.it/**", (route) => route.abort());
+  const listing = "https://www.reddit.com/r/aww+pics/";
+  let rateLimited = true;
+  await page.route(listing, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `
+        ${oldListingPost("a", "Post A")}
+        ${oldListingPost("b", "Post B")}
+        <div class="nav-buttons"><span class="nextprev">view more:
+          <span class="next-button"><a href="${listing}?count=25&amp;after=t3_b" rel="nofollow next">next ›</a></span>
+        </span></div>
+      `,
+    }),
+  );
+  await page.route(`${listing}?count=25&after=t3_b`, (route) =>
+    rateLimited
+      ? route.fulfill({ status: 429, body: "slow down" })
+      : route.fulfill({
+          contentType: "text/html",
+          body: oldListingPost("c", "Post C"),
+        }),
+  );
+  await openOldListing(page, listing);
+
+  await expect(page.locator(".redditp__title")).toHaveText("Post A");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Post B");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Post A");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+  expect(pageErrors).toEqual([]);
+
+  rateLimited = false;
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Post B");
+  await expect(page.locator(".redditp__count")).toHaveText("2 / 3");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Post C");
+});
+
+test("a next link that leaves the Reddit origin is not followed", async ({
+  page,
+}) => {
+  const offSiteRequests = [];
+  await page.route("https://i.redd.it/**", (route) => route.abort());
+  await page.route("https://elsewhere.example/**", (route) => {
+    offSiteRequests.push(route.request().url());
+    return route.fulfill({
+      contentType: "text/html",
+      headers: {
+        "access-control-allow-origin": "https://www.reddit.com",
+        "access-control-allow-credentials": "true",
+      },
+      body: oldListingPost("x", "Off-site post"),
+    });
+  });
+  const listing = "https://www.reddit.com/r/aww+pics/";
+  await page.route(listing, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `
+        ${oldListingPost("a", "Only post")}
+        <div class="nav-buttons"><span class="nextprev">view more:
+          <span class="next-button"><a href="https://elsewhere.example/page" rel="nofollow next">next ›</a></span>
+        </span></div>
+      `,
+    }),
+  );
+  await openOldListing(page, listing);
+
+  await expect(page.locator(".redditp__title")).toHaveText("Only post");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+  await expect(page.locator(".redditp__title")).toHaveText("Only post");
+  expect(offSiteRequests).toEqual([]);
+});
+
 // Minimal old-Reddit gallery structure from the reported food+scenery DOM.
 const oldGalleryIds = [
   "w7ko4xfmlklh1",

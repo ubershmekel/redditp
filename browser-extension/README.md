@@ -101,12 +101,14 @@ through to the browser, so Ctrl+F and friends keep working while presentation
 mode is open.
 
 Reaching the final slide automatically scrolls the underlying Reddit feed and
-preloads newly rendered posts. On old Reddit listings, which page with a "next
-›" link, it loads the posts of the next page instead, and keeps following each
-page's next link. Pressing next while that load is still running queues the
-navigation; if Reddit has no more posts, it wraps to the first slide.
-Single-post `/comments/` pages do not trigger this feed-loading scroll. The
-slide counter shows `loading more` while this background preload is active.
+preloads newly rendered posts. On old Reddit listings and search results, which
+page with a "next ›" link, it loads the posts of the next page instead, and
+keeps following each page's next link. Pressing next while that load is still
+running queues the navigation; if Reddit has no more posts, or the next page
+fails to load, it wraps to the first slide and tries that page again the next
+time around. Single-post `/comments/` pages do not trigger this feed-loading
+scroll. The slide counter shows `loading more` while this background preload is
+active.
 
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 Firefox does it in `about:addons` under the gear menu's **Manage Extension
@@ -144,10 +146,10 @@ Video starts muted and can be unmuted from the compact control bar or with M,
 which is remembered for later presentations.
 
 Media played inside a host's own player frame is opened autoplaying. The frame
-URL requests the viewer's saved sound preference using the common mute and
-sound parameters, since a frame on another origin cannot be scripted from the
-page. Hosts may ignore parameters they do not support. Where a player publishes
-a message protocol the sound toggle keeps working after that too; where it does
+URL requests the viewer's saved sound preference using the common mute and sound
+parameters, since a frame on another origin cannot be scripted from the page.
+Hosts may ignore parameters they do not support. Where a player publishes a
+message protocol the sound toggle keeps working after that too; where it does
 not, the sound button's tooltip says the player keeps its own control. We could
 ask for permissions (or optional permissions) to access any URL to control the
 mute of videos inside iframes, but that would be a privacy concern and cause the

@@ -736,9 +736,18 @@
     return new DOMParser().parseFromString(await response.text(), "text/html");
   }
 
-  // Old Reddit listings page with a "next ›" link instead of infinite scroll.
+  // Old Reddit listings and search results page with a "next ›" link instead
+  // of infinite scroll. Listings wrap the link in .next-button and search
+  // results do not, so match on rel. A search page can list communities above
+  // the posts, so the posts' link is the last one.
   function nextPageUrl(root) {
-    return root.querySelector(".nav-buttons .next-button a[href]")?.href || "";
+    const links = root.querySelectorAll(".nav-buttons a[rel~='next'][href]");
+    const link = links[links.length - 1];
+    if (!link) return "";
+    // The page is fetched with the user's session, so never follow it off the
+    // Reddit origin being presented.
+    const url = absoluteUrl(link.getAttribute("href"));
+    return url && new URL(url).origin === location.origin ? url : "";
   }
 
   async function enrichSlide(slide) {
@@ -1467,10 +1476,15 @@
     let added = appendNewPosts(document);
     try {
       if (!added && state.nextPageUrl) {
-        const doc = await fetchRedditDocument(state.nextPageUrl);
-        if (!state.open || request !== state.loadRequest) return;
-        state.nextPageUrl = nextPageUrl(doc);
-        added = appendNewPosts(doc);
+        try {
+          const doc = await fetchRedditDocument(state.nextPageUrl);
+          if (!state.open || request !== state.loadRequest) return;
+          state.nextPageUrl = nextPageUrl(doc);
+          added = appendNewPosts(doc);
+        } catch (_error) {
+          // Reddit may rate-limit or return a challenge page. Wrap as at the
+          // end of the listing and try this page again the next time around.
+        }
       } else if (!added) {
         document.documentElement.style.overflow = state.oldOverflow;
         for (let attempt = 0; attempt < 20; attempt += 1) {

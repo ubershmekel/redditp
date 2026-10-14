@@ -3,6 +3,7 @@
   "name": "Presentation Mode for Reddit",
   "version": "0.5.5",
   "description": "Turn the Reddit page you are browsing into a media slideshow.",
+  "homepage_url": "https://redditp.com/",
   "permissions": [
     "activeTab",
     "scripting",

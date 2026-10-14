@@ -125,8 +125,7 @@
   }
 
   function usefulImage(image) {
-    // NSFW and spoiler posts put a blurred copy of the media in the "blurred"
-    // slot of shreddit-blurred-container.
+    // Blurred or spoiler images are covers, not additional media slides.
     if (
       !image ||
       image.closest(
@@ -153,6 +152,18 @@
       image.getAttribute("data-lazy-src");
     if (!raw || raw.startsWith("data:") || raw.startsWith("blob:")) return "";
     return absoluteUrl(raw.replace(/&amp;/g, "&"));
+  }
+
+  function isBlurredImageUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return (
+        /(^|\.)redd\.it$/i.test(parsed.hostname) &&
+        Number(parsed.searchParams.get("blur")) > 0
+      );
+    } catch (_error) {
+      return false;
+    }
   }
 
   function firstHref(node, selectors) {
@@ -383,7 +394,12 @@
     const attributeNames = ["content-href", "data-url", "url", "data-href-url"];
     for (const name of attributeNames) {
       const result = absoluteUrl(node.getAttribute(name));
-      if (result && result !== fallbackCommentsUrl) return result;
+      if (
+        result &&
+        result !== fallbackCommentsUrl &&
+        !isBlurredImageUrl(result)
+      )
+        return result;
     }
     const result = firstHref(node, [
       "a.search-link",
@@ -394,7 +410,7 @@
       "a[href*='i.redd.it']",
       "a[href*='v.redd.it']",
     ]);
-    return result || fallbackCommentsUrl;
+    return result && !isBlurredImageUrl(result) ? result : fallbackCommentsUrl;
   }
 
   function elementsIncludingOpenShadows(root, selector) {
@@ -499,6 +515,7 @@
       const normalized = absoluteUrl(url);
       const key = canonicalMediaKey(normalized);
       if (!normalized || seen.has(key)) return;
+      if (kind === "image" && isBlurredImageUrl(normalized)) return;
       seen.add(key);
       media.push({
         kind,
@@ -600,6 +617,26 @@
     // Reddit has exposed any playable source in the listing card.
     if (media.some((item) => item.kind === "video")) return media;
 
+    // Prefer actual linked media to a listing thumbnail. Revealed embeds may
+    // still be escaped markup when Reddit has not loaded its player component.
+    if (isVideoUrl(sourceUrl)) add("video", sourceUrl, "", true);
+    const external = externalMedia(sourceUrl);
+    if (external) add(external.kind, external.url, "", true);
+    function addFrame(iframe) {
+      const url = absoluteUrl(iframe.getAttribute("src"));
+      if (!/^https?:\/\//i.test(url)) return;
+      const iframeMedia = externalMedia(url);
+      if (iframeMedia) add(iframeMedia.kind, iframeMedia.url, "", true);
+    }
+    node.querySelectorAll("iframe[src]").forEach(addFrame);
+    node.querySelectorAll("shreddit-embed[html]").forEach((embed) => {
+      // Read URLs only. Never mount Reddit's supplied HTML or run its scripts.
+      const template = document.createElement("template");
+      template.innerHTML = embed.getAttribute("html") || "";
+      template.content.querySelectorAll("iframe[src]").forEach(addFrame);
+    });
+    if (media.length) return media;
+
     if (IMAGE_URL_RE.test(sourceUrl)) {
       // Prefer the post's original image over a second, lower-resolution
       // preview of the same image found inside the listing card.
@@ -614,13 +651,6 @@
         });
     }
 
-    if (isVideoUrl(sourceUrl)) add("video", sourceUrl);
-    const external = externalMedia(sourceUrl);
-    if (external) add(external.kind, external.url, "", true);
-    node.querySelectorAll("iframe[src]").forEach((iframe) => {
-      const iframeMedia = externalMedia(iframe.getAttribute("src"));
-      if (iframeMedia) add(iframeMedia.kind, iframeMedia.url);
-    });
     return media;
   }
 
@@ -1531,7 +1561,12 @@
   // Embeds point at a player page (youtube.com/embed/…), so prefer the post's
   // own link (youtube.com/watch?…) for them. Other kinds link the media file.
   function mediaHref(slide) {
-    if (slide.kind === "embed" && slide.sourceUrl) return slide.sourceUrl;
+    if (
+      slide.kind === "embed" &&
+      slide.sourceUrl &&
+      slide.sourceUrl !== slide.commentsUrl
+    )
+      return slide.sourceUrl;
     return slide.url || slide.sourceUrl || slide.commentsUrl;
   }
 

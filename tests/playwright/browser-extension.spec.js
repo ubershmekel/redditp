@@ -578,7 +578,7 @@ test("a linked watch page becomes that host's player frame", async ({
   );
 });
 
-test("a blurred NSFW or spoiler cover is not a slide before the post's media", async ({
+test("a blurred or spoiler cover is not a slide before the post's media", async ({
   page,
 }) => {
   await startPresentation(
@@ -613,6 +613,134 @@ test("a blurred NSFW or spoiler cover is not a slide before the post's media", a
     "src",
     /^https:\/\/videohost\.example\/ifr\/covered-clip-id\?/,
   );
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+});
+
+for (const reason of ["nsfw", "spoiler"]) {
+  test(`revealed ${reason === "spoiler" ? "spoiler" : "blurred"} embeds work without a source link or loaded component`, async ({
+    page,
+  }) => {
+    await page.route("https://videohost.example/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "Player" }),
+    );
+    await startPresentation(
+      page,
+      `
+      <shreddit-post id="t3_revealed" post-title="Revealed clip" post-type="link" permalink="/r/clips/comments/revealed/clip/">
+        <shreddit-blurred-container reason="${reason}" blurred embed-obscured>
+          <div slot="blurred"><img src="https://external-preview.redd.it/cover.jpeg?blur=40&amp;format=pjpg"></div>
+          <div slot="revealed"><shreddit-async-loader><shreddit-embed html="&lt;script&gt;window.suppliedEmbedRan = true&lt;/script&gt;&lt;iframe src=&quot;https://videohost.example/ifr/revealed&quot;&gt;&lt;/iframe&gt;"></shreddit-embed></shreddit-async-loader></div>
+        </shreddit-blurred-container>
+      </shreddit-post>`,
+    );
+    await expect(page.locator(".redditp__embed")).toHaveAttribute(
+      "src",
+      /^https:\/\/videohost\.example\/ifr\/revealed\?/,
+    );
+    await expect(page.locator(".redditp__image")).toHaveCount(0);
+    await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+    await expect(
+      page.getByRole("link", { name: "media", exact: true }),
+    ).toHaveAttribute("href", "https://videohost.example/ifr/revealed");
+    expect(await page.evaluate(() => window.suppliedEmbedRan)).toBeUndefined();
+  });
+}
+
+test("linked players replace ordinary previews instead of adding a thumbnail slide", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `<shreddit-post id="t3_linked" post-title="Linked clip" content-href="https://videohost.example/watch/linked" permalink="/r/clips/comments/linked/clip/">
+    <img src="https://external-preview.redd.it/preview.jpg">
+    <iframe src="https://videohost.example/ifr/linked"></iframe>
+  </shreddit-post>`,
+  );
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    /^https:\/\/videohost\.example\/ifr\/linked\?/,
+  );
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 1");
+});
+
+test("blurred image URLs fall back to links while revealed gallery images keep their order", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"/>',
+    }),
+  );
+  await startPresentation(
+    page,
+    `
+    <shreddit-post id="t3_cover" post-title="Unavailable media" content-href="https://example.com/original" permalink="/r/pics/comments/cover/post/">
+      <img src="https://external-preview.redd.it/cover.jpg?blur=40">
+    </shreddit-post>
+    <shreddit-post id="t3_gallery_revealed" post-title="Revealed gallery" gallery permalink="/r/pics/comments/gallery_revealed/post/">
+      <shreddit-blurred-container reason="spoiler" blurred><div slot="blurred"><img src="https://external-preview.redd.it/cover.jpg?blur=40"></div>
+        <div slot="revealed"><gallery-carousel><figure><img src="https://i.redd.it/first.jpg"></figure><figure><img src="https://i.redd.it/second.jpg"></figure></gallery-carousel></div>
+      </shreddit-blurred-container>
+    </shreddit-post>`,
+  );
+  await expect(page.locator(".redditp__link-card")).toBeVisible();
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__image")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/first.jpg",
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__image")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/second.jpg",
+  );
+});
+
+test("a blurred source URL falls back to comments instead of linking the cover", async ({
+  page,
+}) => {
+  await page.route("https://www.reddit.com/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "No exposed media" }),
+  );
+  await startPresentation(
+    page,
+    `<shreddit-post id="t3_blurred_source" post-title="Unavailable source" content-href="https://preview.redd.it/cover.jpg?blur=40" permalink="https://www.reddit.com/r/pics/comments/blurred_source/post/"><img src="https://preview.redd.it/cover.jpg?blur=40"></shreddit-post>`,
+  );
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await expect(page.locator(".redditp__link-card")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "media", exact: true }),
+  ).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/r/pics/comments/blurred_source/post/",
+  );
+});
+
+test("fetched post details recover a revealed embed without adding its blurred cover", async ({
+  page,
+}) => {
+  await page.route(
+    "https://www.reddit.com/r/clips/comments/detail/post/",
+    (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<shreddit-post id="t3_detail" permalink="/r/clips/comments/detail/post/"><shreddit-blurred-container reason="spoiler" blurred><div slot="blurred"><img src="https://preview.redd.it/cover.jpg?blur=40"></div><div slot="revealed"><shreddit-embed html="&lt;iframe src=&quot;https://videohost.example/ifr/detail&quot;&gt;&lt;/iframe&gt;"></shreddit-embed></div></shreddit-blurred-container></shreddit-post>`,
+      }),
+  );
+  await startPresentation(
+    page,
+    `<div data-testid="search-post-unit" id="t3_detail"><a href="https://www.reddit.com/r/clips/comments/detail/post/">Detail clip</a></div>`,
+  );
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    /^https:\/\/videohost\.example\/ifr\/detail\?/,
+  );
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await expect(page.locator(".redditp__count")).toHaveText(/^1 \/ 1/);
 });
 
 test("a player frame that answers no command says so on the sound button", async ({

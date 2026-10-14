@@ -101,10 +101,14 @@ through to the browser, so Ctrl+F and friends keep working while presentation
 mode is open.
 
 Reaching the final slide automatically scrolls the underlying Reddit feed and
-preloads newly rendered posts. Pressing next while that load is still running
-queues the navigation; if Reddit has no more posts, it wraps to the first slide.
-Single-post `/comments/` pages do not trigger this feed-loading scroll. The
-slide counter shows `loading more` while this background preload is active.
+preloads newly rendered posts. On old Reddit listings and search results, which
+page with a "next ›" link, it loads the posts of the next page instead, and
+keeps following each page's next link. Pressing next while that load is still
+running queues the navigation; if Reddit has no more posts, or the next page
+fails to load, it wraps to the first slide and tries that page again the next
+time around. Single-post `/comments/` pages do not trigger this feed-loading
+scroll. The slide counter shows `loading more` while this background preload is
+active.
 
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 Firefox does it in `about:addons` under the gear menu's **Manage Extension
@@ -135,21 +139,24 @@ article/post-container fallbacks. This covers home and popular feeds, subreddit
 listings, search results, post pages, and user pages on both old and current
 Reddit.
 
-Only posts currently rendered in the page can be included. On an infinite scroll
-feed, scroll first to load more posts, then start presentation mode. Images,
-galleries, and video hosted by Reddit are shown, along with the media of the few
-link hosts Reddit posts commonly use. Video starts muted and can be unmuted from
-the compact control bar or with M, which is remembered for later presentations.
+Presentation mode starts with the posts currently rendered in the page and loads
+more as it reaches the end. Images, galleries, and video hosted by Reddit are
+shown, along with the media of the few link hosts Reddit posts commonly use.
+Video starts muted and can be unmuted from the compact control bar or with M,
+which is remembered for later presentations.
 
 Media played inside a host's own player frame is opened autoplaying. The frame
-URL requests the viewer's saved sound preference using the common mute and
-sound parameters, since a frame on another origin cannot be scripted from the
-page. Hosts may ignore parameters they do not support. Where a player publishes
-a message protocol the sound toggle keeps working after that too; where it does
+URL requests the viewer's saved sound preference using the common mute and sound
+parameters, since a frame on another origin cannot be scripted from the page.
+Hosts may ignore parameters they do not support. Where a player publishes a
+message protocol the sound toggle keeps working after that too; where it does
 not, the sound button's tooltip says the player keeps its own control. We could
 ask for permissions (or optional permissions) to access any URL to control the
 mute of videos inside iframes, but that would be a privacy concern and cause the
 extension publication review time to be much longer.
+
+NSFW and spoiler posts show their media directly. Reddit's blurred cover image
+is never a slide.
 
 Unsupported link types remain useful as title cards with links to the media and
 comments.

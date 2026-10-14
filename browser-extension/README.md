@@ -178,6 +178,8 @@ available as the fallback.
 - `background.js`: toolbar and keyboard-command launcher
 - `auto-activate.js`: opt-in `redditp=1` URL launcher
 - `content.js`: Reddit DOM extraction and slideshow behavior
+- `page-bridge.js`: runs in the page's own world to lend old Reddit's dash.js to
+  v.redd.it slides, so they play with sound; injected by `background.js`
 - `presentation.css`: isolated, responsive presentation UI
 - `favicon.png`: small toolbar icon (64px)
 - `icon-128.png`: store and extensions-page icon (128px)

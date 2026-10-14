@@ -209,13 +209,27 @@
     );
   }
 
+  // innerText only lays out paragraphs for rendered elements. A post fetched
+  // with DOMParser is never rendered, so mark the block breaks by hand.
+  function readableText(element) {
+    if (element.isConnected && element.ownerDocument === document) {
+      return element.innerText || element.textContent || "";
+    }
+    const copy = element.cloneNode(true);
+    copy.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+    copy.querySelectorAll("li, tr").forEach((block) => block.append("\n"));
+    copy
+      .querySelectorAll("p, h1, h2, h3, h4, h5, h6, blockquote, pre")
+      .forEach((block) => block.append("\n\n"));
+    return copy.textContent || "";
+  }
+
   function postBodyText(node) {
     const body = node.querySelector(
       "[slot='text-body'] .md, .usertext-body .md, [data-click-id='text'] .md, [data-post-click-location='text-body']",
     );
     if (!body) return "";
-    const text = body.innerText || body.textContent || "";
-    return text
+    return readableText(body)
       .replace(/\r\n?/g, "\n")
       .split("\n")
       .map((line) => line.trim())
@@ -257,6 +271,20 @@
     } catch (_error) {
       return false;
     }
+  }
+
+  // Safari and Android browsers play HLS in a plain <video>. Most desktop
+  // browsers need a script player for it.
+  let hlsSupport = null;
+  function canPlayHls() {
+    if (hlsSupport === null) {
+      hlsSupport = Boolean(
+        document
+          .createElement("video")
+          .canPlayType("application/vnd.apple.mpegurl"),
+      );
+    }
+    return hlsSupport;
   }
 
   function canonicalMediaKey(url) {
@@ -572,7 +600,8 @@
 
     node.querySelectorAll("shreddit-player").forEach((player) => {
       const preview = player.getAttribute("preview") || "";
-      const isSeekPreview = /\/CMAF_96\.mp4(?:$|[?#])/i.test(preview);
+      // A 96p, silent clip for the seek bar's thumbnails, not the video.
+      const isSeekPreview = /\/(?:CMAF|DASH)_96\.mp4(?:$|[?#])/i.test(preview);
       const packagedUrl = packagedVideoUrl(player);
       if (!packagedUrl && isSeekPreview && player.ownerDocument === document) {
         media.push({
@@ -583,11 +612,14 @@
         });
         return;
       }
-      const playablePreview = isSeekPreview ? "" : preview;
+      const hlsUrl = absoluteUrl(player.getAttribute("src"));
+      // Fall back to the seek preview only where this browser cannot play
+      // the HLS source by itself; a silent clip still beats a failed slide.
       const playerUrl =
         packagedUrl ||
-        absoluteUrl(playablePreview) ||
-        absoluteUrl(player.getAttribute("src")) ||
+        (isSeekPreview
+          ? (canPlayHls() && hlsUrl) || absoluteUrl(preview) || hlsUrl
+          : absoluteUrl(preview) || hlsUrl) ||
         firstHref(player, ["source"]);
       add("video", playerUrl, player.getAttribute("poster"));
     });
@@ -616,6 +648,30 @@
     // A player poster is not a separate slide. Prefer the actual video when
     // Reddit has exposed any playable source in the listing card.
     if (media.some((item) => item.kind === "video")) return media;
+
+    // Old Reddit leaves its v.redd.it player as data attributes for its own
+    // script to build, so a fetched post page has these URLs but no <video>.
+    const oldRedditPlayer = node.querySelector(
+      "[data-mpd-url], [data-hls-url]",
+    );
+    if (oldRedditPlayer) {
+      const mpdUrl = absoluteUrl(oldRedditPlayer.getAttribute("data-mpd-url"));
+      const hlsUrl = absoluteUrl(oldRedditPlayer.getAttribute("data-hls-url"));
+      const seekPreviewUrl = absoluteUrl(
+        oldRedditPlayer.getAttribute("data-seek-preview-url"),
+      );
+      // The MPD (with sound) needs the page's dash.js; see page-bridge.js.
+      // url is what plays without it: native HLS keeps the sound, otherwise
+      // the silent seek preview still beats a link card.
+      const url =
+        (canPlayHls() && hlsUrl) || seekPreviewUrl || hlsUrl || mpdUrl;
+      const before = media.length;
+      add("video", url, "", true);
+      if (media.length > before && mpdUrl && mpdUrl !== url) {
+        media[before].mpdUrl = mpdUrl;
+      }
+      if (media.length) return media;
+    }
 
     // Prefer actual linked media to a listing thumbnail. Revealed embeds may
     // still be escaped markup when Reddit has not loaded its player component.
@@ -800,13 +856,19 @@
 
       const detailSource = contentUrl(detailNode, slide.commentsUrl);
       const detailMedia = mediaFromNode(detailNode, detailSource);
-      if (!detailMedia.length) throw new Error("Post had no supported media");
+      // Search cards carry only a title, so a text post's body is worth the
+      // fetch even when the post has no media; it then stays a link card.
+      const detailBody = postBodyText(detailNode);
+      if (!detailMedia.length && !detailBody)
+        throw new Error("Post had no supported media");
+      const items = detailMedia.length ? detailMedia : [{}];
       const isGallery = isGalleryPost(detailNode);
-      const replacements = detailMedia.map((item, index) =>
+      const replacements = items.map((item, index) =>
         Object.assign({}, slide, item, {
+          body: detailBody || slide.body,
           sourceUrl: detailSource || slide.sourceUrl,
           galleryItem: isGallery ? index + 1 : 0,
-          galleryTotal: isGallery ? detailMedia.length : 0,
+          galleryTotal: isGallery ? items.length : 0,
           needsEnrichment: false,
         }),
       );
@@ -831,6 +893,19 @@
       // Keep the visible thumbnail/link card and allow another attempt if the
       // user revisits this slide. Reddit may return a challenge or gated page.
       state.enrichments.delete(key);
+      // Swap the card in place: a render() would start another fetch at once.
+      const current = state.slides[state.index];
+      const loadingCard = mediaBox.querySelector(
+        ".redditp__link-card--loading",
+      );
+      if (
+        state.open &&
+        loadingCard &&
+        current &&
+        (current.postKey || current.commentsUrl) === key
+      ) {
+        loadingCard.replaceWith(linkCard(current, false, false));
+      }
     }
   }
 
@@ -1107,6 +1182,7 @@
 
   function stopMedia() {
     mediaBox.querySelectorAll("video").forEach((video) => {
+      releaseRedditDash(video);
       video.pause();
       const restore = state.nativeRestores.get(video);
       if (!restore) return;
@@ -1128,20 +1204,30 @@
     mediaBox.replaceChildren();
   }
 
-  function linkCard(slide, failed) {
+  // loading: the post page is being fetched for this card's real media or
+  // text, so say so instead of looking like a dead end.
+  function linkCard(slide, failed, loading) {
     const card = element("a", "redditp__link-card", "");
     card.href = slide.sourceUrl || slide.commentsUrl;
     card.target = "_blank";
     card.rel = "noopener noreferrer";
+    if (loading) {
+      card.classList.add("redditp__link-card--loading");
+      card.setAttribute("aria-busy", "true");
+    }
     card.append(
       element(
         "span",
         "redditp__link-icon",
         failed
           ? "Image unavailable"
-          : slide.body
-            ? "Text post"
-            : "Open linked post",
+          : loading
+            ? /^https:\/\/v\.redd\.it\//i.test(slide.sourceUrl || "")
+              ? "Loading video…"
+              : "Loading post…"
+            : slide.body
+              ? "Text post"
+              : "Open linked post",
       ),
       element("strong", "", slide.title),
     );
@@ -1177,6 +1263,43 @@
     slide.kind = "link";
     slide.adaptiveUpgrade = "failed";
     if (state.open && state.slides[state.index] === slide) render();
+  }
+
+  // v.redd.it serves video and audio as separate DASH tracks. Old Reddit
+  // already loads dash.js to join them, and page-bridge.js (running in the
+  // page's world) attaches it to our element. DOM events reach the bridge
+  // synchronously, so its answer is on the element when dispatchEvent returns.
+  function attachRedditDash(video, slide) {
+    video.setAttribute("data-redditp-mpd", slide.mpdUrl);
+    video.dispatchEvent(new Event("redditp:dash-attach", { bubbles: true }));
+    if (video.getAttribute("data-redditp-dash") !== "attached") return false;
+    video.addEventListener(
+      "redditp:dash-failed",
+      () => playVideoFallback(video, slide),
+      { once: true },
+    );
+    video.addEventListener("loadedmetadata", () => playVideo(video), {
+      once: true,
+    });
+    return true;
+  }
+
+  function releaseRedditDash(video) {
+    if (video.getAttribute("data-redditp-dash") !== "attached") return;
+    video.dispatchEvent(new Event("redditp:dash-reset", { bubbles: true }));
+    video.removeAttribute("data-redditp-dash");
+  }
+
+  function playVideoFallback(video, slide) {
+    if (video.parentNode !== mediaBox) return;
+    if (video.redditpPlayingFallback) {
+      showMediaFailure(video, slide);
+      return;
+    }
+    video.redditpPlayingFallback = true;
+    releaseRedditDash(video);
+    video.src = slide.url;
+    playVideo(video);
   }
 
   function showMediaFailure(mediaElement, slide) {
@@ -1311,7 +1434,6 @@
       mediaBox.append(img);
     } else if (slide.kind === "video") {
       const video = element("video", "redditp__video", "");
-      video.src = slide.url;
       video.poster = slide.poster || "";
       video.controls = true;
       video.playsInline = true;
@@ -1322,11 +1444,17 @@
       video.addEventListener("ended", () => {
         if (state.autoPlaying) move(1);
       });
-      video.addEventListener("error", () => showMediaFailure(video, slide), {
-        once: true,
+      video.addEventListener("error", () => {
+        // Changing src resets video.error, so an error queued by the attempt
+        // being replaced must not fail the fallback.
+        if (video.error) playVideoFallback(video, slide);
       });
       mediaBox.append(video);
-      playVideo(video);
+      if (!slide.mpdUrl || !attachRedditDash(video, slide)) {
+        video.redditpPlayingFallback = true;
+        video.src = slide.url;
+        playVideo(video);
+      }
     } else if (slide.kind === "pending-native-video") {
       if (slide.poster) {
         const poster = element("img", "redditp__image", "");
@@ -1386,7 +1514,13 @@
       state.embedKeepsOwnSound = !commandableEmbed();
       syncPresentationUi();
     } else {
-      mediaBox.append(linkCard(slide, false));
+      mediaBox.append(
+        linkCard(
+          slide,
+          false,
+          Boolean(slide.needsEnrichment && slide.commentsUrl),
+        ),
+      );
     }
     scheduleAuto();
     void enrichSlide(slide);
@@ -1567,6 +1701,9 @@
       slide.sourceUrl !== slide.commentsUrl
     )
       return slide.sourceUrl;
+    // A DASH video's url is only its fallback rendition; the post's
+    // v.redd.it link opens the whole video.
+    if (slide.mpdUrl && slide.sourceUrl) return slide.sourceUrl;
     return slide.url || slide.sourceUrl || slide.commentsUrl;
   }
 

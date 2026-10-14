@@ -45,6 +45,17 @@ async function showPresentation(tab) {
       target: { tabId: tab.id },
       files: ["presentation.css"],
     });
+    // Lends the page's own dash.js to v.redd.it slides. It is optional: without
+    // it those slides play a silent rendition, so never let it block startup.
+    try {
+      await api.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["page-bridge.js"],
+        world: "MAIN",
+      });
+    } catch (error) {
+      console.warn("redditp page bridge unavailable", error);
+    }
     await api.scripting.executeScript({
       target: { tabId: tab.id },
       files: ["content.js"],

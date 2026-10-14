@@ -520,6 +520,25 @@
   font-weight: 700;
 }
 
+#redditp-presentation .redditp__link-card--loading .redditp__link-icon {
+  animation: redditp-loading-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes redditp-loading-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #redditp-presentation .redditp__link-card--loading .redditp__link-icon {
+    animation: none;
+  }
+}
+
 @media (max-width: 600px) {
   #redditp-presentation .redditp__details,
   #redditp-presentation .redditp__controls {

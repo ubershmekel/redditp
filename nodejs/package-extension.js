@@ -18,6 +18,7 @@ const files = [
   "manifest.json",
   "background.js",
   "content.js",
+  "page-bridge.js",
   "auto-activate.js",
   "presentation.css",
   "favicon.png",

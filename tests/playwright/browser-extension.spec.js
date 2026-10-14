@@ -10,6 +10,10 @@ const extensionStyles = path.resolve(
   __dirname,
   "../../browser-extension/presentation.css",
 );
+const pageBridgeScript = path.resolve(
+  __dirname,
+  "../../browser-extension/page-bridge.js",
+);
 const autoActivateScript = path.resolve(
   __dirname,
   "../../browser-extension/auto-activate.js",
@@ -36,8 +40,54 @@ const staleVideoOverlayFixture = fs.readFileSync(
   "utf8",
 );
 
-async function startPresentation(page, html) {
+// Stands in for the dash.js that old Reddit loads for its own player, and
+// injects the bridge that lends it to the extension.
+async function installRedditDash(page, { failPlayback = false } = {}) {
+  await page.evaluate((fail) => {
+    window.__dashCalls = [];
+    window.__dashResets = 0;
+    const MediaPlayer = () => ({
+      create() {
+        const errorHandlers = [];
+        return {
+          on(type, handler) {
+            if (type === "error") errorHandlers.push(handler);
+          },
+          initialize(video, url, autoPlay) {
+            window.__dashCalls.push({ url, autoPlay });
+            if (fail) {
+              setTimeout(() => {
+                errorHandlers.forEach((handler) =>
+                  handler({ error: "download" }),
+                );
+              }, 50);
+            }
+          },
+          reset() {
+            window.__dashResets += 1;
+          },
+        };
+      },
+    });
+    MediaPlayer.events = { ERROR: "error" };
+    window.dashjs = { MediaPlayer };
+  }, failPlayback);
+  await page.addScriptTag({ path: pageBridgeScript });
+}
+
+async function canPlayHls(page) {
+  return page.evaluate(() =>
+    Boolean(
+      document
+        .createElement("video")
+        .canPlayType("application/vnd.apple.mpegurl"),
+    ),
+  );
+}
+
+async function startPresentation(page, html, setup) {
   await page.setContent(`<base href="https://www.reddit.com/">${html}`);
+  if (setup) await setup(page);
   await page.addStyleTag({ path: extensionStyles });
   await page.addScriptTag({ path: extensionScript });
 }
@@ -132,17 +182,22 @@ test("old Reddit combined-search cards upgrade their outbound media", async ({
 }) => {
   const postUrl =
     "https://old.reddit.com/r/LoveTrash/comments/oldvideo/nature/";
-  const videoUrl = "https://v.redd.it/oldvideo/DASH_96.mp4";
+  const hlsUrl = "https://v.redd.it/oldvideo/HLSPlaylist.m3u8?a=1&v=1&f=sd";
+  const seekPreviewUrl = "https://v.redd.it/oldvideo/DASH_96.mp4";
+  // A fetched old Reddit post page has no <video>: the player is only data
+  // attributes until Reddit's own script builds it.
   await page.route(postUrl, async (route) => {
     await route.fulfill({
       contentType: "text/html",
-      body: `<div class="thing link" data-fullname="t3_oldvideo" data-url="https://v.redd.it/oldvideo" data-permalink="/r/LoveTrash/comments/oldvideo/nature/" data-author="poster" data-subreddit="LoveTrash"><a class="title">Nature...</a><video src="${videoUrl}"></video></div>`,
+      body: `<div class="thing link" data-fullname="t3_oldvideo" data-url="https://v.redd.it/oldvideo" data-permalink="/r/LoveTrash/comments/oldvideo/nature/" data-author="poster" data-subreddit="LoveTrash"><a class="title">Nature...</a><div class="portrait" data-hls-url="${hlsUrl}" data-mpd-url="https://v.redd.it/oldvideo/DASHPlaylist.mpd?a=1&amp;v=1&amp;f=sd" data-seek-preview-url="${seekPreviewUrl}"></div></div>`,
     });
   });
-  await page.route(videoUrl, async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    await route.abort();
-  });
+  for (const url of [hlsUrl, seekPreviewUrl]) {
+    await page.route(url, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await route.abort();
+    });
+  }
   await startPresentation(
     page,
     `<div class="search-result search-result-link has-thumbnail" data-fullname="t3_oldvideo"><a class="thumbnail" href="${postUrl}"></a><a class="search-title" href="${postUrl}">Nature...</a><a class="search-comments" href="${postUrl}">193 comments</a><a class="author" href="https://old.reddit.com/user/poster">poster</a><a class="search-subreddit-link" href="https://old.reddit.com/r/LoveTrash/">r/LoveTrash</a><a class="search-link" href="https://v.redd.it/oldvideo">https://v.redd.it/oldvideo</a></div>`,
@@ -150,10 +205,138 @@ test("old Reddit combined-search cards upgrade their outbound media", async ({
 
   await expect(page.locator(".redditp__title")).toHaveText("Nature...");
   await expect(page.locator(".redditp__meta")).toContainText("r/LoveTrash");
+  // Without Reddit's dash.js the slide plays what the browser can by itself.
   await expect(page.locator(".redditp__video")).toHaveAttribute(
     "src",
-    videoUrl,
+    (await canPlayHls(page)) ? hlsUrl : seekPreviewUrl,
   );
+  await expect(
+    page.getByRole("link", { name: "media", exact: true }),
+  ).toHaveAttribute("href", "https://v.redd.it/oldvideo");
+});
+
+const oldRedditTextSearchCard = (postUrl) =>
+  `<div class="search-result search-result-link" data-fullname="t3_hills"><a class="search-title" href="${postUrl}">Norwegian method and hills</a><a class="search-comments" href="${postUrl}">12 comments</a><a class="author" href="https://old.reddit.com/user/runner">runner</a><a class="search-subreddit-link" href="https://old.reddit.com/r/NorwegianSinglesRun/">r/NorwegianSinglesRun</a></div>`;
+
+test("old Reddit search text posts show a loading card, then their fetched body", async ({
+  page,
+}) => {
+  const postUrl =
+    "https://old.reddit.com/r/NorwegianSinglesRun/comments/hills/norwegian_method_and_hills/";
+  let releasePost;
+  const postReleased = new Promise((resolve) => {
+    releasePost = resolve;
+  });
+  await page.route(postUrl, async (route) => {
+    await postReleased;
+    await route.fulfill({
+      contentType: "text/html",
+      body: `<div id="siteTable"><div class="thing link self" data-fullname="t3_hills" data-url="${postUrl}" data-permalink="/r/NorwegianSinglesRun/comments/hills/norwegian_method_and_hills/" data-author="runner" data-subreddit="NorwegianSinglesRun"><div class="entry"><a class="title" href="${postUrl}">Norwegian method and hills</a><div class="expando"><form class="usertext"><div class="usertext-body"><div class="md"><p>First paragraph about hills.</p><p>Second paragraph about thresholds.</p><ul><li>Tuesday</li><li>Saturday</li></ul></div></div></form></div></div></div></div><div class="commentarea"><div class="thing comment"><div class="usertext-body"><div class="md"><p>A comment reply.</p></div></div></div></div>`,
+    });
+  });
+  await startPresentation(page, oldRedditTextSearchCard(postUrl));
+
+  const card = page.locator(".redditp__link-card");
+  await expect(page.locator(".redditp__link-icon")).toHaveText("Loading post…");
+  await expect(card).toHaveAttribute("aria-busy", "true");
+
+  releasePost();
+  await expect(page.locator(".redditp__link-icon")).toHaveText("Text post");
+  await expect(card).not.toHaveAttribute("aria-busy", /./);
+  // The fetched page is never rendered, so paragraph breaks are rebuilt.
+  expect(await page.locator(".redditp__post-body").textContent()).toBe(
+    "First paragraph about hills.\n\nSecond paragraph about thresholds.\n\nTuesday\nSaturday",
+  );
+});
+
+test("a failed search enrichment clears the loading card", async ({ page }) => {
+  const postUrl =
+    "https://old.reddit.com/r/NorwegianSinglesRun/comments/hills/norwegian_method_and_hills/";
+  await page.route(postUrl, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.fulfill({ status: 500, body: "" });
+  });
+  await startPresentation(page, oldRedditTextSearchCard(postUrl));
+
+  await expect(page.locator(".redditp__link-icon")).toHaveText(
+    "Open linked post",
+  );
+  await expect(page.locator(".redditp__link-card")).not.toHaveAttribute(
+    "aria-busy",
+    /./,
+  );
+});
+
+const oldRedditVideoPosts = `
+  <div class="thing link" data-fullname="t3_dashvideo" data-url="https://v.redd.it/dashvideo" data-permalink="/r/videos/comments/dashvideo/concert/" data-author="fan" data-subreddit="videos">
+    <a class="title">Concert clip</a>
+    <div class="portrait" data-hls-url="https://v.redd.it/dashvideo/HLSPlaylist.m3u8" data-mpd-url="https://v.redd.it/dashvideo/DASHPlaylist.mpd?a=1&amp;v=1" data-seek-preview-url="https://v.redd.it/dashvideo/DASH_96.mp4"></div>
+  </div>
+  <div class="thing link" data-fullname="t3_story" data-url="https://example.com/story" data-author="bob" data-subreddit="news" data-permalink="/r/news/comments/story/after/">
+    <a class="title">Story after the video</a>
+  </div>
+`;
+
+test("old Reddit v.redd.it slides play their DASH tracks through Reddit's dash.js", async ({
+  page,
+}) => {
+  await startPresentation(page, oldRedditVideoPosts, (setupPage) =>
+    installRedditDash(setupPage),
+  );
+
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveAttribute("data-redditp-dash", "attached");
+  await expect(video).not.toHaveAttribute("src", /./);
+  expect(await page.evaluate(() => window.__dashCalls)).toEqual([
+    {
+      url: "https://v.redd.it/dashvideo/DASHPlaylist.mpd?a=1&v=1",
+      autoPlay: false,
+    },
+  ]);
+
+  // Leaving the slide must stop dash.js from buffering in the background.
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "Story after the video",
+  );
+  expect(await page.evaluate(() => window.__dashResets)).toBe(1);
+});
+
+test("old Reddit v.redd.it slides fall back when Reddit's dash.js fails", async ({
+  page,
+}) => {
+  const seekPreviewUrl = "https://v.redd.it/dashvideo/DASH_96.mp4";
+  await page.route(seekPreviewUrl, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await route.abort();
+  });
+  await startPresentation(page, oldRedditVideoPosts, (setupPage) =>
+    installRedditDash(setupPage, { failPlayback: true }),
+  );
+
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveAttribute(
+    "src",
+    (await canPlayHls(page))
+      ? "https://v.redd.it/dashvideo/HLSPlaylist.m3u8"
+      : seekPreviewUrl,
+  );
+  await expect(video).not.toHaveAttribute("data-redditp-dash", /./);
+  expect(await page.evaluate(() => window.__dashResets)).toBe(1);
+});
+
+test("a DASH_96 seek preview is not presented as the video", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `<shreddit-post id="t3_seekpreview" post-title="Seek preview only" post-type="video" content-href="https://v.redd.it/seekpreview" permalink="/r/test/comments/seekpreview/post/"><shreddit-player src="https://v.redd.it/seekpreview/HLSPlaylist.m3u8" preview="https://v.redd.it/seekpreview/DASH_96.mp4"></shreddit-player></shreddit-post>`,
+  );
+
+  await expect(page.locator(".redditp__title")).toHaveText("Seek preview only");
+  await expect(
+    page.locator(".redditp__media video[src*='DASH_96']"),
+  ).toHaveCount(0);
 });
 
 test("arrow keys still change slides after clicking native video controls", async ({

@@ -45,6 +45,8 @@
     "https://github.com/ubershmekel/redditp/blob/main/browser-extension/README.md";
   const DEFAULT_SETTINGS = {
     slideDurationSeconds: 6,
+    finishMediaOnce: true,
+    loopShortMedia: true,
     showDetails: true,
     showArrows: true,
     showClose: true,
@@ -58,6 +60,7 @@
     index: 0,
     autoTimer: null,
     autoPlaying: false,
+    mediaPlayback: null,
     loadingMore: false,
     advanceAfterLoad: false,
     loadRequest: 0,
@@ -1160,6 +1163,13 @@
     settingsTitle,
     settingsClose,
     durationLabel,
+    checkboxSetting("finishMediaOnce", "Let videos play at least once"),
+    checkboxSetting("loopShortMedia", "Loop short videos until the timer ends"),
+    element(
+      "p",
+      "redditp__setting-hint",
+      "Includes GIFs played as videos. Animated images and embedded players use the slide timer.",
+    ),
     checkboxSetting("showDetails", "Show the title panel"),
     checkboxSetting("showArrows", "Show previous and next arrows"),
     checkboxSetting(
@@ -1181,12 +1191,12 @@
   );
 
   function stopMedia() {
+    untrackMedia();
     mediaBox.querySelectorAll("video").forEach((video) => {
       releaseRedditDash(video);
       video.pause();
       const restore = state.nativeRestores.get(video);
       if (!restore) return;
-      video.removeEventListener("ended", restore.endedHandler);
       if (restore.className === null) video.removeAttribute("class");
       else video.setAttribute("class", restore.className);
       if (restore.style === null) video.removeAttribute("style");
@@ -1439,11 +1449,8 @@
       video.playsInline = true;
       video.autoplay = true;
       video.muted = !state.settings.sound;
-      video.loop = !state.autoPlaying;
       video.preload = "metadata";
-      video.addEventListener("ended", () => {
-        if (state.autoPlaying) move(1);
-      });
+      trackMedia(video);
       video.addEventListener("error", () => {
         // Changing src resets video.error, so an error queued by the attempt
         // being replaced must not fail the fallback.
@@ -1470,15 +1477,6 @@
     ) {
       const video = slide.nativeElement;
       const placeholder = document.createComment("redditp native video");
-      const endedHandler = () => {
-        if (
-          state.open &&
-          state.autoPlaying &&
-          state.slides[state.index]?.nativeElement === video
-        ) {
-          move(1);
-        }
-      };
       video.parentNode.insertBefore(placeholder, video);
       state.nativeRestores.set(video, {
         placeholder,
@@ -1488,7 +1486,6 @@
         muted: video.muted,
         loop: video.loop,
         autoplay: video.autoplay,
-        endedHandler,
       });
       video.className = "redditp__video";
       video.removeAttribute("style");
@@ -1496,8 +1493,7 @@
       video.playsInline = true;
       video.autoplay = true;
       video.muted = !state.settings.sound;
-      video.loop = !state.autoPlaying;
-      video.addEventListener("ended", endedHandler);
+      trackMedia(video);
       mediaBox.append(video);
       playVideo(video);
     } else if (slide.kind === "embed") {
@@ -1681,14 +1677,144 @@
     }
   }
 
-  function scheduleAuto() {
+  function syncMediaLoop() {
+    const playback = state.mediaPlayback;
+    if (!playback) return;
+    // Keep the first pass non-looping so its ended event can release a timer
+    // that expired during playback. Later loops may be cut off by the timer.
+    playback.video.loop =
+      !state.autoPlaying ||
+      (state.settings.loopShortMedia &&
+        (!state.settings.finishMediaOnce || playback.completed));
+  }
+
+  // The slide's video drives auto-advance through these listeners, so they
+  // are registered here, together with the playback they report on, and
+  // removed again by untrackMedia when the slide changes.
+  function trackMedia(video) {
+    const playback = {
+      video,
+      completed: false,
+      timerExpired: false,
+      lastTime: 0,
+      handlers: null,
+    };
+    const isCurrent = () => state.open && state.mediaPlayback === playback;
+    // Once the timer has run out, only ended would advance the slide. A video
+    // that stops short of its end gets one more slide timer instead.
+    const stopped = () => {
+      if (isCurrent() && playback.timerExpired && !state.autoTimer) {
+        armAutoTimer();
+      }
+    };
+    playback.handlers = {
+      ended: () => {
+        if (!isCurrent()) return;
+        playback.completed = true;
+        if (!state.autoPlaying) return;
+        if (playback.timerExpired || !state.settings.loopShortMedia) {
+          move(1);
+        } else {
+          syncMediaLoop();
+          video.currentTime = 0;
+          playVideo(video);
+        }
+      },
+      // A looping video never fires ended. Its wrap from the end back to the
+      // start still means the first pass has been watched.
+      timeupdate: () => {
+        if (!isCurrent()) return;
+        if (
+          video.loop &&
+          video.currentTime < playback.lastTime &&
+          video.duration - playback.lastTime < 1
+        ) {
+          playback.completed = true;
+        }
+        playback.lastTime = video.currentTime;
+      },
+      pause: stopped,
+      waiting: stopped,
+      stalled: stopped,
+      error: stopped,
+    };
+    Object.keys(playback.handlers).forEach((type) => {
+      video.addEventListener(type, playback.handlers[type]);
+    });
+    state.mediaPlayback = playback;
+  }
+
+  function untrackMedia() {
+    const playback = state.mediaPlayback;
+    state.mediaPlayback = null;
+    if (!playback) return;
+    Object.keys(playback.handlers).forEach((type) => {
+      playback.video.removeEventListener(type, playback.handlers[type]);
+    });
+  }
+
+  function autoTimerFired() {
+    state.autoTimer = null;
+    const playback = state.mediaPlayback;
+    const video = playback?.video;
+    // Unknown, failed, blocked, or paused media must not trap auto-advance.
+    // Buffering gets the benefit of the doubt once, when the timer first runs
+    // out; a video still buffering a full slide timer later moves on.
+    if (
+      state.settings.finishMediaOnce &&
+      playback &&
+      !playback.completed &&
+      !state.slides[state.index]?.mediaFailed &&
+      Number.isFinite(video.duration) &&
+      video.duration > 0 &&
+      video.currentTime > 0 &&
+      !video.paused &&
+      !video.ended &&
+      !video.error &&
+      (!playback.timerExpired ||
+        video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA)
+    ) {
+      playback.timerExpired = true;
+      // A video already buffering fires no new waiting event, so check back.
+      if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+        armAutoTimer();
+      }
+      return;
+    }
+    move(1);
+  }
+
+  function armAutoTimer() {
     clearTimeout(state.autoTimer);
     state.autoTimer = null;
     if (state.autoPlaying && state.open && state.slides.length > 1) {
       state.autoTimer = setTimeout(
-        () => move(1),
+        autoTimerFired,
         state.settings.slideDurationSeconds * 1000,
       );
+    }
+  }
+
+  function scheduleAuto() {
+    if (state.mediaPlayback) state.mediaPlayback.timerExpired = false;
+    syncMediaLoop();
+    armAutoTimer();
+  }
+
+  // Playback preferences apply to the current video without restarting its
+  // slide timer.
+  function syncMediaPreferences() {
+    syncMediaLoop();
+    const playback = state.mediaPlayback;
+    // With finishing turned off, a timer that already ran out no longer
+    // holds the slide; give it one more slide timer rather than jumping away
+    // from the settings panel.
+    if (
+      playback?.timerExpired &&
+      !state.settings.finishMediaOnce &&
+      !state.autoTimer
+    ) {
+      armAutoTimer();
     }
   }
 
@@ -1737,14 +1863,15 @@
     // the current slide's timer. Only a new duration needs a fresh timer.
     syncPresentationUi();
     if (key === "slideDurationSeconds") scheduleAuto();
+    else if (key === "finishMediaOnce" || key === "loopShortMedia") {
+      syncMediaPreferences();
+    }
   }
 
   function toggleAuto() {
     state.autoPlaying = !state.autoPlaying;
     autoButton.textContent = state.autoPlaying ? "pause" : "auto";
     autoButton.setAttribute("aria-pressed", String(state.autoPlaying));
-    const video = mediaBox.querySelector("video");
-    if (video) video.loop = !state.autoPlaying;
     scheduleAuto();
   }
 

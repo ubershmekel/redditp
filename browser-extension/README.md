@@ -96,6 +96,16 @@ slideshow to close presentation mode. These preferences are saved by your
 browser and used the next time presentation mode opens. The **redditp** link
 opens this README on GitHub.
 
+Two video options are enabled by default: **Let videos play at least once** lets
+a playing video finish its first pass when it exceeds the slide timer; **Loop
+short videos until the timer ends** repeats shorter clips for the rest of that
+time. Turn looping off to advance as soon as a short clip ends. These options
+also cover GIFs served as videos (including Imgur GIFs). Plain animated images
+and embedded players use the timer because their playback timing is not
+available. Failed, paused, or blocked videos also fall back to the timer. A
+video that pauses, stalls, or fails after the timer has run out advances after
+one more slide timer.
+
 These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation
 mode is open.

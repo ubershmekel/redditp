@@ -1007,7 +1007,13 @@ test("the sound button commands a player that publishes a message protocol", asy
 
 test("YouTube embeds preserve the requested start time and send a referrer", async ({
   page,
+  context,
 }) => {
+  // The popup's first request belongs to the context. Verify its destination
+  // without depending on YouTube being reachable from the test machine.
+  await context.route("https://www.youtube.com/watch?**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "YouTube destination" }),
+  );
   await startPresentation(
     page,
     `
@@ -2074,6 +2080,8 @@ test("settings persist timing and visibility while compact controls stay reachab
   await page.getByLabel("Seconds per slide").press("Enter");
   await page.getByLabel("Show the title panel").uncheck();
   await page.getByLabel("Show previous and next arrows").uncheck();
+  await page.getByLabel("Let videos play at least once").uncheck();
+  await page.getByLabel("Loop short videos until the timer ends").uncheck();
   await page
     .getByLabel("Show the close button (press Esc instead when hidden)")
     .uncheck();
@@ -2128,6 +2136,8 @@ test("settings persist timing and visibility while compact controls stay reachab
   expect(saved.slideDurationSeconds).toBe(1);
   expect(saved.showControls).toBe(false);
   expect(saved.showClose).toBe(false);
+  expect(saved.finishMediaOnce).toBe(false);
+  expect(saved.loopShortMedia).toBe(false);
 
   await expect(page.locator(".redditp__controls")).toHaveClass(
     /redditp__controls--collapsed/,
@@ -2138,6 +2148,12 @@ test("settings persist timing and visibility while compact controls stay reachab
     .click();
   await expect(page.getByLabel("Seconds per slide")).toHaveValue("1");
   await expect(page.getByLabel("Show the title panel")).not.toBeChecked();
+  await expect(
+    page.getByLabel("Let videos play at least once"),
+  ).not.toBeChecked();
+  await expect(
+    page.getByLabel("Loop short videos until the timer ends"),
+  ).not.toBeChecked();
 
   await page
     .getByRole("button", { name: "Close presentation settings" })
@@ -2399,6 +2415,220 @@ test("P toggles the bottom controls and C opens comments", async ({ page }) => {
   );
   await expect(page.locator("#redditp-presentation")).toBeVisible();
 });
+
+for (const scenario of [
+  { name: "finishes a long first pass", duration: 20, waits: true },
+  {
+    name: "allows clicking next while waiting",
+    duration: 20,
+    waits: true,
+    skip: "mouse",
+  },
+  {
+    name: "allows swiping next while waiting",
+    duration: 20,
+    waits: true,
+    skip: "touch",
+  },
+  { name: "loops a short clip until the timer", duration: 2, short: true },
+  {
+    name: "advances after a short clip when looping is off",
+    duration: 2,
+    short: true,
+    loop: false,
+  },
+  {
+    name: "keeps the slide timer when playback settings change",
+    duration: 2,
+    short: true,
+    toggleMidway: true,
+  },
+  { name: "uses the timer when finishing is off", duration: 20, finish: false },
+  { name: "uses the timer for unknown duration", duration: NaN },
+  { name: "uses the timer for paused media", duration: 20, paused: true },
+  { name: "uses the timer for failed media", duration: 20, error: true },
+  {
+    name: "advances a video paused after the timer",
+    duration: 20,
+    waits: true,
+    stop: "pause",
+  },
+  {
+    name: "advances a video stalled after the timer",
+    duration: 20,
+    waits: true,
+    stop: "stall",
+  },
+  {
+    name: "advances a video that fails after the timer",
+    duration: 20,
+    waits: true,
+    stop: "error",
+  },
+  {
+    name: "keeps waiting when a paused video resumes",
+    duration: 20,
+    waits: true,
+    stop: "resume",
+  },
+  {
+    name: "advances when finishing is turned off while waiting",
+    duration: 20,
+    waits: true,
+    stop: "finish-off",
+  },
+  {
+    name: "counts a pass watched before auto starts",
+    duration: 20,
+    watchedInManual: true,
+  },
+]) {
+  test(`video auto-advance ${scenario.name}`, async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-10-16T12:00:00Z") });
+    await page.clock.pauseAt(new Date("2026-10-16T12:00:01Z"));
+    await startPresentation(
+      page,
+      `<div class="thing link" data-url="https://v.redd.it/adaptive" data-permalink="/r/videos/comments/one/clip/">
+        <a class="title">Clip</a><div id="native-player"><video id="timed-video" muted></video></div>
+      </div><div class="thing link" data-url="https://example.com/story"><a class="title">Next story</a></div>`,
+      async () => {
+        await page.evaluate(({ duration, paused, error }) => {
+          const video = document.querySelector("video");
+          video.src = URL.createObjectURL(
+            new Blob(["test"], { type: "video/mp4" }),
+          );
+          // Scenarios change these mid-slide through setMedia.
+          const media = (window.redditpTestMedia = {
+            paused: Boolean(paused),
+            readyState: 4,
+            error: error ? { code: 2 } : null,
+          });
+          Object.defineProperties(video, {
+            duration: { get: () => duration },
+            paused: { get: () => media.paused },
+            readyState: { get: () => media.readyState },
+            error: { get: () => media.error },
+            currentTime: { writable: true, value: 1 },
+          });
+          video.play = () => Promise.resolve();
+          video.pause = () => {};
+        }, scenario);
+      },
+    );
+    const setMedia = (changes, eventType) =>
+      page.evaluate(
+        ({ changes, eventType }) => {
+          Object.assign(window.redditpTestMedia, changes);
+          document
+            .querySelector(".redditp__video")
+            .dispatchEvent(new Event(eventType));
+        },
+        { changes, eventType },
+      );
+    const title = page.locator(".redditp__title");
+    const video = page.locator(".redditp__video");
+    const openSettings = page.getByRole("button", {
+      name: "Open presentation settings",
+    });
+    const closeSettings = page.getByRole("button", {
+      name: "Close presentation settings",
+    });
+    const finishBox = page.getByLabel("Let videos play at least once");
+    const loopBox = page.getByLabel("Loop short videos until the timer ends");
+    await expect(video).toBeVisible();
+    await openSettings.click();
+    await expect(finishBox).toBeChecked();
+    await expect(loopBox).toBeChecked();
+    if (scenario.finish === false) await finishBox.uncheck();
+    if (scenario.loop === false) await loopBox.uncheck();
+    await closeSettings.click();
+    if (scenario.watchedInManual) {
+      // Manual mode loops the video, so only its wrap to the start shows
+      // that the first pass is done.
+      await expect(video).toHaveJSProperty("loop", true);
+      await page.evaluate(() => {
+        const media = document.querySelector(".redditp__video");
+        media.currentTime = 19.8;
+        media.dispatchEvent(new Event("timeupdate"));
+        media.currentTime = 0.2;
+        media.dispatchEvent(new Event("timeupdate"));
+      });
+    }
+    await page.keyboard.press("a");
+    if (scenario.short) {
+      await page.clock.runFor(2000);
+      await video.dispatchEvent("ended");
+      if (scenario.loop === false) {
+        await expect(title).toHaveText("Next story");
+        return;
+      }
+      await expect(title).toHaveText("Clip");
+      await expect(video).toHaveJSProperty("loop", true);
+      if (scenario.toggleMidway) {
+        await openSettings.click();
+        await loopBox.uncheck();
+        await expect(video).toHaveJSProperty("loop", false);
+        await loopBox.check();
+        await closeSettings.click();
+        await expect(video).toHaveJSProperty("loop", true);
+      }
+      await page.clock.runFor(4100);
+    } else {
+      await page.clock.runFor(6100);
+    }
+    if (scenario.waits) {
+      await expect(title).toHaveText("Clip");
+      if (scenario.stop) {
+        if (scenario.stop === "pause") {
+          await setMedia({ paused: true }, "pause");
+        } else if (scenario.stop === "stall") {
+          await setMedia({ readyState: 2 }, "waiting");
+        } else if (scenario.stop === "error") {
+          await setMedia({ error: { code: 2 } }, "error");
+        } else if (scenario.stop === "resume") {
+          await setMedia({ paused: true }, "pause");
+          await setMedia({ paused: false }, "play");
+        } else {
+          await openSettings.click();
+          await finishBox.uncheck();
+          await closeSettings.click();
+        }
+        // A stop gets one more slide timer, not an immediate jump.
+        await expect(title).toHaveText("Clip");
+        await page.clock.runFor(6100);
+        if (scenario.stop === "resume") {
+          await expect(title).toHaveText("Clip");
+          await video.dispatchEvent("ended");
+        }
+      } else if (scenario.skip === "mouse") {
+        await page.locator(".redditp__next").click();
+      } else if (scenario.skip === "touch") {
+        const root = page.locator("#redditp-presentation");
+        await root.dispatchEvent("pointerdown", {
+          pointerId: 1,
+          pointerType: "touch",
+          clientX: 300,
+          clientY: 200,
+        });
+        await root.dispatchEvent("pointerup", {
+          pointerId: 1,
+          pointerType: "touch",
+          clientX: 100,
+          clientY: 200,
+        });
+      } else {
+        await video.dispatchEvent("ended");
+      }
+    }
+    await expect(title).toHaveText("Next story");
+    await expect(
+      page.locator("#native-player > #timed-video"),
+    ).toHaveJSProperty("loop", false);
+    // A restored video's events must not advance the new slide.
+    await page.locator("#timed-video").dispatchEvent("ended");
+    await expect(title).toHaveText("Next story");
+  });
+}
 
 test("auto-advance keeps moving when a video slide fails to load", async ({
   page,

@@ -400,6 +400,13 @@
   accent-color: #5dd;
 }
 
+#redditp-presentation .redditp__setting-hint {
+  margin: 0 12px 8px;
+  color: #bbb;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 #redditp-presentation .redditp__setting--duration {
   justify-content: space-between;
   margin-bottom: 8px;

@@ -1,0 +1,11 @@
+Presentation Mode for Reddit is a Safari extension that turns the Reddit page you already have open into a full-screen slideshow.
+
+Open a Reddit feed, subreddit, search result, or post in Safari, then choose Presentation Mode for Reddit from Safari's extensions menu. The extension reads the posts that are already on the page and presents them one at a time, with the title, community, and a link back to the comments.
+
+Swipe or tap the arrows to move between slides. Choose Auto to advance automatically, unmute video from the controls, and close the slideshow to return to Reddit. A settings panel lets you choose the slide duration and hide the title, arrows, or close button, or compact the bottom controls; these preferences are remembered. On a Mac or an iPad with a keyboard, use the arrow keys, M for sound, F for fullscreen, and Escape to close.
+
+You can also start the slideshow straight from a link: add redditp=1 to any Reddit address and the page opens in presentation mode by itself.
+
+After installing, turn the extension on in Settings > Apps > Safari > Extensions (on a Mac, Safari > Settings > Extensions) and allow it on reddit.com.
+
+The extension runs only on reddit.com, uses your existing Reddit session, and sends nothing anywhere else. It presents the posts your own Reddit account and settings already show you on the page.

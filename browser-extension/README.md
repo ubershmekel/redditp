@@ -77,8 +77,9 @@ there unless a hardware keyboard is attached to an iPad, and the `Alt+P` command
 is a Mac and desktop-browser feature. The `redditp=1` URL launch works once the
 extension is allowed on reddit.com. Swipe left or right to change slides.
 
-Distributing it beyond your own devices needs an Apple Developer account and an
-App Store (or TestFlight) submission of the generated app.
+Distributing it beyond your own devices goes through the App Store.
+`npm run ext:release` does that from a Mac with fastlane; see
+[Safari (App Store)](../README.md#safari-app-store) for the one-time setup.
 
 ## Use it
 

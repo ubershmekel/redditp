@@ -19,6 +19,7 @@
     "ext:package:safari": "node ./nodejs/package-extension.js safari",
     "ext:package:all": "node ./nodejs/package-extension.js all",
     "ext:safari": "node ./nodejs/safari-extension.js",
+    "ext:safari:metadata": "bundle exec fastlane ios metadata && bundle exec fastlane mac metadata",
     "ext:firefox:run": "npm run ext:package:firefox && web-ext run --source-dir build/firefox-extension",
     "ext:firefox:sign": "npm run ext:package:firefox && web-ext sign --source-dir build/firefox-extension --channel unlisted --artifacts-dir build",
     "ext:release": "node ./nodejs/release-extension.js",

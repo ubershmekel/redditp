@@ -2,6 +2,10 @@
 
 Paste these exact fields into the Web Store dashboard.
 
+The App Store (Safari) listing is not pasted anywhere: it lives in
+`fastlane/metadata` and is uploaded by the release. The rules below apply to it
+too.
+
 ## History, and what not to reintroduce
 
 Two rejections shaped this copy. Read this section before editing anything below

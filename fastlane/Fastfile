@@ -1,0 +1,179 @@
+# Ships the Safari build of browser-extension/ to the App Store, for iPhone and
+# iPad (`ios`) and for the Mac (`mac`), as one universal-purchase app.
+#
+#   bundle exec fastlane ios metadata   # listing text and screenshots only
+#   bundle exec fastlane ios upload     # build, upload, and update the listing
+#   bundle exec fastlane ios release    # the same, then submit for review
+#
+# Swap `ios` for `mac` for the Mac app. `npm run ext:release` runs the release
+# lane for both after the Chrome and Firefox stores.
+#
+# Credentials come from .env in the repo root or the environment:
+#   ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH   App Store Connect API key (.p8)
+#   APPLE_TEAM_ID                           signing team for the build lanes
+#
+# The listing lives in fastlane/metadata and fastlane/screenshots; edit it
+# there rather than in App Store Connect, or the next run overwrites the edit.
+
+require "json"
+require "shellwords"
+require "dotenv"
+
+FASTLANE_DIR = __dir__
+ROOT = File.expand_path("..", FASTLANE_DIR)
+APP_NAME = "Presentation Mode for Reddit"
+BUNDLE_ID = "com.redditp.presentation-mode"
+PROJECT_DIR = File.join(ROOT, "build", "safari-xcode")
+OUTPUT_DIR = File.join(ROOT, "build", "safari-release")
+
+# The same .env the store release script reads. Values already in the
+# environment win.
+Dotenv.load(File.join(ROOT, ".env"))
+
+opt_out_usage
+default_platform(:ios)
+
+# The App Store version follows the extension's own version, so all three
+# stores ship the same number.
+def extension_version
+  JSON.parse(File.read(File.join(ROOT, "browser-extension", "manifest.json")))["version"]
+end
+
+def require_env(*names)
+  missing = names.select { |name| ENV[name].to_s.strip.empty? }
+  UI.user_error!("Missing #{missing.join(', ')}. See .env.example.") unless missing.empty?
+end
+
+def api_key_path
+  File.expand_path(ENV["ASC_KEY_PATH"], ROOT)
+end
+
+def connect_api
+  require_env("ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_KEY_PATH")
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_filepath: api_key_path
+  )
+end
+
+# Regenerates the Xcode project from the current extension source. The project
+# is generated output under build/, never edited by hand.
+def generate_project
+  sh("node", File.join(ROOT, "nodejs", "safari-extension.js"))
+  project = Dir.glob(File.join(PROJECT_DIR, "**", "*.xcodeproj")).first
+  UI.user_error!("No Xcode project found under #{PROJECT_DIR}") unless project
+  project
+end
+
+def build_app_for(platform)
+  require_env("APPLE_TEAM_ID", "ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_KEY_PATH")
+  project = generate_project
+  # Automatic signing through the API key: Xcode creates or refreshes the
+  # certificates and profiles itself, so there is nothing to keep in sync by
+  # hand. The archive and the export each need the key.
+  signing = [
+    "-allowProvisioningUpdates",
+    "-authenticationKeyPath #{api_key_path.shellescape}",
+    "-authenticationKeyID #{ENV['ASC_KEY_ID']}",
+    "-authenticationKeyIssuerID #{ENV['ASC_ISSUER_ID']}"
+  ].join(" ")
+  # Build numbers must only ever grow for a given version. A UTC timestamp does
+  # that without asking App Store Connect for the last one.
+  build_number = Time.now.utc.strftime("%Y%m%d.%H%M")
+  settings = [
+    "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}",
+    "CODE_SIGN_STYLE=Automatic",
+    "MARKETING_VERSION=#{extension_version}",
+    "CURRENT_PROJECT_VERSION=#{build_number}"
+  ].join(" ")
+
+  build_app(
+    project: project,
+    scheme: "#{APP_NAME} (#{platform == :mac ? 'macOS' : 'iOS'})",
+    export_method: "app-store",
+    output_directory: OUTPUT_DIR,
+    output_name: "redditp-safari-#{platform}-v#{extension_version}",
+    clean: true,
+    xcargs: "#{signing} #{settings}",
+    export_xcargs: signing
+  )
+  # The Mac export is an installer package rather than an ipa.
+  if platform == :mac
+    lane_context[SharedValues::PKG_OUTPUT_PATH]
+  else
+    lane_context[SharedValues::IPA_OUTPUT_PATH]
+  end
+end
+
+def deliver_to(platform, binary: nil, submit: false)
+  deliver_platform = platform == :mac ? "osx" : "ios"
+  screenshots = File.join(FASTLANE_DIR, "screenshots", platform.to_s)
+  has_screenshots = !Dir.glob(File.join(screenshots, "**", "*.{png,jpg,jpeg}")).empty?
+
+  options = {
+    app_identifier: BUNDLE_ID,
+    platform: deliver_platform,
+    app_version: extension_version,
+    metadata_path: File.join(FASTLANE_DIR, "metadata"),
+    screenshots_path: screenshots,
+    # An empty screenshots folder would otherwise delete the live ones.
+    skip_screenshots: !has_screenshots,
+    overwrite_screenshots: has_screenshots,
+    skip_binary_upload: binary.nil?,
+    submit_for_review: submit,
+    automatic_release: true,
+    # Skips the HTML preview and its confirmation prompt.
+    force: true,
+    # The API key cannot read in-app purchases, and there are none.
+    precheck_include_in_app_purchases: false,
+    submission_information: {
+      add_id_info_uses_idfa: false,
+      export_compliance_uses_encryption: false
+    }
+  }
+  if binary
+    options[platform == :mac ? :pkg : :ipa] = binary
+  end
+  upload_to_app_store(options)
+end
+
+platform :ios do
+  desc "Update the iPhone and iPad listing text and screenshots"
+  lane :metadata do
+    connect_api
+    deliver_to(:ios)
+  end
+
+  desc "Build and upload the iPhone and iPad app, and update the listing"
+  lane :upload do
+    connect_api
+    deliver_to(:ios, binary: build_app_for(:ios))
+  end
+
+  desc "Build, upload, and submit the iPhone and iPad app for review"
+  lane :release do
+    connect_api
+    deliver_to(:ios, binary: build_app_for(:ios), submit: true)
+  end
+end
+
+platform :mac do
+  desc "Update the Mac listing text and screenshots"
+  lane :metadata do
+    connect_api
+    deliver_to(:mac)
+  end
+
+  desc "Build and upload the Mac app, and update the listing"
+  lane :upload do
+    connect_api
+    deliver_to(:mac, binary: build_app_for(:mac))
+  end
+
+  desc "Build, upload, and submit the Mac app for review"
+  lane :release do
+    connect_api
+    deliver_to(:mac, binary: build_app_for(:mac), submit: true)
+  end
+end

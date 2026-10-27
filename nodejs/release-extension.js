@@ -3,11 +3,13 @@
 //
 // Bumps browser-extension/manifest.json, packages both zips, uploads and
 // publishes the Chrome zip on the Web Store (publishing means "enters review"),
-// and submits the Firefox zip to AMO's listed channel. Then commits and tags.
+// and submits the Firefox zip to AMO's listed channel. On macOS it also builds
+// the Safari app and submits it to the App Store for iOS and Mac through
+// fastlane (see fastlane/Fastfile). Then commits and tags.
 //
 // Usage:
 //   node nodejs/release-extension.js [patch|minor|major|<x.y.z>] [--dry-run]
-//     [--skip-chrome] [--skip-firefox] [--no-git] [--restart]
+//     [--skip-chrome] [--skip-firefox] [--skip-safari] [--no-git] [--restart]
 //
 // The bump defaults to patch. --dry-run packages for real, prints a full review
 // of what would be shipped, and restores the manifest.
@@ -22,6 +24,7 @@
 //   CHROME_EXTENSION_ID CHROME_CLIENT_ID                 (Chrome Web Store API)
 //   CHROME_CLIENT_SECRET CHROME_REFRESH_TOKEN
 //   FIREFOX_JWT_ISSUER FIREFOX_JWT_SECRET                (AMO, from the dev hub)
+//   ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH APPLE_TEAM_ID  (App Store Connect)
 
 const fs = require("fs");
 const path = require("path");
@@ -42,6 +45,10 @@ const bumpArg = args.find((a) => !a.startsWith("--")) || "patch";
 const dryRun = flags.has("--dry-run");
 const doChrome = !flags.has("--skip-chrome");
 const doFirefox = !flags.has("--skip-firefox");
+// Building the Safari app needs Xcode, so it only runs from a Mac. Elsewhere it
+// is skipped with a note rather than failing the Chrome and Firefox release.
+const safariWanted = !flags.has("--skip-safari");
+const doSafari = safariWanted && process.platform === "darwin";
 const doGit = !flags.has("--no-git");
 const restart = flags.has("--restart");
 
@@ -51,6 +58,7 @@ for (const flag of flags) {
       "--dry-run",
       "--skip-chrome",
       "--skip-firefox",
+      "--skip-safari",
       "--no-git",
       "--restart",
     ].includes(flag)
@@ -89,6 +97,13 @@ if (doChrome && !dryRun) {
 if (doFirefox && !dryRun) {
   missing.push(
     ...["FIREFOX_JWT_ISSUER", "FIREFOX_JWT_SECRET"].filter(
+      (k) => !process.env[k],
+    ),
+  );
+}
+if (doSafari && !dryRun) {
+  missing.push(
+    ...["ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_KEY_PATH", "APPLE_TEAM_ID"].filter(
       (k) => !process.env[k],
     ),
   );
@@ -198,6 +213,26 @@ if (doFirefox) {
   );
 }
 
+if (doSafari) {
+  console.log("\n== App Store (Safari) ==");
+  // The lanes regenerate the Xcode project from the freshly bumped source, and
+  // deliver waits for Apple to process each build before submitting it.
+  for (const [id, platform, label] of [
+    ["safari-ios", "ios", "build and submit the iPhone and iPad app"],
+    ["safari-mac", "mac", "build and submit the Mac app"],
+  ]) {
+    step(id, label, () =>
+      run("bundle", ["exec", "fastlane", platform, "release"]),
+    );
+  }
+} else if (safariWanted) {
+  console.log(
+    "\n== App Store (Safari) ==\n  skipped   needs macOS with Xcode. Ship this" +
+      ` version from a Mac with: npm run ext:release -- ${version}` +
+      " --skip-chrome --skip-firefox",
+  );
+}
+
 const tag = `extension-v${version}`;
 
 // Only tag what actually shipped: a commit and tag for a version a store
@@ -241,10 +276,14 @@ if (failures.length) {
 }
 
 clearState();
+const stores = [
+  doChrome && "Chrome",
+  doFirefox && "Firefox",
+  doSafari && "App Store",
+].filter(Boolean);
 console.log(
-  `\nDone. v${version} submitted to ${
-    doChrome && doFirefox ? "both stores" : "the store"
-  } (pending review).`,
+  `\nDone. v${version} submitted to ${stores.join(", ") || "no store"}` +
+    " (pending review).",
 );
 if (doGit) console.log(`Push with: git push && git push origin ${tag}`);
 
@@ -306,6 +345,13 @@ function review(version) {
     line("Permissions:", (staged.permissions || []).join(", ") || "(none)");
     line("Hosts:", (staged.host_permissions || []).join(", ") || "(none)");
   }
+
+  console.log(
+    `\n  SAFARI${doSafari ? "" : safariWanted ? " (skipped: needs macOS)" : " (skipped)"}`,
+  );
+  line("Listing:", "bundle id in fastlane/Appfile (iOS and Mac)");
+  line("Publish:", "App Store review, released once approved");
+  line("Metadata:", "fastlane/metadata, fastlane/screenshots");
 }
 
 function git(gitArgs) {

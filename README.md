@@ -67,8 +67,35 @@ command resumes that same version and skips the finished steps, so a publish
 rejected for missing Privacy practices fields is fixed in the dashboard and then
 retried without re-uploading or burning a version number.
 
-Flags: `--skip-chrome`, `--skip-firefox`, `--no-git`, and `--restart` to abandon
-an unfinished version and bump a new one instead.
+Flags: `--skip-chrome`, `--skip-firefox`, `--skip-safari`, `--no-git`, and
+`--restart` to abandon an unfinished version and bump a new one instead.
+
+### Safari (App Store)
+
+Run from a Mac with Xcode, the same command also builds the Safari app and
+submits it to the App Store for iPhone, iPad, and Mac, using
+[fastlane](https://fastlane.tools) and an App Store Connect API key (the `ASC_*`
+and `APPLE_TEAM_ID` entries in `.env.example`). Elsewhere the Safari step is
+skipped with a note; ship that version later from a Mac with
+`npm run ext:release -- <version> --skip-chrome --skip-firefox`.
+
+The App Store listing is kept in the repo: text in `fastlane/metadata`,
+screenshots in `fastlane/screenshots/ios` and `fastlane/screenshots/mac`. Edit
+it there; each release overwrites App Store Connect with it. To push a listing
+change without shipping a build, run `npm run ext:safari:metadata`.
+
+One-time setup, which the API cannot do:
+
+1. `bundle install` (Ruby 3.x; macOS's built-in Ruby is too old).
+2. Create the app in App Store Connect with bundle id
+   `com.redditp.presentation-mode` for both iOS and macOS.
+3. Fill in App Privacy ("Data Not Collected"), the age rating, and the App
+   Review contact details; they persist across versions.
+4. Create an API key with the App Manager role and fill in `.env`.
+
+After the first version, put this release's notes in
+`fastlane/metadata/en-US/release_notes.txt`; App Store Connect requires "What's
+New" text for every update.
 
 ## Legacy website
 

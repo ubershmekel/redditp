@@ -3,7 +3,7 @@
 // Stages the shipped files first so nothing extra (README, editor cruft) ends
 // up in the upload.
 //
-// Usage: node nodejs/package-extension.js [chrome|firefox|all]
+// Usage: node nodejs/package-extension.js [chrome|firefox|safari|all]
 
 const fs = require("fs");
 const path = require("path");
@@ -53,6 +53,14 @@ const targets = {
       return patched;
     },
   },
+  // Safari loads the Chrome manifest as-is. The staged folder is the input for
+  // Apple's safari-web-extension-converter (see nodejs/safari-extension.js),
+  // which wraps it in the Xcode app that Safari on iOS and macOS requires.
+  safari: {
+    stageName: "safari-extension",
+    zipName: (version) => `redditp-extension-safari-v${version}.zip`,
+    patchManifest: (manifest) => manifest,
+  },
 };
 
 // release-extension.js reads targets/files to describe a build without redoing
@@ -69,7 +77,9 @@ function main() {
 
   for (const name of names) {
     if (!targets[name]) {
-      console.error(`Unknown target: ${name}. Use chrome, firefox, or all.`);
+      console.error(
+        `Unknown target: ${name}. Use chrome, firefox, safari, or all.`,
+      );
       process.exit(1);
     }
   }

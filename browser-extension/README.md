@@ -53,6 +53,33 @@ bump `version` in `manifest.json` before re-signing. The alternative to signing
 is Firefox Developer Edition, Nightly, or ESR, where setting
 `xpinstall.signatures.required` to `false` in `about:config` does work.
 
+### Safari on iPhone, iPad, and Mac
+
+Safari only installs web extensions that ship inside an app, so the Safari build
+is an Xcode project generated from this folder. It needs a Mac with Xcode:
+
+1. Run `npm run ext:safari`. It stages `build/safari-extension` and runs Apple's
+   `safari-web-extension-converter`, writing the project to
+   `build/safari-xcode`.
+2. Open the project in Xcode, choose the iOS or macOS scheme, set a signing
+   team, and run it on a device or simulator.
+3. On iPhone or iPad, open **Settings → Apps → Safari → Extensions**, turn on
+   **Presentation Mode for Reddit**, and allow it on reddit.com. On a Mac,
+   enable it in Safari's **Settings → Extensions**; if it is not listed, turn on
+   **Develop → Allow Unsigned Extensions**.
+
+The project references the staged files rather than copying them, so after
+changing this folder run `npm run ext:package:safari` and rebuild in Xcode.
+
+On iPhone and iPad, start presentation mode from the extensions menu in Safari's
+address bar (the puzzle-piece or **ᴀA** button). There is no keyboard shortcut
+there unless a hardware keyboard is attached to an iPad, and the `Alt+P` command
+is a Mac and desktop-browser feature. The `redditp=1` URL launch works once the
+extension is allowed on reddit.com. Swipe left or right to change slides.
+
+Distributing it beyond your own devices needs an Apple Developer account and an
+App Store (or TestFlight) submission of the generated app.
+
 ## Use it
 
 On an `old.reddit.com`, `www.reddit.com`, or other `reddit.com` listing page,
@@ -136,6 +163,10 @@ Shortcuts**.
   page scripts see them, so Firefox toggles playback itself rather than through
   redditp's handler. The visible behavior is the same, and Reddit's own click
   handler stays out of the way there too.
+- Safari on iPhone and iPad has no `commands` API, so `background.js` only
+  registers the `Alt+P` shortcut where it exists. Safari asks the user to allow
+  the extension on reddit.com, like Firefox; until then only the extensions menu
+  launch works.
 - `background.js` and `auto-activate.js` resolve `globalThis.browser || chrome`
   because Firefox's `chrome` alias is callback-based while `browser` returns
   promises. Keep new background code on that `api` handle.
@@ -201,7 +232,9 @@ new runtime file there as well as to `manifest.json`. It takes a target:
 - `npm run ext:package:firefox` — Firefox zip, with the MV3 event page
   (`background.scripts`), the AMO add-on id, and the data-collection declaration
   patched in
-- `npm run ext:package:all` — both
+- `npm run ext:package:safari` — Safari folder and zip, manifest used as-is; the
+  input for `npm run ext:safari`
+- `npm run ext:package:all` — all three
 
 `npm run ext:firefox:run` and `npm run ext:firefox:sign` build the Firefox
 target first, so they always run against fresh output.

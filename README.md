@@ -35,11 +35,12 @@ controls, supported page formats, and browser differences.
 The shared source lives in [`browser-extension/`](browser-extension/). In
 Chrome, load that folder as an unpacked extension. For Firefox, run
 `npm run ext:package:firefox` and load `build/firefox-extension/manifest.json`
-as a temporary add-on. See the
+as a temporary add-on. For Safari on iPhone, iPad, or Mac, run
+`npm run ext:safari` on a Mac with Xcode to generate the app project. See the
 [development installation instructions](browser-extension/README.md#install-for-development).
 
 - `npm install` — install development tools.
-- `npm run ext:package:all` — build both store packages.
+- `npm run ext:package:all` — build the Chrome, Firefox, and Safari packages.
 - `npm run test:all` — run unit and Playwright tests, including extension tests
   in Chromium and Firefox. Install the test browsers first with
   `npx playwright install chromium firefox`.

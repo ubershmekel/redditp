@@ -67,31 +67,39 @@ command resumes that same version and skips the finished steps, so a publish
 rejected for missing Privacy practices fields is fixed in the dashboard and then
 retried without re-uploading or burning a version number.
 
-Flags: `--skip-chrome`, `--skip-firefox`, `--skip-safari`, `--no-git`, and
-`--restart` to abandon an unfinished version and bump a new one instead.
+Flags: `--skip-chrome`, `--skip-firefox`, `--no-git`, and `--restart` to abandon
+an unfinished version and bump a new one instead.
 
 ### Safari (App Store)
 
-Run from a Mac with Xcode, the same command also builds the Safari app and
-submits it to the App Store for iPhone, iPad, and Mac, using
-[fastlane](https://fastlane.tools) and an App Store Connect API key (the `ASC_*`
-and `APPLE_TEAM_ID` entries in `.env.example`). Elsewhere the Safari step is
-skipped with a note; ship that version later from a Mac with
-`npm run ext:release -- <version> --skip-chrome --skip-firefox`.
+The Safari app ships from GitHub Actions, so no Mac is needed. Pushing the
+`extension-v*` tag that `npm run ext:release` creates runs
+[`.github/workflows/app-store.yml`](.github/workflows/app-store.yml), which
+builds the app on a macOS runner and submits it for iPhone, iPad, and Mac with
+[fastlane](https://fastlane.tools). The two platforms are separate jobs; re-run
+a failed one from the run's page.
 
 The App Store listing is kept in the repo: text in `fastlane/metadata`,
 screenshots in `fastlane/screenshots/ios` and `fastlane/screenshots/mac`. Edit
 it there; each release overwrites App Store Connect with it. To push a listing
-change without shipping a build, run `npm run ext:safari:metadata`.
+change without shipping a build, run the workflow by hand from the Actions tab
+with the `metadata` lane.
 
 One-time setup, which the API cannot do:
 
-1. `bundle install` (Ruby 3.x; macOS's built-in Ruby is too old).
-2. Create the app in App Store Connect with bundle id
+1. Create the app in App Store Connect with bundle id
    `com.redditp.presentation-mode` for both iOS and macOS.
-3. Fill in App Privacy ("Data Not Collected"), the age rating, and the App
+2. Fill in App Privacy ("Data Not Collected"), the age rating, and the App
    Review contact details; they persist across versions.
-4. Create an API key with the App Manager role and fill in `.env`.
+3. Create an App Store Connect API key (Users and Access → Integrations → App
+   Store Connect API) with the Admin role, which signing on a fresh runner
+   needs. Add these repository secrets: `APP_STORE_KEY_ID`,
+   `APP_STORE_ISSUER_ID`, `APP_STORE_KEY` (the whole `.p8` file), and
+   `APPLE_TEAM_ID` (Membership page at developer.apple.com).
+
+To run the lanes from a Mac instead, `bundle install` with Ruby 3 or newer
+(macOS's built-in Ruby is too old), fill the `APP_STORE_*` entries in `.env`,
+and run `bundle exec fastlane ios release` (or `mac`).
 
 After the first version, put this release's notes in
 `fastlane/metadata/en-US/release_notes.txt`; App Store Connect requires "What's

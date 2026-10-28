@@ -78,8 +78,9 @@ is a Mac and desktop-browser feature. The `redditp=1` URL launch works once the
 extension is allowed on reddit.com. Swipe left or right to change slides.
 
 Distributing it beyond your own devices goes through the App Store.
-`npm run ext:release` does that from a Mac with fastlane; see
-[Safari (App Store)](../README.md#safari-app-store) for the one-time setup.
+`npm run ext:release` tags the version, and pushing the tag builds and submits
+it from GitHub Actions; see [Safari (App Store)](../README.md#safari-app-store)
+for the one-time setup.
 
 ## Use it
 

@@ -5,12 +5,13 @@
 #   bundle exec fastlane ios upload     # build, upload, and update the listing
 #   bundle exec fastlane ios release    # the same, then submit for review
 #
-# Swap `ios` for `mac` for the Mac app. `npm run ext:release` runs the release
-# lane for both after the Chrome and Firefox stores.
+# Swap `ios` for `mac` for the Mac app. .github/workflows/app-store.yml runs the
+# release lane for both when `npm run ext:release` pushes a version tag.
 #
 # Credentials come from .env in the repo root or the environment:
-#   ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH   App Store Connect API key (.p8)
-#   APPLE_TEAM_ID                           signing team for the build lanes
+#   APP_STORE_KEY_ID APP_STORE_ISSUER_ID  App Store Connect API key
+#   APP_STORE_KEY_PATH                    its .p8 file
+#   APPLE_TEAM_ID                         signing team for the build lanes
 #
 # The listing lives in fastlane/metadata and fastlane/screenshots; edit it
 # there rather than in App Store Connect, or the next run overwrites the edit.
@@ -45,14 +46,14 @@ def require_env(*names)
 end
 
 def api_key_path
-  File.expand_path(ENV["ASC_KEY_PATH"], ROOT)
+  File.expand_path(ENV["APP_STORE_KEY_PATH"], ROOT)
 end
 
 def connect_api
-  require_env("ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_KEY_PATH")
+  require_env("APP_STORE_KEY_ID", "APP_STORE_ISSUER_ID", "APP_STORE_KEY_PATH")
   app_store_connect_api_key(
-    key_id: ENV["ASC_KEY_ID"],
-    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_id: ENV["APP_STORE_KEY_ID"],
+    issuer_id: ENV["APP_STORE_ISSUER_ID"],
     key_filepath: api_key_path
   )
 end
@@ -67,16 +68,19 @@ def generate_project
 end
 
 def build_app_for(platform)
-  require_env("APPLE_TEAM_ID", "ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_KEY_PATH")
+  require_env("APPLE_TEAM_ID", "APP_STORE_KEY_ID", "APP_STORE_ISSUER_ID", "APP_STORE_KEY_PATH")
   project = generate_project
+  # On a CI runner, a fresh temporary keychain for the signing certificate
+  # Xcode fetches; does nothing on a developer's Mac.
+  setup_ci
   # Automatic signing through the API key: Xcode creates or refreshes the
   # certificates and profiles itself, so there is nothing to keep in sync by
   # hand. The archive and the export each need the key.
   signing = [
     "-allowProvisioningUpdates",
     "-authenticationKeyPath #{api_key_path.shellescape}",
-    "-authenticationKeyID #{ENV['ASC_KEY_ID']}",
-    "-authenticationKeyIssuerID #{ENV['ASC_ISSUER_ID']}"
+    "-authenticationKeyID #{ENV['APP_STORE_KEY_ID']}",
+    "-authenticationKeyIssuerID #{ENV['APP_STORE_ISSUER_ID']}"
   ].join(" ")
   # Build numbers must only ever grow for a given version. A UTC timestamp does
   # that without asking App Store Connect for the last one.

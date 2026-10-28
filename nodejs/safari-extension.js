@@ -10,6 +10,7 @@
 // editing browser-extension/ run `npm run ext:package:safari` and rebuild in
 // Xcode; re-running this script regenerates the project from scratch.
 
+const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
@@ -50,6 +51,22 @@ execFileSync(
   ],
   { stdio: "inherit" },
 );
+
+// The converter scales the extension icon up to the 1024px iOS App Store icon
+// and keeps its alpha channel, which App Store Connect rejects (ITMS-90717).
+// A JPEG round trip flattens it; the Mac icons may keep their transparency.
+const iosIcon = path.join(
+  projectDir,
+  "Presentation Mode for Reddit",
+  "Shared (App)",
+  "Assets.xcassets",
+  "AppIcon.appiconset",
+  "universal-icon-1024@1x.png",
+);
+const flatIcon = `${iosIcon}.jpg`;
+execFileSync("sips", ["-s", "format", "jpeg", iosIcon, "--out", flatIcon]);
+execFileSync("sips", ["-s", "format", "png", flatIcon, "--out", iosIcon]);
+fs.rmSync(flatIcon);
 
 console.log(
   `\nXcode project written to ${path.relative(root, projectDir)}.` +

@@ -19,6 +19,7 @@
 require "json"
 require "shellwords"
 require "dotenv"
+require "xcodeproj"
 
 FASTLANE_DIR = __dir__
 ROOT = File.expand_path("..", FASTLANE_DIR)
@@ -64,7 +65,20 @@ def generate_project
   sh("node", File.join(ROOT, "nodejs", "safari-extension.js"))
   project = Dir.glob(File.join(PROJECT_DIR, "**", "*.xcodeproj")).first
   UI.user_error!("No Xcode project found under #{PROJECT_DIR}") unless project
+  share_app_schemes(project)
   project
+end
+
+# The converter writes no scheme files; Xcode invents schemes when the project
+# is opened, but build_app only finds shared ones on disk. Share one per app
+# target, named after it ("Presentation Mode for Reddit (iOS)").
+def share_app_schemes(project_path)
+  project = Xcodeproj::Project.open(project_path)
+  project.targets.select { |t| t.product_type == "com.apple.product-type.application" }.each do |target|
+    scheme = Xcodeproj::XCScheme.new
+    scheme.configure_with_targets(target, nil, launch_target: true)
+    scheme.save_as(project_path, target.name, true)
+  end
 end
 
 def build_app_for(platform)

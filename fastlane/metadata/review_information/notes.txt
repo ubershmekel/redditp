@@ -1,0 +1,11 @@
+This app contains a Safari web extension; the app itself only explains how to enable it.
+
+To test:
+1. Open Settings > Apps > Safari > Extensions, turn on Presentation Mode for Reddit, and allow it on reddit.com.
+2. In Safari, open an ordinary subreddit, for example https://www.reddit.com/r/pics/.
+3. Tap the extensions button in the address bar and choose Presentation Mode for Reddit.
+4. Swipe or tap the arrows to change slides; tap the close button to return to Reddit.
+
+Shortcut: opening https://www.reddit.com/r/pics/?redditp=1 starts the slideshow automatically once the extension is allowed on reddit.com.
+
+No account or login is required.

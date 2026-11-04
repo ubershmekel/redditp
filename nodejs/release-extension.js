@@ -4,6 +4,8 @@
 // Bumps browser-extension/manifest.json, packages both zips, uploads and
 // publishes the Chrome zip on the Web Store (publishing means "enters review"),
 // and submits the Firefox zip to AMO's listed channel. Then commits and tags.
+// Pushing that tag ships the Safari app to the App Store from GitHub Actions
+// (.github/workflows/app-store.yml), since building it needs a Mac.
 //
 // Usage:
 //   node nodejs/release-extension.js [patch|minor|major|<x.y.z>] [--dry-run]
@@ -241,12 +243,17 @@ if (failures.length) {
 }
 
 clearState();
+const stores = [doChrome && "Chrome", doFirefox && "Firefox"].filter(Boolean);
 console.log(
-  `\nDone. v${version} submitted to ${
-    doChrome && doFirefox ? "both stores" : "the store"
-  } (pending review).`,
+  `\nDone. v${version} submitted to ${stores.join(", ") || "no store"}` +
+    " (pending review).",
 );
-if (doGit) console.log(`Push with: git push && git push origin ${tag}`);
+if (doGit) {
+  console.log(
+    `Push with: git push && git push origin ${tag}\n` +
+      "The tag push submits the Safari app to the App Store from GitHub Actions.",
+  );
+}
 
 // Everything worth eyeballing before a real release: exact payloads, which
 // listings they land on, and the git state you would be shipping from.
@@ -306,6 +313,11 @@ function review(version) {
     line("Permissions:", (staged.permissions || []).join(", ") || "(none)");
     line("Hosts:", (staged.host_permissions || []).join(", ") || "(none)");
   }
+
+  console.log("\n  SAFARI (GitHub Actions, once the tag is pushed)");
+  line("Listing:", "bundle id in fastlane/Appfile (iOS and Mac)");
+  line("Publish:", "App Store review, released once approved");
+  line("Metadata:", "fastlane/metadata, fastlane/screenshots");
 }
 
 function git(gitArgs) {

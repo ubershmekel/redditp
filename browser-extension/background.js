@@ -73,11 +73,15 @@ async function showPresentation(tab) {
 
 api.action.onClicked.addListener(showPresentation);
 
-api.commands.onCommand.addListener(async (command) => {
-  if (command !== "open-presentation") return;
-  const tabs = await api.tabs.query({ active: true, currentWindow: true });
-  await showPresentation(tabs[0]);
-});
+// Safari on iPhone and iPad has no keyboard commands API. Registering against
+// it there would throw and leave the redditp=1 listener below unregistered.
+if (api.commands && api.commands.onCommand) {
+  api.commands.onCommand.addListener(async (command) => {
+    if (command !== "open-presentation") return;
+    const tabs = await api.tabs.query({ active: true, currentWindow: true });
+    await showPresentation(tabs[0]);
+  });
+}
 
 api.runtime.onMessage.addListener((message, sender) => {
   if (message?.type !== "activate-from-url" || !sender.tab) return;

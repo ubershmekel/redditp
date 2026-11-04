@@ -1,0 +1,2 @@
+# Shared by the iPhone, iPad, and Mac apps (one universal purchase).
+app_identifier("com.redditp.presentation-mode")

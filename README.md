@@ -35,11 +35,12 @@ controls, supported page formats, and browser differences.
 The shared source lives in [`browser-extension/`](browser-extension/). In
 Chrome, load that folder as an unpacked extension. For Firefox, run
 `npm run ext:package:firefox` and load `build/firefox-extension/manifest.json`
-as a temporary add-on. See the
+as a temporary add-on. For Safari on iPhone, iPad, or Mac, run
+`npm run ext:safari` on a Mac with Xcode to generate the app project. See the
 [development installation instructions](browser-extension/README.md#install-for-development).
 
 - `npm install` — install development tools.
-- `npm run ext:package:all` — build both store packages.
+- `npm run ext:package:all` — build the Chrome, Firefox, and Safari packages.
 - `npm run test:all` — run unit and Playwright tests, including extension tests
   in Chromium and Firefox. Install the test browsers first with
   `npx playwright install chromium firefox`.
@@ -68,6 +69,41 @@ retried without re-uploading or burning a version number.
 
 Flags: `--skip-chrome`, `--skip-firefox`, `--no-git`, and `--restart` to abandon
 an unfinished version and bump a new one instead.
+
+### Safari (App Store)
+
+The Safari app ships from GitHub Actions, so no Mac is needed. Pushing the
+`extension-v*` tag that `npm run ext:release` creates runs
+[`.github/workflows/app-store.yml`](.github/workflows/app-store.yml), which
+builds the app on a macOS runner and submits it for iPhone, iPad, and Mac with
+[fastlane](https://fastlane.tools). The two platforms are separate jobs; re-run
+a failed one from the run's page.
+
+The App Store listing is kept in the repo: text in `fastlane/metadata`,
+screenshots in `fastlane/screenshots/ios` and `fastlane/screenshots/mac`. Edit
+it there; each release overwrites App Store Connect with it. To push a listing
+change without shipping a build, run the workflow by hand from the Actions tab
+with the `metadata` lane.
+
+One-time setup, which the API cannot do:
+
+1. Create the app in App Store Connect with bundle id
+   `com.redditp.presentation-mode` for both iOS and macOS.
+2. Fill in App Privacy ("Data Not Collected"), the age rating, and the App
+   Review contact details; they persist across versions.
+3. Create an App Store Connect API key (Users and Access → Integrations → App
+   Store Connect API) with the Admin role, which signing on a fresh runner
+   needs. Add these repository secrets: `APP_STORE_KEY_ID`,
+   `APP_STORE_ISSUER_ID`, `APP_STORE_KEY` (the whole `.p8` file), and
+   `APPLE_TEAM_ID` (Membership page at developer.apple.com).
+
+To run the lanes from a Mac instead, `bundle install` with Ruby 3 or newer
+(macOS's built-in Ruby is too old), fill the `APP_STORE_*` entries in `.env`,
+and run `bundle exec fastlane ios release` (or `mac`).
+
+After the first version, put this release's notes in
+`fastlane/metadata/en-US/release_notes.txt`; App Store Connect requires "What's
+New" text for every update.
 
 ## Legacy website
 

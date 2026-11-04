@@ -89,7 +89,9 @@ def build_app_for(platform)
   setup_ci
   # Automatic signing through the API key: Xcode creates or refreshes the
   # certificates and profiles itself, so there is nothing to keep in sync by
-  # hand. The archive and the export each need the key.
+  # hand. build_app passes xcargs to the export as well as the archive, so the
+  # key reaches both; repeating it in export_xcargs makes xcodebuild refuse the
+  # duplicate options.
   signing = [
     "-allowProvisioningUpdates",
     "-authenticationKeyPath #{api_key_path.shellescape}",
@@ -113,8 +115,7 @@ def build_app_for(platform)
     output_directory: OUTPUT_DIR,
     output_name: "redditp-safari-#{platform}-v#{extension_version}",
     clean: true,
-    xcargs: "#{signing} #{settings}",
-    export_xcargs: signing
+    xcargs: "#{signing} #{settings}"
   )
   # The Mac export is an installer package rather than an ipa.
   if platform == :mac

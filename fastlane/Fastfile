@@ -20,6 +20,7 @@ require "json"
 require "shellwords"
 require "dotenv"
 require "xcodeproj"
+require "deliver"
 
 FASTLANE_DIR = __dir__
 ROOT = File.expand_path("..", FASTLANE_DIR)
@@ -34,6 +35,21 @@ Dotenv.load(File.join(ROOT, ".env"))
 
 opt_out_usage
 default_platform(:ios)
+
+# On a version's first upload, App Store Connect can answer "No data" when
+# deliver re-reads the review details it just created, only to look for review
+# attachments. There are none here, so skip that step instead of failing the
+# whole upload (fastlane/fastlane#20538).
+module SkipMissingReviewAttachments
+  def review_attachment_file(version)
+    super
+  rescue RuntimeError => error
+    raise unless error.message.include?("No data") && options[:app_review_attachment_file].nil?
+
+    UI.important("No review details on App Store Connect yet; skipping review attachments")
+  end
+end
+Deliver::UploadMetadata.prepend(SkipMissingReviewAttachments)
 
 # The App Store version follows the extension's own version, so all three
 # stores ship the same number.

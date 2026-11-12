@@ -1430,7 +1430,8 @@
   // What the helper accepts for a folder name and a file id.
   const SAVE_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
   const SAVE_POST_ID_RE = /^[a-z0-9]{1,16}$/i;
-  const SAVE_TIMEOUT_MS = 120000;
+  // A long video takes minutes to download; the helper has its own limits.
+  const SAVE_TIMEOUT_MS = 900000;
   const SAVE_MESSAGES = {
     saved: "Saved",
     already: "Already saved",

@@ -76,6 +76,89 @@ function openArchive(sub, tab) {
   return api.tabs.create(properties);
 }
 
+// Relay for "Save to gallery". Content scripts cannot call connectNative, so
+// they open a port named "media-sync" and send one request on it; this
+// forwards it to the native helper, hands every reply back, and turns a helper
+// that cannot be reached into { type: "error", code }. The archive page, an
+// extension page, goes through the same port.
+const MEDIA_SYNC_HOST = "com.edo.media_sync";
+const MEDIA_SYNC_PORT = "media-sync";
+
+function relayMediaSync(port) {
+  let native = null;
+  let finished = false;
+  const reply = (message) => {
+    try {
+      port.postMessage(message);
+    } catch (_error) {
+      // The page went away.
+    }
+  };
+
+  port.onMessage.addListener((request) => {
+    if (native || finished) return; // one request per port
+    if (typeof api.runtime.connectNative !== "function") {
+      finished = true;
+      reply({
+        type: "error",
+        code: "unavailable",
+        message: "native messaging is not available",
+      });
+      return;
+    }
+    try {
+      native = api.runtime.connectNative(MEDIA_SYNC_HOST);
+    } catch (error) {
+      finished = true;
+      reply({
+        type: "error",
+        code: "host_crashed",
+        message: String((error && error.message) || error),
+      });
+      return;
+    }
+    native.onMessage.addListener((message) => {
+      reply(message);
+      if (message && (message.type === "done" || message.type === "error")) {
+        finished = true;
+        native.disconnect();
+        try {
+          port.disconnect();
+        } catch (_error) {
+          // Already closed.
+        }
+      }
+    });
+    native.onDisconnect.addListener(() => {
+      if (finished) return;
+      finished = true;
+      // Chrome reports why in runtime.lastError, Firefox in the port's error.
+      const reason =
+        (api.runtime.lastError && api.runtime.lastError.message) ||
+        (native.error && native.error.message) ||
+        "";
+      let code = "host_crashed";
+      if (/not found/i.test(reason)) code = "host_missing";
+      else if (/forbidden/i.test(reason)) code = "host_forbidden";
+      reply({ type: "error", code, message: reason || "helper exited" });
+    });
+    native.postMessage(request);
+  });
+
+  port.onDisconnect.addListener(() => {
+    if (native && !finished) {
+      finished = true;
+      native.disconnect();
+    }
+  });
+}
+
+if (api.runtime.onConnect) {
+  api.runtime.onConnect.addListener((port) => {
+    if (port.name === MEDIA_SYNC_PORT) relayMediaSync(port);
+  });
+}
+
 api.action.onClicked.addListener(showPresentation);
 
 api.commands.onCommand.addListener(async (command) => {

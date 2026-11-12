@@ -1412,6 +1412,333 @@
   }
   // redditp-media-urls:end
 
+  // redditp-media-save:start
+  // Saving the current media to the local gallery: the message for the
+  // native helper (com.edo.media_sync, reached through background.js), which
+  // downloads the URL itself, and the short message for each of its replies.
+  // Like the blocks above, this stays DOM-free, so nodejs/test-embedit.js can
+  // evaluate it on its own, together with redditp-media-urls, which it reads.
+  const SAVE_PORT_NAME = "media-sync";
+  // The only hosts the helper downloads from.
+  const SAVE_HOSTS = [
+    "i.redd.it",
+    "v.redd.it",
+    "preview.redd.it",
+    "external-preview.redd.it",
+    "i.imgur.com",
+  ];
+  // What the helper accepts for a folder name and a file id.
+  const SAVE_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+  const SAVE_POST_ID_RE = /^[a-z0-9]{1,16}$/i;
+  const SAVE_TIMEOUT_MS = 120000;
+  const SAVE_MESSAGES = {
+    saved: "Saved",
+    already: "Already saved",
+    unsavable: "Can't save this one (not a direct image or video)",
+    noPost: "Can't save this one (no post id or subreddit)",
+    vault: "Mount the vault (V:) first",
+    helper: "Helper not installed — run install.ps1 in civitai-collector",
+    unavailable: "Saving to the gallery isn't available in this browser",
+  };
+
+  // The folder a post saves under: the subreddit as Reddit names it in a
+  // post's `subreddit` field. A profile post's community, u/name, is
+  // u_name there. "" when the community does not read as a valid name.
+  function saveDest(slide) {
+    let name = String(slide?.community || "").trim();
+    if (!name) {
+      const match = /\/r\/([^/]+)\/comments\//i.exec(slide?.commentsUrl || "");
+      name = match ? match[1] : "";
+    }
+    const profile = /^(?:u|user)\/(.+)$/i.exec(name);
+    name = profile ? `u_${profile[1]}` : name.replace(/^r\//i, "");
+    return SAVE_NAME_RE.test(name) ? name : "";
+  }
+
+  // The post's id, base36 with no t3_, from where the slide carries it: the
+  // archive's record, the post's key, or its comments address. "" if none
+  // reads as one.
+  function savePostId(slide) {
+    const candidates = [
+      slide?.archive?.id,
+      (/(?:^|_)t3_([a-z0-9]+)$/i.exec(slide?.postKey || "") || [])[1],
+      (/\/comments\/([a-z0-9]+)/i.exec(slide?.commentsUrl || "") || [])[1],
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && SAVE_POST_ID_RE.test(candidate)) {
+        return candidate;
+      }
+    }
+    return "";
+  }
+
+  // The direct media URL the helper should download for a slide, or "" when
+  // the slide is not a picture or video on an allowed host. A picture on
+  // preview.redd.it is saved from the upload it was made from, which is
+  // i.redd.it's file at full size. A video on v.redd.it must be the MP4 that
+  // the viewer plays, not a stream's playlist. Reddit serves a video and its
+  // sound as separate files, so such a video saves without sound.
+  function saveMediaUrl(slide) {
+    if (!slide || (slide.kind !== "image" && slide.kind !== "video")) return "";
+    // Older markup escapes & as &amp;.
+    const raw = String(slide.url || "").replace(/&amp;/g, "&");
+    let parsed;
+    try {
+      parsed = new URL(raw);
+    } catch (_error) {
+      return "";
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== "https:" || !SAVE_HOSTS.includes(host)) return "";
+    if (host === "v.redd.it" && !/\.mp4$/i.test(parsed.pathname)) return "";
+    const upload = redditUpload(parsed.href);
+    if (
+      slide.kind === "image" &&
+      upload &&
+      upload.host === "preview.redd.it" &&
+      /^(?:jpe?g|png|gif|webp)$/i.test(upload.extension)
+    ) {
+      return `https://i.redd.it/${upload.id}.${upload.extension}`;
+    }
+    return parsed.href;
+  }
+
+  // What the slide's page says of its post, for the fields a slide does not
+  // carry: { score, createdUtc, over18 }, each null when unknown. `get` reads
+  // an attribute of the post's element, or null. New Reddit's shreddit-post
+  // has score, created-timestamp (an ISO date) and nsfw; old Reddit has
+  // data-score, data-timestamp (milliseconds) and data-nsfw.
+  function saveFactsFromAttributes(get) {
+    const number = (value) => {
+      if (value === null || value === undefined || value === "") return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    let createdUtc = null;
+    const iso = get("created-timestamp");
+    const millis = number(get("data-timestamp"));
+    if (iso && Number.isFinite(Date.parse(iso))) {
+      createdUtc = Math.floor(Date.parse(iso) / 1000);
+    } else if (millis !== null) {
+      createdUtc = Math.floor(millis / 1000);
+    }
+    let over18 = null;
+    const nsfw = get("nsfw");
+    const dataNsfw = get("data-nsfw");
+    if (nsfw !== null && nsfw !== undefined) over18 = nsfw !== "false";
+    else if (dataNsfw === "true") over18 = true;
+    else if (dataNsfw === "false") over18 = false;
+    const score = number(get("score"));
+    return {
+      score: score !== null ? score : number(get("data-score")),
+      createdUtc,
+      over18,
+    };
+  }
+
+  // The helper's sync request for the media a slide shows, as
+  // { ok: true, request, itemId, mediaUrl } or { ok: false, reason } with
+  // reason "unsavable" (not a direct image or video on an allowed host) or
+  // "no-post" (no valid post id or subreddit folder). `facts` is
+  // saveFactsFromAttributes' answer, for a slide that does not carry its own.
+  function buildSaveRequest(slide, facts) {
+    const mediaUrl = saveMediaUrl(slide);
+    if (!mediaUrl) return { ok: false, reason: "unsavable" };
+    const dest = saveDest(slide);
+    const postId = savePostId(slide);
+    const gallery = Number(slide.galleryItem) > 0;
+    const itemId = gallery
+      ? `${postId}_${Math.floor(slide.galleryItem)}`
+      : postId;
+    if (!dest || !postId || !SAVE_NAME_RE.test(itemId)) {
+      return { ok: false, reason: "no-post" };
+    }
+    const archive = slide.archive || {};
+    const known = facts || {};
+    const finite = (value) =>
+      typeof value === "number" && Number.isFinite(value) ? value : null;
+    const pick = (first, second) => (first !== null ? first : second);
+    const permalink = /^https:\/\//i.test(slide.commentsUrl || "")
+      ? slide.commentsUrl
+      : `https://www.reddit.com/r/${dest}/comments/${postId}/`;
+    const author = String(slide.author || "")
+      .replace(/^u\//i, "")
+      .trim();
+    let over18 = null;
+    if (typeof archive.over18 === "boolean") over18 = archive.over18;
+    else if (typeof known.over18 === "boolean") over18 = known.over18;
+    const path = new URL(mediaUrl).pathname;
+    const isGif =
+      slide.fromGif === true ||
+      (slide.kind === "image" && /\.gif$/i.test(path));
+    let mediaType = "image";
+    if (isGif) mediaType = "gif";
+    else if (slide.kind === "video") mediaType = "video";
+    const galleryCount = gallery ? Math.floor(Number(slide.galleryTotal)) : 0;
+    const metadata = {
+      source: "reddit",
+      postId,
+      subreddit: dest,
+      title: String(slide.title == null ? "" : slide.title),
+      author: author || null,
+      permalink,
+      postUrl: /^https?:\/\//i.test(slide.sourceUrl || "")
+        ? slide.sourceUrl
+        : null,
+      createdUtc: pick(finite(archive.created), finite(known.createdUtc)),
+      score: pick(finite(archive.score), finite(known.score)),
+      over18,
+      mediaType,
+      galleryIndex: gallery ? Math.floor(slide.galleryItem) : null,
+      galleryCount: galleryCount > 0 ? galleryCount : null,
+      fileName: path.split("/").pop() || "",
+    };
+    return {
+      ok: true,
+      itemId,
+      mediaUrl,
+      request: {
+        op: "sync",
+        dest,
+        items: [{ id: itemId, url: mediaUrl, metadata }],
+      },
+    };
+  }
+
+  // A short reason out of a helper's message.
+  function saveShortReason(value) {
+    const text = String(value == null ? "" : value)
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) return "unknown error";
+    return text.length > 80 ? `${text.slice(0, 79)}…` : text;
+  }
+
+  // What one message from the helper settles about the one item sent, as
+  // { status: "saved" | "already" | "failed" | "vault" | "helper" |
+  // "unavailable", text }, or null for a message that settles nothing (a
+  // progress for another id, or an unknown message). The relay in
+  // background.js adds { type: "error", code } for a helper it cannot reach.
+  function saveOutcome(message, itemId) {
+    if (!message || typeof message !== "object") return null;
+    const failed = (reason) => ({
+      status: /vault not mounted/i.test(reason) ? "vault" : "failed",
+      text: /vault not mounted/i.test(reason)
+        ? SAVE_MESSAGES.vault
+        : `Save failed: ${saveShortReason(reason)}`,
+    });
+    if (message.type === "progress") {
+      if (itemId && message.id !== undefined && message.id !== itemId) {
+        return null;
+      }
+      if (message.status === "ok") {
+        return { status: "saved", text: SAVE_MESSAGES.saved };
+      }
+      if (message.status === "skipped") {
+        return { status: "already", text: SAVE_MESSAGES.already };
+      }
+      if (message.status === "failed") {
+        return failed(String(message.error || ""));
+      }
+      return null;
+    }
+    if (message.type === "done") {
+      if (Number(message.ok) > 0) {
+        return { status: "saved", text: SAVE_MESSAGES.saved };
+      }
+      if (Number(message.skipped) > 0) {
+        return { status: "already", text: SAVE_MESSAGES.already };
+      }
+      return failed("the helper saved nothing");
+    }
+    if (message.type === "error") {
+      if (
+        message.code === "host_missing" ||
+        message.code === "host_forbidden"
+      ) {
+        return { status: "helper", text: SAVE_MESSAGES.helper };
+      }
+      if (message.code === "unavailable") {
+        return { status: "unavailable", text: SAVE_MESSAGES.unavailable };
+      }
+      return failed(String(message.message || message.code || ""));
+    }
+    return null;
+  }
+
+  // Which items are being saved or are saved, for the life of the page. begin
+  // answers "go" once per item at a time, "pending" while its request is out
+  // (a second press of the key sends nothing), and "saved" after a save or an
+  // already-saved reply.
+  function createSaveTracker() {
+    const pending = new Set();
+    const saved = new Set();
+    return {
+      begin(itemId) {
+        if (saved.has(itemId)) return "saved";
+        if (pending.has(itemId)) return "pending";
+        pending.add(itemId);
+        return "go";
+      },
+      end(itemId, status) {
+        pending.delete(itemId);
+        if (status === "saved" || status === "already") saved.add(itemId);
+      },
+      isSaved: (itemId) => saved.has(itemId),
+      isPending: (itemId) => pending.has(itemId),
+    };
+  }
+
+  // Sends the request through the extension's relay and resolves, never
+  // rejecting, with the first outcome the replies settle. `runtime` is
+  // chrome.runtime: content scripts cannot reach a native helper themselves,
+  // so background.js holds the connection.
+  function sendSaveRequest(runtime, request, itemId, timeoutMs) {
+    return new Promise((resolve) => {
+      let port = null;
+      let settled = false;
+      let timer = null;
+      const closePort = () => {
+        try {
+          if (port) port.disconnect();
+        } catch (_error) {
+          // Already closed.
+        }
+      };
+      const settle = (outcome) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(outcome);
+      };
+      const fail = (reason) =>
+        settle({ status: "failed", text: `Save failed: ${reason}` });
+      timer = setTimeout(() => {
+        fail("no reply");
+        closePort();
+      }, timeoutMs || SAVE_TIMEOUT_MS);
+      try {
+        port = runtime.connect({ name: SAVE_PORT_NAME });
+        port.onMessage.addListener((message) => {
+          const outcome = saveOutcome(message, itemId);
+          if (outcome) settle(outcome);
+          if (
+            message &&
+            (message.type === "done" || message.type === "error")
+          ) {
+            closePort();
+          }
+        });
+        port.onDisconnect.addListener(() => fail("the helper stopped"));
+        port.postMessage(request);
+      } catch (_error) {
+        fail("the extension was reloaded");
+        closePort();
+      }
+    });
+  }
+  // redditp-media-save:end
+
   // redditp-grid-media:start
   // What a grid tile shows where a post's card or record leaves it short,
   // and what its loop plays: a still for a player whose card has no
@@ -2646,6 +2973,14 @@
     "redditp__button redditp__archive redditp__control-item",
     "archive",
   );
+  // Saves the media shown, or the grid tile last pointed at or focused, to
+  // the local gallery through the native helper (S).
+  const saveButton = element(
+    "button",
+    "redditp__button redditp__save redditp__control-item",
+    "save",
+  );
+  saveButton.title = "Save to the gallery (S)";
   const autoButton = element(
     "button",
     "redditp__button redditp__playback-control redditp__control-item",
@@ -2682,6 +3017,7 @@
     settingsButton.type =
     viewButton.type =
     archiveButton.type =
+    saveButton.type =
     autoButton.type =
     soundButton.type =
     nextButton.type =
@@ -2696,6 +3032,7 @@
     viewButton,
     mediaToggles,
     archiveButton,
+    saveButton,
     commentsLink,
     sourceLink,
     autoButton,
@@ -2826,6 +3163,10 @@
     ],
     [["Z"], "Undo hiding, while its message shows"],
     [["H"], "Browse this subreddit's archive (new tab)"],
+    [
+      ["S"],
+      "Save the media to the gallery (in the grid: the tile under the pointer, or else the focused tile)",
+    ],
     [["F"], "Toggle fullscreen (if available)"],
     [["M"], "Toggle video sound"],
     [["T"], "Show / hide the title panel"],
@@ -4501,6 +4842,7 @@
       : "Show every post in a grid (V)";
     syncMediaToggles();
     syncArchiveButton();
+    syncSaveButton();
     controls.classList.toggle(
       "redditp__controls--collapsed",
       !state.settings.showControls,
@@ -4589,6 +4931,91 @@
     } catch (_error) {
       // The extension was reloaded or removed since this page loaded.
     }
+  }
+
+  const saveTracker = createSaveTracker();
+  // The grid tile that was last pointed at or focused, which the Save button
+  // acts on, since clicking the button leaves neither.
+  let lastGridTile = null;
+
+  // The slide that S or the Save button acts on: the current slide in the
+  // slideshow (a gallery post's media shown, not the whole gallery); in the
+  // grid, what X acts on, and for the button, the tile last pointed at or
+  // focused.
+  function saveTarget(fromButton) {
+    const target = hideTarget();
+    if (target) return target.slide;
+    if (state.view !== "grid" || !fromButton) return null;
+    const tile =
+      lastGridTile && gridColumns.contains(lastGridTile) ? lastGridTile : null;
+    return (tile && gridTileInfo.get(tile)?.slide) || null;
+  }
+
+  // What the slide's own post element says of its score, date and rating,
+  // for a live Reddit page; the archive's slides carry theirs.
+  function saveFacts(slide) {
+    const node = slide.postNode;
+    if (!node || typeof node.getAttribute !== "function") return null;
+    return saveFactsFromAttributes((name) => node.getAttribute(name));
+  }
+
+  function canSaveHere() {
+    const runtime = extensionRuntime();
+    return Boolean(runtime && typeof runtime.connect === "function");
+  }
+
+  // The button names its state for the slide shown. It is hidden where there
+  // is no extension to relay to the helper, as on a page that loads the
+  // script by itself.
+  function syncSaveButton() {
+    saveButton.hidden = !canSaveHere();
+    const slide = state.view === "slideshow" ? state.slides[state.index] : null;
+    const built = slide ? buildSaveRequest(slide) : null;
+    const saved = Boolean(built?.ok && saveTracker.isSaved(built.itemId));
+    const saving = Boolean(built?.ok && saveTracker.isPending(built.itemId));
+    saveButton.textContent = saved ? "saved" : saving ? "saving…" : "save";
+    saveButton.setAttribute("aria-pressed", String(saved));
+    saveButton.classList.toggle("redditp__save--saved", saved);
+    saveButton.title = saved
+      ? "Saved to the gallery (S)"
+      : "Save to the gallery (S)";
+  }
+
+  // Saves a slide's media to the gallery and says how it went.
+  function saveSlide(slide) {
+    if (!slide) {
+      showToast("Point at a post, or focus it, to save it.");
+      return;
+    }
+    if (!canSaveHere()) {
+      showToast(SAVE_MESSAGES.unavailable);
+      return;
+    }
+    const built = buildSaveRequest(slide, saveFacts(slide));
+    if (!built.ok) {
+      showToast(
+        built.reason === "no-post"
+          ? SAVE_MESSAGES.noPost
+          : SAVE_MESSAGES.unsavable,
+      );
+      return;
+    }
+    const turn = saveTracker.begin(built.itemId);
+    if (turn === "saved") {
+      showToast(SAVE_MESSAGES.already);
+      return;
+    }
+    // A second press while the request is out sends nothing.
+    if (turn === "pending") return;
+    showToast("Saving…");
+    syncSaveButton();
+    sendSaveRequest(extensionRuntime(), built.request, built.itemId).then(
+      (outcome) => {
+        saveTracker.end(built.itemId, outcome.status);
+        showToast(outcome.text);
+        syncSaveButton();
+      },
+    );
   }
 
   // "loading more" shows where the viewer is waiting on the load: in the
@@ -6464,6 +6891,17 @@
       openArchive();
       return;
     }
+    if (event.key.toLowerCase() === "s") {
+      // An s typed into a field stays there; where saving is not available
+      // (no extension to ask), S passes through.
+      if (isTypingTarget(event) || !canSaveHere() || !state.slides.length) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      saveSlide(saveTarget(false));
+      return;
+    }
     if (state.view === "grid") {
       onGridKeyDown(event);
       return;
@@ -6520,6 +6958,16 @@
   }
 
   closeButton.addEventListener("click", close);
+  saveButton.addEventListener("click", () => saveSlide(saveTarget(true)));
+  const rememberGridTile = (event) => {
+    const tile =
+      typeof event.target.closest === "function"
+        ? event.target.closest(".redditp__tile")
+        : null;
+    if (tile) lastGridTile = tile;
+  };
+  gridColumns.addEventListener("pointerover", rememberGridTile);
+  gridColumns.addEventListener("focusin", rememberGridTile);
   settingsButton.addEventListener("click", openSettings);
   settingsClose.addEventListener("click", closeSettings);
   settingsOverlay.addEventListener("click", (event) => {

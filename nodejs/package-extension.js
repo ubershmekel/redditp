@@ -44,6 +44,12 @@ const targets = {
     patchManifest: (manifest) => {
       const patched = { ...manifest };
       patched.background = { scripts: ["background.js"] };
+      // "Save to gallery" talks to a native helper that is installed for the
+      // Chrome build only. Without the permission, the relay in background.js
+      // answers that saving is not available.
+      patched.permissions = (manifest.permissions || []).filter(
+        (name) => name !== "nativeMessaging",
+      );
       patched.browser_specific_settings = {
         gecko: {
           id: "presentation-mode@redditp.com",

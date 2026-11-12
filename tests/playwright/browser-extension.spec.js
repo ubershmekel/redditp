@@ -7446,3 +7446,113 @@ test("a grid whose new posts are all hidden stops after fifteen batches", async 
     "4 posts · 60 hidden",
   );
 });
+
+// Stands in for the extension's relay to the native helper: a port that
+// answers each request with an "ok" progress and then "done", after a short
+// delay, and records every request in window.__saveRequests. Nothing reaches
+// the real helper.
+function stubSaveRelay(page) {
+  return page.evaluate(() => {
+    window.__saveRequests = [];
+    window.chrome = {
+      runtime: {
+        sendMessage() {
+          return Promise.resolve();
+        },
+        connect() {
+          const messageListeners = [];
+          return {
+            onMessage: { addListener: (fn) => messageListeners.push(fn) },
+            onDisconnect: { addListener() {} },
+            disconnect() {},
+            postMessage(request) {
+              window.__saveRequests.push(request);
+              const id = request.items[0].id;
+              setTimeout(() => {
+                messageListeners.forEach((fn) =>
+                  fn({ type: "progress", id, status: "ok" }),
+                );
+                messageListeners.forEach((fn) =>
+                  fn({ type: "done", ok: 1, skipped: 0, failed: 0 }),
+                );
+              }, 50);
+            },
+          };
+        },
+      },
+    };
+  });
+}
+
+test("S saves the shown media once, marks it saved, and says when it cannot", async ({
+  page,
+}) => {
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/pics/",
+    gridImagePost(1) +
+      gridImagePost(2) +
+      `<div class="thing link" data-url="https://example.com/story" data-permalink="/r/pics/comments/linkpost/post/"><a class="title">A link</a></div>`,
+    {},
+  );
+  await stubSaveRelay(page);
+  await injectExtension(page);
+  const save = page.getByRole("button", { name: "save", exact: true });
+  const toast = page.locator(".redditp__toast-text");
+  await expect(save).toBeVisible();
+  await expect(save).toHaveAttribute("title", /\(S\)/);
+
+  // Two quick presses send one request.
+  await page.keyboard.press("s");
+  await page.keyboard.press("s");
+  await expect(toast).toHaveText("Saved");
+  const requests = () => page.evaluate(() => window.__saveRequests);
+  expect(await requests()).toHaveLength(1);
+  const request = (await requests())[0];
+  expect(request.op).toBe("sync");
+  expect(request.dest).toBe("pics");
+  expect(request.items[0].id).toBe("grid1");
+  expect(request.items[0].url).toBe("https://i.redd.it/grid-1.jpg");
+  expect(request.items[0].metadata.title).toBe("Post 1");
+  expect(request.items[0].metadata.mediaType).toBe("image");
+
+  // The slide shows as saved, and saving it again sends nothing.
+  await expect(
+    page.getByRole("button", { name: "saved", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("s");
+  await expect(toast).toHaveText("Already saved");
+  expect(await requests()).toHaveLength(1);
+
+  // Another slide is not marked, and a link post cannot be saved.
+  await page.keyboard.press("ArrowRight");
+  await expect(save).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("s");
+  await expect(toast).toHaveText(/Can't save this one/);
+  expect(await requests()).toHaveLength(1);
+
+  // In the grid the tile under the pointer is the one saved.
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await page.locator(".redditp__tile").nth(1).hover();
+  await page.keyboard.press("s");
+  await expect(toast).toHaveText("Saved");
+  expect((await requests())[1].items[0].id).toBe("grid2");
+});
+
+test("without an extension to ask there is no save button and S does nothing", async ({
+  page,
+}) => {
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/pics/",
+    gridImagePost(1),
+    {},
+  );
+  await injectExtension(page);
+  await expect(page.locator(".redditp__image")).toBeVisible();
+  await expect(page.locator(".redditp__save")).toBeHidden();
+  await page.keyboard.press("s");
+  await expect(page.locator(".redditp__toast-text")).toHaveText("");
+});

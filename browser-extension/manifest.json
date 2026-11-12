@@ -5,6 +5,7 @@
   "description": "Turn the Reddit page you are browsing into a media slideshow.",
   "permissions": [
     "activeTab",
+    "nativeMessaging",
     "scripting",
     "storage"
   ],

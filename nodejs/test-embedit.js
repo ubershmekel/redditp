@@ -3558,7 +3558,7 @@ suite("subreddit path parity", () => {
 // records what it is asked to do.
 // ---------------------------------------------------------------------------
 
-function loadBackground() {
+function loadBackground(options = {}) {
   const fs = require("fs");
   const path = require("path");
   const source = fs.readFileSync(
@@ -3584,6 +3584,8 @@ function loadBackground() {
     runtime: {
       getURL: (file) => "chrome-extension://test/" + file,
       onMessage: { addListener: (listener) => (listeners.message = listener) },
+      onConnect: { addListener: (listener) => (listeners.connect = listener) },
+      lastError: undefined,
     },
     scripting: {
       insertCSS: record("insertCSS"),
@@ -3594,10 +3596,33 @@ function loadBackground() {
       query: () => Promise.resolve([]),
     },
   };
+  if (options.connectNative) {
+    fakeApi.runtime.connectNative = options.connectNative;
+  }
   // With globalThis shadowed, globalThis.browser is undefined, so the script
   // takes the stand-in as chrome.
   new Function("chrome", "globalThis", source)(fakeApi, {});
-  return { calls, listeners };
+  return { calls, listeners, runtime: fakeApi.runtime };
+}
+
+// A stand-in for a runtime port: what each side posted, and a way to fire
+// the other side's events.
+function fakePort(name) {
+  const handlers = { message: [], disconnect: [] };
+  const port = {
+    name,
+    posted: [],
+    disconnected: false,
+    onMessage: { addListener: (fn) => handlers.message.push(fn) },
+    onDisconnect: { addListener: (fn) => handlers.disconnect.push(fn) },
+    postMessage: (message) => port.posted.push(message),
+    disconnect: () => {
+      port.disconnected = true;
+    },
+    emit: (message) => handlers.message.forEach((fn) => fn(message)),
+    drop: () => handlers.disconnect.forEach((fn) => fn()),
+  };
+  return port;
 }
 
 suite("browser-extension background messages", () => {
@@ -5255,6 +5280,7 @@ suite("browser-extension archive media", () => {
       id: "kgl8vc",
       created: archiveFixture.kgl8vc.created_utc,
       score: archiveFixture.kgl8vc.score,
+      over18: false,
     });
     const deleted = media.postSlides({ ...record, author: "[deleted]" }, urls);
     assert.strictEqual(deleted.slides[0].author, "");
@@ -5959,6 +5985,582 @@ suite("browser-extension archive format", () => {
     assert.strictEqual(format.pullProgress({ ...record, earliest: 0 }), null);
     assert.strictEqual(format.pullProgress({ ...record, top: 0 }), null);
     assert.strictEqual(format.pullProgress(null), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Save to gallery (browser-extension/content.js, background.js)
+// ---------------------------------------------------------------------------
+
+suite("browser-extension save to gallery", () => {
+  const save = loadContentScriptBlock(
+    ["redditp-media-urls", "redditp-media-save"],
+    [
+      "SAVE_HOSTS",
+      "SAVE_MESSAGES",
+      "saveDest",
+      "savePostId",
+      "saveMediaUrl",
+      "saveFactsFromAttributes",
+      "buildSaveRequest",
+      "saveOutcome",
+      "createSaveTracker",
+      "sendSaveRequest",
+    ],
+  );
+
+  function slide(overrides) {
+    return {
+      kind: "image",
+      url: "https://i.redd.it/abc123.jpg",
+      title: "A cat",
+      author: "u/someone",
+      community: "r/aww",
+      commentsUrl: "https://www.reddit.com/r/aww/comments/1abc2d/a_cat/",
+      sourceUrl: "https://i.redd.it/abc123.jpg",
+      postKey: "t3_1abc2d",
+      fromGif: false,
+      galleryItem: 0,
+      galleryTotal: 0,
+      ...overrides,
+    };
+  }
+
+  test("save helpers could be loaded", () => {
+    assert.ok(
+      save,
+      "did not find the redditp-media-save markers in content.js",
+    );
+  });
+
+  test("an i.redd.it picture saves as itself with every metadata key", () => {
+    assert.ok(save, "save helpers not loaded");
+    const built = save.buildSaveRequest(slide(), {
+      score: 12,
+      createdUtc: 1700000000,
+      over18: false,
+    });
+    assert.strictEqual(built.ok, true);
+    assert.strictEqual(built.itemId, "1abc2d");
+    assert.deepStrictEqual(built.request, {
+      op: "sync",
+      dest: "aww",
+      items: [
+        {
+          id: "1abc2d",
+          url: "https://i.redd.it/abc123.jpg",
+          metadata: {
+            source: "reddit",
+            postId: "1abc2d",
+            subreddit: "aww",
+            title: "A cat",
+            author: "someone",
+            permalink: "https://www.reddit.com/r/aww/comments/1abc2d/a_cat/",
+            postUrl: "https://i.redd.it/abc123.jpg",
+            createdUtc: 1700000000,
+            score: 12,
+            over18: false,
+            mediaType: "image",
+            galleryIndex: null,
+            galleryCount: null,
+            fileName: "abc123.jpg",
+          },
+        },
+      ],
+    });
+  });
+
+  test("unknown facts are null and every key is still present", () => {
+    assert.ok(save, "save helpers not loaded");
+    const built = save.buildSaveRequest(slide({ author: "", sourceUrl: "" }));
+    const metadata = built.request.items[0].metadata;
+    assert.strictEqual(Object.keys(metadata).length, 14);
+    assert.strictEqual(metadata.author, null);
+    assert.strictEqual(metadata.postUrl, null);
+    assert.strictEqual(metadata.createdUtc, null);
+    assert.strictEqual(metadata.score, null);
+    assert.strictEqual(metadata.over18, null);
+  });
+
+  test("an archive slide's own score, date and rating win", () => {
+    assert.ok(save, "save helpers not loaded");
+    const built = save.buildSaveRequest(
+      slide({
+        postKey: "",
+        commentsUrl: "",
+        archive: { id: "9xyz", created: 1600000000, score: 5, over18: true },
+      }),
+      { score: 99, createdUtc: 1, over18: false },
+    );
+    const metadata = built.request.items[0].metadata;
+    assert.strictEqual(built.itemId, "9xyz");
+    assert.strictEqual(metadata.createdUtc, 1600000000);
+    assert.strictEqual(metadata.score, 5);
+    assert.strictEqual(metadata.over18, true);
+    // No comments address to carry: the permalink is built.
+    assert.strictEqual(
+      metadata.permalink,
+      "https://www.reddit.com/r/aww/comments/9xyz/",
+    );
+  });
+
+  test("a gallery post saves the media shown, with a numbered id", () => {
+    assert.ok(save, "save helpers not loaded");
+    const built = save.buildSaveRequest(
+      slide({ galleryItem: 2, galleryTotal: 3 }),
+    );
+    assert.strictEqual(built.itemId, "1abc2d_2");
+    const item = built.request.items[0];
+    assert.strictEqual(item.id, "1abc2d_2");
+    assert.strictEqual(item.metadata.postId, "1abc2d");
+    assert.strictEqual(item.metadata.galleryIndex, 2);
+    assert.strictEqual(item.metadata.galleryCount, 3);
+  });
+
+  test("&amp; in a preview.redd.it URL is decoded", () => {
+    assert.ok(save, "save helpers not loaded");
+    // A video keeps the preview host and its query.
+    assert.strictEqual(
+      save.saveMediaUrl(
+        slide({
+          kind: "video",
+          url: "https://preview.redd.it/abc123.gif?format=mp4&amp;s=sig",
+          fromGif: true,
+        }),
+      ),
+      "https://preview.redd.it/abc123.gif?format=mp4&s=sig",
+    );
+    assert.strictEqual(
+      save.saveMediaUrl(
+        slide({
+          url: "https://external-preview.redd.it/x.jpg?width=640&amp;s=sig",
+        }),
+      ),
+      "https://external-preview.redd.it/x.jpg?width=640&s=sig",
+    );
+  });
+
+  test("a picture on preview.redd.it saves from the upload on i.redd.it", () => {
+    assert.ok(save, "save helpers not loaded");
+    assert.strictEqual(
+      save.saveMediaUrl(
+        slide({
+          url: "https://preview.redd.it/a-cat-v0-abc123.jpg?width=640&amp;format=pjpg&amp;s=sig",
+        }),
+      ),
+      "https://i.redd.it/abc123.jpg",
+    );
+  });
+
+  test("v.redd.it saves the fallback MP4, never a playlist", () => {
+    assert.ok(save, "save helpers not loaded");
+    assert.strictEqual(
+      save.saveMediaUrl(
+        slide({
+          kind: "video",
+          url: "https://v.redd.it/vid1/DASH_720.mp4?source=fallback",
+        }),
+      ),
+      "https://v.redd.it/vid1/DASH_720.mp4?source=fallback",
+    );
+    assert.strictEqual(
+      save.saveMediaUrl(
+        slide({
+          kind: "video",
+          url: "https://v.redd.it/vid1/HLSPlaylist.m3u8",
+        }),
+      ),
+      "",
+    );
+    const built = save.buildSaveRequest(
+      slide({
+        kind: "video",
+        url: "https://v.redd.it/vid1/DASH_720.mp4?source=fallback",
+      }),
+    );
+    assert.strictEqual(built.request.items[0].metadata.mediaType, "video");
+    assert.strictEqual(
+      built.request.items[0].metadata.fileName,
+      "DASH_720.mp4",
+    );
+  });
+
+  test("a GIF is typed gif, whether a .gif picture or a converted video", () => {
+    assert.ok(save, "save helpers not loaded");
+    const picture = save.buildSaveRequest(
+      slide({ url: "https://i.redd.it/loop1.gif" }),
+    );
+    assert.strictEqual(picture.request.items[0].metadata.mediaType, "gif");
+    const video = save.buildSaveRequest(
+      slide({
+        kind: "video",
+        url: "https://i.imgur.com/loop2.mp4",
+        fromGif: true,
+      }),
+    );
+    assert.strictEqual(video.request.items[0].metadata.mediaType, "gif");
+  });
+
+  test("hosts off the list, embeds, links and plain http are not savable", () => {
+    assert.ok(save, "save helpers not loaded");
+    [
+      slide({ url: "https://example.com/a.jpg" }),
+      slide({ url: "https://i.redd.it.example.com/a.jpg" }),
+      slide({ url: "http://i.redd.it/a.jpg" }),
+      slide({ url: "not a url" }),
+      slide({ url: "" }),
+      slide({ kind: "embed", url: "https://www.youtube.com/embed/abc" }),
+      slide({ kind: "link", url: "https://i.redd.it/a.jpg" }),
+      slide({ kind: "native-video", url: "https://i.redd.it/a.jpg" }),
+    ].forEach((candidate) => {
+      assert.deepStrictEqual(
+        save.buildSaveRequest(candidate),
+        { ok: false, reason: "unsavable" },
+        candidate.url + candidate.kind,
+      );
+    });
+    save.SAVE_HOSTS.forEach((host) => {
+      const url = host === "v.redd.it" ? "/v/DASH_1.mp4" : "/a.jpg";
+      assert.ok(
+        save.saveMediaUrl(slide({ url: `https://${host}${url}` })),
+        host,
+      );
+    });
+  });
+
+  test("a subreddit name the helper would refuse is not sent", () => {
+    assert.ok(save, "save helpers not loaded");
+    [
+      "r/bad name",
+      "r/a/b",
+      "r/..",
+      `r/${"a".repeat(65)}`,
+      "r/pics.new",
+    ].forEach((community) => {
+      assert.deepStrictEqual(
+        save.buildSaveRequest(slide({ community, commentsUrl: "" })),
+        { ok: false, reason: "no-post" },
+        community,
+      );
+    });
+    assert.strictEqual(save.saveDest(slide({ community: "r/pics" })), "pics");
+    assert.strictEqual(save.saveDest(slide({ community: "pics" })), "pics");
+    assert.strictEqual(
+      save.saveDest(slide({ community: "u/someone" })),
+      "u_someone",
+    );
+    assert.strictEqual(
+      save.saveDest(
+        slide({
+          community: "",
+          commentsUrl: "https://www.reddit.com/r/aww/comments/1abc2d/x/",
+        }),
+      ),
+      "aww",
+    );
+  });
+
+  test("a post id that does not read as one is not sent", () => {
+    assert.ok(save, "save helpers not loaded");
+    assert.deepStrictEqual(
+      save.buildSaveRequest(slide({ postKey: "", commentsUrl: "" })),
+      { ok: false, reason: "no-post" },
+    );
+    assert.strictEqual(
+      save.savePostId(slide({ postKey: "thing_t3_9abc" })),
+      "9abc",
+    );
+    assert.strictEqual(
+      save.savePostId(slide({ postKey: "t3_../x" })),
+      "1abc2d",
+    );
+    assert.strictEqual(
+      save.savePostId(
+        slide({
+          postKey: "",
+          commentsUrl: "https://old.reddit.com/r/aww/comments/zz9/x/",
+        }),
+      ),
+      "zz9",
+    );
+  });
+
+  test("a post element's attributes give the score, date and rating", () => {
+    assert.ok(save, "save helpers not loaded");
+    const from = (attributes) =>
+      save.saveFactsFromAttributes((name) =>
+        name in attributes ? attributes[name] : null,
+      );
+    assert.deepStrictEqual(
+      from({
+        score: "41",
+        "created-timestamp": "2023-11-14T22:13:20.000+0000",
+        nsfw: "",
+      }),
+      { score: 41, createdUtc: 1700000000, over18: true },
+    );
+    assert.deepStrictEqual(
+      from({
+        "data-score": "7",
+        "data-timestamp": "1700000000000",
+        "data-nsfw": "false",
+      }),
+      { score: 7, createdUtc: 1700000000, over18: false },
+    );
+    assert.deepStrictEqual(from({}), {
+      score: null,
+      createdUtc: null,
+      over18: null,
+    });
+    assert.strictEqual(from({ nsfw: "false" }).over18, false);
+  });
+
+  test("helper replies map to short messages", () => {
+    assert.ok(save, "save helpers not loaded");
+    const text = (message, id) => save.saveOutcome(message, id)?.text;
+    assert.strictEqual(
+      text({ type: "progress", id: "a", status: "ok" }),
+      "Saved",
+    );
+    assert.strictEqual(
+      text({ type: "progress", id: "a", status: "skipped" }),
+      "Already saved",
+    );
+    assert.strictEqual(
+      text({ type: "done", ok: 1, skipped: 0, failed: 0 }),
+      "Saved",
+    );
+    assert.strictEqual(
+      text({ type: "done", ok: 0, skipped: 1, failed: 0 }),
+      "Already saved",
+    );
+    assert.strictEqual(
+      text({ type: "progress", id: "a", status: "failed", error: "http 404" }),
+      "Save failed: http 404",
+    );
+    assert.strictEqual(
+      text({ type: "done", ok: 0, skipped: 0, failed: 1 }),
+      "Save failed: the helper saved nothing",
+    );
+    assert.strictEqual(
+      text({ type: "error", code: "bad", message: "vault not mounted" }),
+      "Mount the vault (V:) first",
+    );
+    assert.strictEqual(
+      text({
+        type: "progress",
+        id: "a",
+        status: "failed",
+        error: "Vault not mounted: V:",
+      }),
+      "Mount the vault (V:) first",
+    );
+    ["host_missing", "host_forbidden"].forEach((code) => {
+      assert.strictEqual(
+        text({ type: "error", code, message: "x" }),
+        "Helper not installed — run install.ps1 in civitai-collector",
+      );
+    });
+    assert.strictEqual(
+      text({ type: "error", code: "unavailable" }),
+      "Saving to the gallery isn't available in this browser",
+    );
+    assert.strictEqual(
+      text({ type: "error", code: "host_crashed", message: "helper exited" }),
+      "Save failed: helper exited",
+    );
+    const long = text({ type: "error", code: "x", message: "w ".repeat(100) });
+    assert.ok(long.length <= "Save failed: ".length + 80, long);
+    // Messages that settle nothing.
+    assert.strictEqual(
+      save.saveOutcome({ type: "progress", id: "b", status: "ok" }, "a"),
+      null,
+    );
+    assert.strictEqual(save.saveOutcome({ type: "hello" }), null);
+    assert.strictEqual(save.saveOutcome(null), null);
+    assert.strictEqual(save.saveOutcome("ok"), null);
+  });
+
+  test("a second press while a save is out sends nothing", () => {
+    assert.ok(save, "save helpers not loaded");
+    const tracker = save.createSaveTracker();
+    assert.strictEqual(tracker.begin("a"), "go");
+    assert.strictEqual(tracker.begin("a"), "pending");
+    assert.strictEqual(tracker.isPending("a"), true);
+    assert.strictEqual(tracker.begin("b"), "go");
+    tracker.end("a", "saved");
+    assert.strictEqual(tracker.isSaved("a"), true);
+    assert.strictEqual(tracker.begin("a"), "saved");
+    // A failure frees the item to be tried again.
+    tracker.end("b", "failed");
+    assert.strictEqual(tracker.isSaved("b"), false);
+    assert.strictEqual(tracker.begin("b"), "go");
+    tracker.end("b", "already");
+    assert.strictEqual(tracker.begin("b"), "saved");
+  });
+
+  test("the request goes out on one media-sync port and settles on the first outcome", async () => {
+    assert.ok(save, "save helpers not loaded");
+    const port = fakePort("media-sync");
+    const opened = [];
+    const runtime = {
+      connect: (info) => {
+        opened.push(info);
+        return port;
+      },
+    };
+    const request = { op: "sync", dest: "aww", items: [] };
+    const pending = save.sendSaveRequest(runtime, request, "a");
+    assert.deepStrictEqual(opened, [{ name: "media-sync" }]);
+    assert.deepStrictEqual(port.posted, [request]);
+    port.emit({ type: "progress", id: "a", status: "ok" });
+    port.emit({ type: "done", ok: 1, skipped: 0, failed: 0 });
+    port.drop();
+    assert.deepStrictEqual(await pending, { status: "saved", text: "Saved" });
+    assert.strictEqual(port.disconnected, true);
+  });
+
+  test("a port that drops or a runtime that throws is a failed save, not an exception", async () => {
+    assert.ok(save, "save helpers not loaded");
+    const port = fakePort("media-sync");
+    const dropped = save.sendSaveRequest({ connect: () => port }, {}, "a");
+    port.drop();
+    assert.strictEqual((await dropped).status, "failed");
+    const thrown = await save.sendSaveRequest(
+      {
+        connect: () => {
+          throw new Error("Extension context invalidated.");
+        },
+      },
+      {},
+      "a",
+    );
+    assert.strictEqual(thrown.status, "failed");
+    const quiet = fakePort("media-sync");
+    const timedOut = await save.sendSaveRequest(
+      { connect: () => quiet },
+      {},
+      "a",
+      5,
+    );
+    assert.strictEqual(timedOut.text, "Save failed: no reply");
+    assert.strictEqual(quiet.disconnected, true);
+  });
+});
+
+suite("browser-extension save relay", () => {
+  function fakeNative() {
+    const native = fakePort("native");
+    return native;
+  }
+
+  test("a media-sync port is relayed to the helper and its replies come back", () => {
+    const native = fakeNative();
+    const asked = [];
+    const { listeners } = loadBackground({
+      connectNative: (name) => {
+        asked.push(name);
+        return native;
+      },
+    });
+    const port = fakePort("media-sync");
+    listeners.connect(port);
+    const request = { op: "sync", dest: "aww", items: [] };
+    port.emit(request);
+    port.emit({ op: "sync", dest: "second", items: [] });
+    assert.deepStrictEqual(asked, ["com.edo.media_sync"]);
+    assert.deepStrictEqual(native.posted, [request]);
+    native.emit({ type: "progress", id: "a", status: "ok" });
+    native.emit({ type: "done", ok: 1, skipped: 0, failed: 0 });
+    assert.deepStrictEqual(port.posted, [
+      { type: "progress", id: "a", status: "ok" },
+      { type: "done", ok: 1, skipped: 0, failed: 0 },
+    ]);
+    assert.strictEqual(native.disconnected, true);
+    assert.strictEqual(port.disconnected, true);
+  });
+
+  test("other ports are left alone", () => {
+    const { listeners } = loadBackground({
+      connectNative: () => {
+        throw new Error("should not connect");
+      },
+    });
+    const port = fakePort("something-else");
+    listeners.connect(port);
+    port.emit({ op: "sync" });
+    assert.deepStrictEqual(port.posted, []);
+  });
+
+  test("a helper that cannot be reached becomes an error code", () => {
+    [
+      ["Specified native messaging host not found.", "host_missing"],
+      [
+        "Access to the specified native messaging host is forbidden.",
+        "host_forbidden",
+      ],
+      ["Native host has exited.", "host_crashed"],
+      ["", "host_crashed"],
+    ].forEach(([reason, code]) => {
+      const native = fakeNative();
+      const { listeners, runtime } = loadBackground({
+        connectNative: () => native,
+      });
+      const port = fakePort("media-sync");
+      listeners.connect(port);
+      port.emit({ op: "sync" });
+      runtime.lastError = reason ? { message: reason } : undefined;
+      native.drop();
+      assert.strictEqual(port.posted.length, 1, reason);
+      assert.strictEqual(port.posted[0].type, "error");
+      assert.strictEqual(port.posted[0].code, code, reason);
+    });
+  });
+
+  test("without native messaging the relay says so instead of throwing", () => {
+    const { listeners } = loadBackground();
+    const port = fakePort("media-sync");
+    listeners.connect(port);
+    port.emit({ op: "sync" });
+    assert.strictEqual(port.posted[0].type, "error");
+    assert.strictEqual(port.posted[0].code, "unavailable");
+    const thrower = loadBackground({
+      connectNative: () => {
+        throw new Error("boom");
+      },
+    });
+    const second = fakePort("media-sync");
+    thrower.listeners.connect(second);
+    second.emit({ op: "sync" });
+    assert.strictEqual(second.posted[0].code, "host_crashed");
+  });
+
+  test("the page going away closes the helper's connection", () => {
+    const native = fakeNative();
+    const { listeners } = loadBackground({ connectNative: () => native });
+    const port = fakePort("media-sync");
+    listeners.connect(port);
+    port.emit({ op: "sync" });
+    port.drop();
+    assert.strictEqual(native.disconnected, true);
+  });
+
+  test("the Firefox package drops the native messaging permission, Chrome keeps it", () => {
+    const { targets, readManifest } = require("./package-extension");
+    const manifest = readManifest();
+    assert.ok(manifest.permissions.includes("nativeMessaging"));
+    assert.ok(!manifest.permissions.includes("key"));
+    assert.strictEqual(manifest.key, undefined);
+    assert.ok(
+      targets.chrome
+        .patchManifest(manifest)
+        .permissions.includes("nativeMessaging"),
+    );
+    const firefox = targets.firefox.patchManifest(manifest);
+    assert.ok(!firefox.permissions.includes("nativeMessaging"));
+    assert.ok(firefox.permissions.includes("storage"));
+    // The source manifest is not changed by patching.
+    assert.ok(manifest.permissions.includes("nativeMessaging"));
   });
 });
 

@@ -682,7 +682,12 @@
         commentsUrl: permalink,
         sourceUrl: url || permalink,
         postKey: `t3_${post.id}`,
-        archive: { id: post.id, created: post.created_utc, score: post.score },
+        archive: {
+          id: post.id,
+          created: post.created_utc,
+          score: post.score,
+          over18: post.over_18 === true,
+        },
       });
     });
     return { slides, unavailable };

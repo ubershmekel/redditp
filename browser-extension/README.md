@@ -76,6 +76,8 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - Z: undo that, while its message shows
 - H: open this subreddit's archive in a new tab (the same as the **archive**
   button); only on a subreddit's listing pages
+- S: save the media to your gallery (the same as the **save** button; see
+  [Save to gallery](#save-to-gallery))
 - Escape: close, or return to the grid when the slideshow was opened from it
 - F: enter or leave browser fullscreen, when available
 - M: toggle video sound; the choice is remembered for the next presentation
@@ -386,6 +388,46 @@ with the unpacked extension loaded, or open `browser-extension/archive.html`
 from disk. From disk, the page keeps its own archives and settings, apart from
 the extension's.
 
+## Save to gallery
+
+This is a personal addition to this fork. It needs a native-messaging helper,
+`com.edo.media_sync`, from the civitai-collector repo, which downloads the file
+itself and writes it with a JSON sidecar. The extension only sends it a message
+and shows the result.
+
+- **Key and button:** press S, or click **save** in the bottom panel, in the
+  slideshow, the grid, and the archive page. In the slideshow it saves the media
+  shown: one picture of a gallery post, not the whole gallery. In the grid it
+  saves what X acts on: the tile under the mouse pointer, or else the focused
+  tile; the button acts on the tile last pointed at or focused. S typed into a
+  field stays there, and a press with Ctrl, Alt or Cmd held passes through.
+- **Feedback:** a short message at the foot of the screen: Saving…, Saved,
+  Already saved, Can't save this one, Mount the vault (V:) first, Helper not
+  installed, or Save failed with a short reason. A saved item shows **saved** on
+  the button until the page is reloaded. That mark is kept in memory only. A
+  second press while a save is running sends nothing.
+- **What saves:** pictures, GIFs and videos hosted on `i.redd.it`, `v.redd.it`,
+  `preview.redd.it`, `external-preview.redd.it` and `i.imgur.com`. A picture on
+  `preview.redd.it` is saved from its upload on `i.redd.it`, at full size.
+  RedGIFs, YouTube and other embeds, links and text posts say "Can't save this
+  one" and send nothing.
+- **Videos have no sound:** Reddit serves a video and its audio as separate
+  files. A video on `v.redd.it` is saved from the fallback MP4 that the
+  slideshow plays, which carries no audio, so saved videos are silent.
+- **Where it goes:** the gallery folder `reddit/<subreddit>/`, as
+  `<post id>.<ext>` with `<post id>.json` beside it (`<post id>_<n>` for the
+  n-th picture of a gallery post), written by the helper. A post that is already
+  there is skipped, which shows as "Already saved". A profile post goes under
+  `u_<name>`.
+- **One-time setup:** re-run `install.ps1` in the civitai-collector repo, so the
+  helper's allowed-extension list includes this extension's id, then reload the
+  extension in `chrome://extensions` and accept the new "Communicate with
+  cooperating native applications" permission. The extension has no manifest
+  `key`, so the id depends on the folder it is loaded from.
+- **Browsers:** Chrome and other Chromium browsers only. The Firefox package
+  leaves the `nativeMessaging` permission out, and its save button answers that
+  saving is not available.
+
 ## Browser differences
 
 - Firefox treats Manifest V3 `host_permissions` as optional, so reddit.com
@@ -453,7 +495,7 @@ available as the fallback.
 
 - `manifest.json`: extension metadata, permissions, and shortcut
 - `background.js`: toolbar and keyboard-command launcher; opens the archive page
-  in a new tab
+  in a new tab; relays Save to gallery to the native helper
 - `auto-activate.js`: opt-in `redditp=1` URL launcher, and the archive icon on
   subreddit pages
 - `launcher.css`: the archive icon on subreddit pages

@@ -7541,6 +7541,63 @@ test("S saves the shown media once, marks it saved, and says when it cannot", as
   expect((await requests())[1].items[0].id).toBe("grid2");
 });
 
+test("the hover download icon saves its own media from the slide and from a tile", async ({
+  page,
+}) => {
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/pics/",
+    gridImagePost(1) +
+      gridImagePost(2) +
+      `<div class="thing link" data-url="https://example.com/story" data-permalink="/r/pics/comments/linkpost/post/"><a class="title">A link</a></div>`,
+    {},
+  );
+  await stubSaveRelay(page);
+  await injectExtension(page);
+  const requests = () => page.evaluate(() => window.__saveRequests);
+  const toast = page.locator(".redditp__toast-text");
+
+  // The slide: hidden until the media is hovered, one request per click.
+  const slideIcon = page.locator(".redditp__dl--stage");
+  await expect(page.locator(".redditp__image")).toBeVisible();
+  await page.mouse.move(2, 2);
+  await expect(slideIcon).toHaveCSS("opacity", "0");
+  await page.locator(".redditp__image").hover();
+  await expect(slideIcon).toHaveCSS("opacity", "1");
+  await expect(slideIcon).toHaveAttribute("aria-label", "Save to gallery (S)");
+  await slideIcon.click();
+  await expect(toast).toHaveText("Saved");
+  expect(await requests()).toHaveLength(1);
+  expect((await requests())[0].items[0].id).toBe("grid1");
+  await expect(slideIcon).toHaveAttribute("data-save", "saved");
+  // Still the slideshow: the click did not toggle the view.
+  await expect(page.locator(".redditp__image")).toBeVisible();
+
+  // A link post offers nothing.
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(slideIcon).toBeHidden();
+
+  // The grid: the icon belongs to the tile hovered, and does not open it.
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  const tiles = page.locator(".redditp__tile");
+  await expect(tiles.nth(2).locator(".redditp__dl")).toBeHidden();
+  await expect(tiles.nth(0).locator(".redditp__dl")).toHaveAttribute(
+    "data-save",
+    "saved",
+  );
+  const icon = tiles.nth(1).locator(".redditp__dl");
+  await expect(icon).toHaveCSS("opacity", "0");
+  await tiles.nth(1).hover();
+  await expect(icon).toHaveCSS("opacity", "1");
+  await icon.click();
+  await expect(icon).toHaveAttribute("data-save", "saved");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  expect(await requests()).toHaveLength(2);
+  expect((await requests())[1].items[0].id).toBe("grid2");
+});
+
 test("without an extension to ask there is no save button and S does nothing", async ({
   page,
 }) => {

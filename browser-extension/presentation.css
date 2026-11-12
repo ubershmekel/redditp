@@ -1098,3 +1098,94 @@
     background: rgba(0, 0, 0, 0.82);
   }
 }
+
+/* Download icon: shown on hover over a tile or the shown media, and on
+   keyboard focus; states come from the save tracker (data-save). */
+#redditp-presentation .redditp__dl {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+#redditp-presentation .redditp__dl[hidden] {
+  display: none;
+}
+
+#redditp-presentation .redditp__dl--stage {
+  top: 46px;
+  right: 8px;
+  left: auto;
+}
+
+#redditp-presentation .redditp__tile:hover .redditp__dl,
+#redditp-presentation .redditp__stage:hover .redditp__dl--stage,
+#redditp-presentation .redditp__dl:focus-visible {
+  opacity: 1;
+}
+
+#redditp-presentation .redditp__dl:focus-visible {
+  outline: 2px solid #5ff;
+}
+
+#redditp-presentation .redditp__dl svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+#redditp-presentation .redditp__dl-check,
+#redditp-presentation .redditp__dl[data-save="saved"] .redditp__dl-down {
+  display: none;
+}
+
+#redditp-presentation .redditp__dl[data-save="saved"] .redditp__dl-check {
+  display: inline;
+}
+
+/* Saved stays visible, quieter, for the life of the page. */
+#redditp-presentation .redditp__dl[data-save="saved"] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+#redditp-presentation .redditp__tile:hover .redditp__dl[data-save="saved"],
+#redditp-presentation
+  .redditp__stage:hover
+  .redditp__dl--stage[data-save="saved"] {
+  opacity: 0.9;
+}
+
+#redditp-presentation .redditp__dl[data-save="pending"] {
+  opacity: 1;
+  animation: redditp-dl-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes redditp-dl-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #redditp-presentation .redditp__dl {
+    transition: none;
+  }
+
+  #redditp-presentation .redditp__dl[data-save="pending"] {
+    animation: none;
+  }
+}

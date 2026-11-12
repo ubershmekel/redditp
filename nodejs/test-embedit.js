@@ -6005,6 +6005,7 @@ suite("browser-extension save to gallery", () => {
       "buildSaveRequest",
       "saveOutcome",
       "createSaveTracker",
+      "saveIconState",
       "sendSaveRequest",
     ],
   );
@@ -6397,6 +6398,27 @@ suite("browser-extension save to gallery", () => {
     assert.strictEqual(tracker.begin("b"), "go");
     tracker.end("b", "already");
     assert.strictEqual(tracker.begin("b"), "saved");
+  });
+
+  test("the hover icon follows the tracker and hides what cannot be saved", () => {
+    assert.ok(save, "save helpers not loaded");
+    const tracker = save.createSaveTracker();
+    const built = save.buildSaveRequest(slide());
+    assert.strictEqual(save.saveIconState(built, tracker, true), "idle");
+    assert.strictEqual(save.saveIconState(built, tracker, false), "hidden");
+    tracker.begin(built.itemId);
+    assert.strictEqual(save.saveIconState(built, tracker, true), "pending");
+    tracker.end(built.itemId, "failed");
+    assert.strictEqual(save.saveIconState(built, tracker, true), "idle");
+    tracker.begin(built.itemId);
+    tracker.end(built.itemId, "saved");
+    assert.strictEqual(save.saveIconState(built, tracker, true), "saved");
+    const unsavable = save.buildSaveRequest(
+      slide({ url: "https://example.com/x.html", sourceUrl: "" }),
+    );
+    assert.strictEqual(unsavable.ok, false);
+    assert.strictEqual(save.saveIconState(unsavable, tracker, true), "hidden");
+    assert.strictEqual(save.saveIconState(null, tracker, true), "hidden");
   });
 
   test("the request goes out on one media-sync port and settles on the first outcome", async () => {

@@ -1738,6 +1738,16 @@
       }
     });
   }
+
+  // What a hover download icon shows for a slide: "hidden" where saving
+  // cannot work (no extension to relay, or media the helper will not take),
+  // else "saved", "pending" or "idle", as the tracker knows the item.
+  function saveIconState(built, tracker, available) {
+    if (!available || !built || !built.ok) return "hidden";
+    if (tracker.isSaved(built.itemId)) return "saved";
+    if (tracker.isPending(built.itemId)) return "pending";
+    return "idle";
+  }
   // redditp-media-save:end
 
   // redditp-grid-media:start
@@ -2895,7 +2905,13 @@
     "Scroll Reddit to load some posts, then try presentation mode again.",
   );
   empty.append(emptyTitle, emptyText);
-  stage.append(mediaBox, empty);
+  // Saves the media shown; syncSaveButton keeps it in step.
+  const stageSaveIcon = createSaveIcon(() =>
+    saveSlide(state.slides[state.index]),
+  );
+  stageSaveIcon.classList.add("redditp__dl--stage");
+  stageSaveIcon.hidden = true;
+  stage.append(mediaBox, empty, stageSaveIcon);
 
   // The grid view shows every slide as a tile in equal-width columns.
   const grid = element("section", "redditp__grid", "");
@@ -3413,6 +3429,61 @@
     return { original, thumb, url: thumb || original, cardLabel };
   }
 
+  // The small download icon shown on hover over a tile or the shown media.
+  // onPress gets the click; the slide it saves is the caller's to know.
+  function createSaveIcon(onPress) {
+    const icon = element("span", "redditp__dl", "");
+    icon.setAttribute("role", "button");
+    icon.tabIndex = 0;
+    icon.title = "Save to gallery (S)";
+    icon.setAttribute("aria-label", "Save to gallery (S)");
+    // Built here, not in a module constant, since the stage's icon is made
+    // before that part of the script runs.
+    icon.innerHTML =
+      '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">' +
+      '<g class="redditp__dl-down" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 4v10"/><path d="m7.5 10 4.5 4.5 4.5-4.5"/><path d="M5 19h14"/></g>' +
+      '<path class="redditp__dl-check" d="m6 12.5 4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+      "</svg>";
+    // Neither the tile's nor the slide's own handlers see these.
+    ["mousedown", "pointerdown", "pointerup", "dblclick", "auxclick"].forEach(
+      (type) => icon.addEventListener(type, (event) => event.stopPropagation()),
+    );
+    icon.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onPress();
+    });
+    icon.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onPress();
+    });
+    return icon;
+  }
+
+  // Shows an icon's state for a slide, from the tracker the S key uses.
+  function syncSaveIcon(icon, slide) {
+    const built = slide ? buildSaveRequest(slide) : null;
+    const status = saveIconState(built, saveTracker, canSaveHere());
+    icon.hidden = status === "hidden";
+    icon.dataset.save = status;
+    icon.dataset.itemId = status === "hidden" ? "" : built.itemId;
+    icon.title =
+      status === "saved" ? "Saved to gallery" : "Save to gallery (S)";
+    icon.setAttribute("aria-label", icon.title);
+  }
+
+  function syncGridSaveIcons() {
+    gridColumns
+      .querySelectorAll(".redditp__tile .redditp__dl")
+      .forEach((icon) => {
+        const tile = icon.closest(".redditp__tile");
+        syncSaveIcon(icon, gridTileInfo.get(tile)?.slide);
+      });
+  }
+
   function createGridTile(slide) {
     const tile = element("button", "redditp__tile", "");
     tile.type = "button";
@@ -3466,6 +3537,9 @@
         ),
       );
     }
+    const saveIcon = createSaveIcon(() => saveSlide(slide));
+    syncSaveIcon(saveIcon, slide);
+    tile.append(saveIcon);
     const info = {
       slide,
       height,
@@ -4980,6 +5054,8 @@
     saveButton.title = saved
       ? "Saved to the gallery (S)"
       : "Save to the gallery (S)";
+    syncSaveIcon(stageSaveIcon, slide);
+    syncGridSaveIcons();
   }
 
   // Saves a slide's media to the gallery and says how it went.

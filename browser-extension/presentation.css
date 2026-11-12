@@ -525,6 +525,182 @@
   opacity: 0.6;
 }
 
+/* The Hidden list: entries with a × each, and a field that adds one. A long
+   list scrolls within itself. */
+#redditp-presentation .redditp__hidden {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 0 8px;
+}
+
+#redditp-presentation .redditp__hidden h3 {
+  margin: 4px 0 0;
+  color: #fff;
+  font-size: 16px;
+}
+
+#redditp-presentation .redditp__hidden p {
+  margin: 0;
+  color: #bbb;
+  font-size: 12px;
+}
+
+#redditp-presentation .redditp__hidden-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 168px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+#redditp-presentation .redditp__hidden-list[hidden],
+#redditp-presentation .redditp__hidden-empty[hidden] {
+  display: none !important;
+}
+
+#redditp-presentation .redditp__hidden-item {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 0 0 10px;
+  border-radius: 9px;
+  color: #fff;
+  background: #2b2b2b;
+}
+
+#redditp-presentation .redditp__hidden-entry {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#redditp-presentation .redditp__hidden-remove,
+#redditp-presentation .redditp__hidden-add-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 0;
+  color: #fff;
+  font:
+    700 13px/1 Arial,
+    Helvetica,
+    sans-serif;
+  cursor: pointer;
+  appearance: none;
+}
+
+#redditp-presentation .redditp__hidden-remove {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 9px;
+  color: #bbb;
+  background: transparent;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+#redditp-presentation .redditp__hidden-remove:hover {
+  color: #fff;
+  background: #3a3a3a;
+}
+
+#redditp-presentation .redditp__hidden-add {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+#redditp-presentation .redditp__hidden-add input {
+  flex: 1 1 auto;
+  width: 0;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px solid #999;
+  border-radius: 7px;
+  color: #fff;
+  background: #0d0d0d;
+  font: inherit;
+}
+
+#redditp-presentation .redditp__hidden-add input[aria-invalid="true"] {
+  border-color: #f88;
+}
+
+#redditp-presentation .redditp__hidden-add-button {
+  min-width: 58px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: #3a3a3a;
+}
+
+#redditp-presentation .redditp__hidden-add-button:hover {
+  background: #474747;
+}
+
+#redditp-presentation .redditp__hidden .redditp__hidden-message {
+  color: #f99;
+}
+
+#redditp-presentation .redditp__hidden-remove:focus-visible,
+#redditp-presentation .redditp__hidden-add-button:focus-visible,
+#redditp-presentation .redditp__hidden-add input:focus-visible {
+  outline: 2px solid #5ff;
+  outline-offset: 2px;
+}
+
+/* A short message at the foot of the screen, such as "Hid u/name" with its
+   Undo button, clear of the controls. Empty, it takes no room and no
+   clicks. */
+#redditp-presentation .redditp__toast {
+  position: absolute;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 32px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+#redditp-presentation .redditp__toast--shown {
+  padding: 4px 6px 4px 14px;
+  border: 1px solid #555;
+  border-radius: 10px;
+  color: #fff;
+  background: rgba(23, 23, 23, 0.94);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+#redditp-presentation .redditp__toast-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#redditp-presentation .redditp__toast--shown .redditp__toast-text {
+  padding: 6px 0;
+}
+
+#redditp-presentation .redditp__button.redditp__toast-undo {
+  flex: none;
+  min-height: 36px;
+  color: #5dd;
+}
+
 /* A dot on the gear, or on + while the controls are collapsed, says the Show
    filter is hiding some posts. */
 #redditp-presentation.redditp--filtered .redditp__gear,
@@ -908,6 +1084,11 @@
   #redditp-presentation .redditp__grid-columns,
   #redditp-presentation .redditp__grid-column {
     gap: 4px;
+  }
+
+  /* The controls may wrap onto a second row here. */
+  #redditp-presentation .redditp__toast {
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   }
 }
 

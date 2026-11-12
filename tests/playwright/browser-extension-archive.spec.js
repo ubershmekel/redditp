@@ -1827,6 +1827,193 @@ test("a subreddit without archived posts says so and opens nothing", async ({
   });
 });
 
+// The archive's tiles by their names, column by column.
+function gridColumnLabels(page) {
+  return page
+    .locator(".redditp__grid-column")
+    .evaluateAll((columns) =>
+      columns.map((column) =>
+        Array.from(column.querySelectorAll(".redditp__tile"), (tile) =>
+          tile.getAttribute("aria-label"),
+        ),
+      ),
+    );
+}
+
+// The viewer's saved settings start with these, on every load of the page.
+function savedViewerSettings(page, settings) {
+  return page.addInitScript((value) => {
+    localStorage.setItem("redditpPresentationSettings", JSON.stringify(value));
+  }, settings);
+}
+
+test("X hides an archive post's author from the slideshow and the grid, Undo brings them back, and the list holds when the viewer opens again", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(NOW);
+  const authors = ["alice", "bob", "carol"];
+  const posts = imagePosts("pics", {
+    count: 12,
+    overrides: (index) => ({
+      url: `https://i.redd.it/pics-${index + 1}.jpg`,
+      author: authors[index % authors.length],
+    }),
+  });
+  await mockArchive(page, { pics: posts });
+  await openArchive(page, "#r/pics", { windowSize: 100 });
+  const expected = expectedTitles(posts, { windowSize: 100 });
+  const authorOf = (title) => posts.find((post) => post.title === title).author;
+  const toast = page.locator(".redditp__toast");
+
+  // In the slideshow, X moves on to the next post shown.
+  const first = authorOf(expected[0]);
+  const others = expected.filter((title) => authorOf(title) !== first);
+  await expect(viewerTitle(page)).toHaveText(expected[0]);
+  await page.keyboard.press("x");
+  await expect(viewerTitle(page)).toHaveText(others[0]);
+  await expect(viewerCount(page)).toHaveText("1 / 8 · 4 hidden");
+  await expect(toast).toContainText(`Hid u/${first}`);
+  await page.keyboard.press("z");
+  await expect(viewerTitle(page)).toHaveText(expected[0]);
+  await expect(viewerCount(page)).toHaveText("1 / 12");
+
+  // In the grid, X takes the tile under the pointer, and Undo puts every
+  // tile back where it was.
+  await page.keyboard.press("v");
+  const tiles = page.locator(".redditp__grid .redditp__tile");
+  await expect(tiles).toHaveCount(12);
+  const before = await gridColumnLabels(page);
+  const second = authorOf(expected[1]);
+  const seconds = expected.filter((title) => authorOf(title) === second);
+  await page.getByRole("button", { name: expected[1], exact: true }).hover();
+  await page.keyboard.press("x");
+  await expect(tiles).toHaveCount(8);
+  for (const title of seconds) {
+    await expect(
+      page.getByRole("button", { name: title, exact: true }),
+    ).toHaveCount(0);
+  }
+  expect(await gridColumnLabels(page)).toEqual(
+    before.map((column) => column.filter((name) => !seconds.includes(name))),
+  );
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(tiles).toHaveCount(12);
+  expect(await gridColumnLabels(page)).toEqual(before);
+
+  // Hidden again, the author stays hidden when the viewer opens again.
+  await page.getByRole("button", { name: expected[1], exact: true }).hover();
+  await page.keyboard.press("x");
+  await expect(tiles).toHaveCount(8);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("redditpPresentationSettings")),
+  );
+  expect(saved.hidden).toEqual([`u/${second}`]);
+  await browseButton(page).click();
+  await expect(viewerCount(page)).toHaveText(/ · 4 hidden$/);
+  await expect(viewerTitle(page)).not.toHaveText(seconds[0]);
+  await page.keyboard.press("v");
+  await expect(tiles).toHaveCount(8);
+});
+
+test("X on an archive post by a deleted account says so, and in the grid X takes the focused tile", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(NOW);
+  const posts = imagePosts("pics", {
+    count: 6,
+    overrides: (index) => ({
+      url: `https://i.redd.it/pics-${index + 1}.jpg`,
+      author: index % 2 ? "[deleted]" : `poster${index % 4}`,
+    }),
+  });
+  await mockArchive(page, { pics: posts });
+  await openArchive(page, "#r/pics", { windowSize: 100 });
+  const expected = expectedTitles(posts, { windowSize: 100 });
+  const authorOf = (title) => posts.find((post) => post.title === title).author;
+  const toast = page.locator(".redditp__toast");
+  const deleted = expected.indexOf(
+    expected.find((title) => authorOf(title) === "[deleted]"),
+  );
+  await walkSlides(page, expected.slice(0, deleted + 1));
+  await page.keyboard.press("x");
+  await expect(toast).toContainText("This post has no author to hide.");
+  await expect(viewerCount(page)).toHaveText(`${deleted + 1} / 6`);
+
+  await page.keyboard.press("v");
+  const tiles = page.locator(".redditp__grid .redditp__tile");
+  await expect(tiles).toHaveCount(6);
+  // The pointer rests clear of the tiles.
+  await page.mouse.move(5, 5);
+  const named = expected.find((title) => authorOf(title) !== "[deleted]");
+  await page.getByRole("button", { name: named, exact: true }).focus();
+  await page.keyboard.press("x");
+  await expect(toast).toContainText(`Hid u/${authorOf(named)}`);
+  const gone = expected.filter((title) => authorOf(title) === authorOf(named));
+  await expect(tiles).toHaveCount(6 - gone.length);
+  for (const title of gone) {
+    await expect(
+      page.getByRole("button", { name: title, exact: true }),
+    ).toHaveCount(0);
+  }
+});
+
+test("archive batches leave hidden posts out and still fill", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(NOW);
+  await savedViewerSettings(page, { hidden: ["u/spammer"] });
+  // Three posts in four are by the hidden author.
+  const posts = imagePosts("pics", {
+    count: 100,
+    overrides: (index) => ({
+      url: `https://i.redd.it/pics-${index + 1}.jpg`,
+      author: index % 4 ? "spammer" : `poster${index}`,
+    }),
+  });
+  await mockArchive(page, { pics: posts });
+  await openArchive(page, "#r/pics", { windowSize: 100 });
+  const expected = expectedTitles(
+    posts.filter((post) => post.author !== "spammer"),
+    { windowSize: 100 },
+  );
+  expect(expected).toHaveLength(25);
+  await expect(viewerTitle(page)).toHaveText(expected[0]);
+  // The first batch reads on past the hidden posts until it holds as many
+  // to show as a batch without them would.
+  const held = Number(
+    / \/ (\d+)/.exec(await viewerCount(page).textContent())[1],
+  );
+  expect(held).toBeGreaterThanOrEqual(24);
+  await walkSlides(page, expected);
+  await expect(viewerCount(page)).toHaveText("25 / 25 · 75 hidden");
+});
+
+test("an archive whose every post is hidden says why", async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  await savedViewerSettings(page, { hidden: ["r/pics"] });
+  await mockArchive(page, { pics: imagePosts("pics", { count: 12 }) });
+  await openArchive(page, "#r/pics", { windowSize: 100 });
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+  await expect(page.locator(".redditp__empty h2")).toHaveText(
+    "Nothing here matches the filter",
+  );
+  await expect(page.locator(".redditp__empty p")).toHaveText(
+    "Your Hidden list hides all 12 posts here. Change it in the settings.",
+  );
+  await expect(viewerCount(page)).toHaveText("0 posts · 12 hidden");
+  // The gear stays, and taking the subreddit off the list shows its posts.
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await page.getByRole("button", { name: "Unhide r/pics" }).click();
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await expect(viewerCount(page)).toHaveText("1 / 12");
+});
+
 test("the archive page fits phone and desktop screens", async ({ page }) => {
   await mockArchive(page, { pics: archivePosts("pics", { count: 5 }) });
   await openArchiveQuietly(page, "pics", { windowSize: 100 });

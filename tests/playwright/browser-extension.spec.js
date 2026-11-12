@@ -6956,3 +6956,493 @@ test("unticking the icon setting in presentation mode hides the icon at once", a
     page.getByRole("button", { name: "archive", exact: true }),
   ).toBeEnabled();
 });
+
+// The Hidden list
+
+const HIDE_AUTHORS = ["alice", "bob", "carol"];
+
+// An image post titled "Post <number>" by u/<author> in r/<sub>, whose
+// picture routeGridImages answers. A null author leaves the post without
+// one.
+function authoredPost(number, author, sub = "pics") {
+  const byline = author === null ? "" : ` data-author="${author}"`;
+  return `<div class="thing link" data-url="https://i.redd.it/grid-${number}.jpg"${byline} data-subreddit="${sub}" data-permalink="/r/${sub}/comments/hide${number}/post/"><a class="title">Post ${number}</a></div>`;
+}
+
+// Posts 1 to count, by alice, bob and carol in turn.
+function authoredPosts(count) {
+  return Array.from({ length: count }, (_, index) =>
+    authoredPost(index + 1, HIDE_AUTHORS[index % HIDE_AUTHORS.length]),
+  ).join("");
+}
+
+// The titles of the posts by one of HIDE_AUTHORS, among posts 1 to count.
+function postsBy(author, count) {
+  return Array.from({ length: count }, (_, index) => index + 1)
+    .filter(
+      (number) => HIDE_AUTHORS[(number - 1) % HIDE_AUTHORS.length] === author,
+    )
+    .map((number) => `Post ${number}`);
+}
+
+// The grid's tiles by their names, column by column.
+function gridColumnLabels(page) {
+  return page
+    .locator(".redditp__grid-column")
+    .evaluateAll((columns) =>
+      columns.map((column) =>
+        Array.from(column.querySelectorAll(".redditp__tile"), (tile) =>
+          tile.getAttribute("aria-label"),
+        ),
+      ),
+    );
+}
+
+function savedSettings(page) {
+  return page.evaluate(() =>
+    JSON.parse(localStorage.getItem("redditpPresentationSettings")),
+  );
+}
+
+const hideToast = (page) => page.locator(".redditp__toast");
+
+test("X hides the author of the tile under the pointer from the grid and the slideshow, and Undo puts the tiles back in place", async ({
+  page,
+}) => {
+  // Paused, so the message stays until the test moves the clock on.
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/hidegrid/",
+    authoredPosts(12),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const tiles = page.locator(".redditp__grid .redditp__tile");
+  const count = page.locator(".redditp__count");
+  await expect(tiles).toHaveCount(12);
+  const before = await gridColumnLabels(page);
+  const bobs = postsBy("bob", 12);
+  await expect(gridTile(page, "Post 1")).toBeFocused();
+
+  // The tile under the pointer wins over the focused one, and every post
+  // by its author leaves.
+  await gridTile(page, "Post 5").hover();
+  await page.keyboard.press("x");
+  await expect(tiles).toHaveCount(8);
+  for (const name of bobs) await expect(gridTile(page, name)).toHaveCount(0);
+  // The other tiles stay in their columns, in their order.
+  expect(await gridColumnLabels(page)).toEqual(
+    before.map((column) => column.filter((name) => !bobs.includes(name))),
+  );
+  await expect(gridTile(page, "Post 1")).toBeFocused();
+  await expect(count).toHaveText(/^8 posts · 4 hidden( · loading more)?$/);
+  const toast = hideToast(page);
+  await expect(toast).toHaveAttribute("role", "status");
+  await expect(toast).toContainText("Hid u/bob");
+  const undo = page.getByRole("button", { name: "Undo", exact: true });
+  await expect(undo).toBeVisible();
+  expect((await savedSettings(page)).hidden).toEqual(["u/bob"]);
+
+  // The slideshow leaves them out too.
+  await page.keyboard.press("v");
+  const title = page.locator(".redditp__title");
+  await expect(title).toHaveText("Post 1");
+  await expect(count).toHaveText(/^1 \/ 8 · 4 hidden/);
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Post 3");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+
+  // Undo puts every tile back exactly where it was.
+  await undo.click();
+  await expect(tiles).toHaveCount(12);
+  expect(await gridColumnLabels(page)).toEqual(before);
+  await expect(count).toHaveText(/^12 posts( · loading more)?$/);
+  await expect(toast).toBeHidden();
+  await expect(toast.locator(".redditp__toast-text")).toHaveText("");
+  await expect(undo).toBeHidden();
+  expect((await savedSettings(page)).hidden).toEqual([]);
+
+  // A message leaves by itself after six seconds.
+  await gridTile(page, "Post 6").hover();
+  await page.keyboard.press("x");
+  await expect(toast).toContainText("Hid u/carol");
+  await page.mouse.move(5, 5);
+  await page.clock.runFor(5000);
+  await expect(toast).toContainText("Hid u/carol");
+  await page.clock.runFor(1500);
+  await expect(toast).toBeHidden();
+  await expect(tiles).toHaveCount(8);
+});
+
+test("X hides the focused tile's author, focus moves on, and Z puts them back", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/hidefocus/",
+    authoredPosts(9),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const tiles = page.locator(".redditp__grid .redditp__tile");
+  await expect(tiles).toHaveCount(9);
+  const before = await gridColumnLabels(page);
+  // The pointer rests clear of the tiles.
+  await page.mouse.move(5, 5);
+  await gridTile(page, "Post 2").focus();
+  await page.keyboard.press("x");
+  await expect(tiles).toHaveCount(6);
+  for (const name of postsBy("bob", 9)) {
+    await expect(gridTile(page, name)).toHaveCount(0);
+  }
+  // Focus moves to the next post shown, in page order.
+  await expect(gridTile(page, "Post 3")).toBeFocused();
+  await expect(hideToast(page)).toContainText("Hid u/bob");
+
+  await page.keyboard.press("z");
+  await expect(tiles).toHaveCount(9);
+  expect(await gridColumnLabels(page)).toEqual(before);
+  await expect(gridTile(page, "Post 2")).toBeFocused();
+  await expect(hideToast(page)).toBeHidden();
+  // With no message, Z does nothing.
+  await page.keyboard.press("z");
+  await expect(tiles).toHaveCount(9);
+
+  // Tab hands X back to the focused tile, though the pointer rests on
+  // another.
+  await gridTile(page, "Post 7").hover();
+  await page.keyboard.press("Tab");
+  const focused = await page.evaluate(() =>
+    document.activeElement.getAttribute("aria-label"),
+  );
+  const number = Number(/^Post (\d+)$/.exec(focused)[1]);
+  const author = HIDE_AUTHORS[(number - 1) % HIDE_AUTHORS.length];
+  expect(author).not.toBe("alice");
+  await page.keyboard.press("x");
+  await expect(hideToast(page)).toContainText(`Hid u/${author}`);
+  await expect(gridTile(page, focused)).toHaveCount(0);
+  await expect(gridTile(page, "Post 7")).toHaveCount(1);
+});
+
+test("X in the slideshow moves on to the next post shown, and Undo goes back to it unless the slideshow moved", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/hideshow/",
+    authoredPosts(6),
+    {},
+  );
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("Post 1");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Post 2");
+
+  await page.keyboard.press("x");
+  await expect(title).toHaveText("Post 3");
+  await expect(count).toHaveText("2 / 4 · 2 hidden");
+  await expect(hideToast(page)).toContainText("Hid u/bob");
+  await page.keyboard.press("z");
+  await expect(title).toHaveText("Post 2");
+  await expect(count).toHaveText("2 / 6");
+
+  // Once the slideshow has moved on, Undo leaves it where it is.
+  await page.keyboard.press("x");
+  await expect(title).toHaveText("Post 3");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Post 4");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(count).toHaveText("4 / 6");
+  await expect(title).toHaveText("Post 4");
+});
+
+test("X on a post without an author says so, and X typed into a field is only typed", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/hidenoauthor/",
+    authoredPost(1, null) +
+      authoredPost(2, "[deleted]") +
+      authoredPost(3, "alice"),
+    {},
+  );
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(count).toHaveText("1 / 3");
+  await page.keyboard.press("x");
+  await expect(hideToast(page)).toContainText(
+    "This post has no author to hide.",
+  );
+  await expect(
+    page.getByRole("button", { name: "Undo", exact: true }),
+  ).toBeHidden();
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Post 2");
+  await page.keyboard.press("x");
+  await expect(hideToast(page)).toContainText(
+    "This post has no author to hide.",
+  );
+  await expect(count).toHaveText("2 / 3");
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Post 3");
+
+  // A field that has focus takes the x.
+  await page.evaluate(() => {
+    const field = document.createElement("input");
+    field.id = "page-field";
+    document.body.prepend(field);
+    field.focus();
+  });
+  await page.keyboard.press("x");
+  await expect(page.locator("#page-field")).toHaveValue("x");
+  // The last post waits on a load, which the paused clock never ends.
+  await expect(count).toHaveText(/^3 \/ 3( · loading more)?$/);
+  await expect(title).toHaveText("Post 3");
+
+  // So does the settings panel's field.
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  const field = page.getByLabel("User, subreddit or site to hide");
+  await field.focus();
+  await page.keyboard.press("x");
+  await expect(field).toHaveValue("x");
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await expect(count).toHaveText(/^3 \/ 3( · loading more)?$/);
+  // Nothing was hidden, so nothing was saved either.
+  expect((await savedSettings(page)).hidden || []).toEqual([]);
+});
+
+test("the settings list the hidden entries, add users, subreddits and sites by hand, and take entries off", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/hidesettings/",
+    authoredPost(1, "alice") +
+      authoredPost(2, "bob", "Funny") +
+      `<div class="thing link" data-url="https://news.example.com/story" data-author="carol" data-subreddit="pics" data-permalink="/r/pics/comments/hide3/post/"><a class="title">Post 3</a></div>` +
+      authoredPost(4, "dave") +
+      authoredPost(5, "alice", "funny"),
+    { hidden: ["u/alice"] },
+  );
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("Post 2");
+  await expect(count).toHaveText("1 / 3 · 2 hidden");
+
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  const hiddenSection = page.getByRole("region", { name: "Hidden" });
+  await expect(hiddenSection).toBeVisible();
+  const entries = hiddenSection.locator(".redditp__hidden-entry");
+  await expect(entries).toHaveText(["u/alice"]);
+  await expect(
+    hiddenSection.getByRole("button", { name: "Unhide u/alice" }),
+  ).toBeVisible();
+  const field = page.getByLabel("User, subreddit or site to hide");
+  const message = hiddenSection.getByRole("alert");
+
+  // A subreddit, with Enter. The slideshow moves on at once.
+  await field.fill("/r/Funny/");
+  await page.keyboard.press("Enter");
+  await expect(entries).toHaveText(["u/alice", "r/Funny"]);
+  await expect(field).toHaveValue("");
+  await expect(title).toHaveText("Post 3");
+  await expect(count).toHaveText("1 / 2 · 3 hidden");
+
+  // A site, with the Add button, covers its subdomains.
+  await field.fill("Example.com");
+  await hiddenSection.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(entries).toHaveText(["u/alice", "r/Funny", "example.com"]);
+  await expect(title).toHaveText("Post 4");
+  // The last post waits on a load, which the paused clock never ends.
+  await expect(count).toHaveText(/^1 \/ 1 · 4 hidden( · loading more)?$/);
+
+  // What names nothing stays in the field, with a message.
+  await field.fill("not a name!");
+  await page.keyboard.press("Enter");
+  await expect(message).toHaveText(
+    "Enter a user as u/name, a subreddit as r/name, or a site such as redgifs.com.",
+  );
+  await expect(field).toHaveAttribute("aria-invalid", "true");
+  await expect(field).toHaveValue("not a name!");
+  await field.fill("U/ALICE");
+  await page.keyboard.press("Enter");
+  await expect(message).toHaveText("u/alice is hidden already.");
+  await expect(entries).toHaveText(["u/alice", "r/Funny", "example.com"]);
+
+  // × takes an entry off, and its posts come back where they were; focus
+  // moves to the entry that took its place.
+  await hiddenSection.getByRole("button", { name: "Unhide u/alice" }).click();
+  await expect(entries).toHaveText(["r/Funny", "example.com"]);
+  await expect(message).toHaveText("");
+  await expect(
+    hiddenSection.getByRole("button", { name: "Unhide r/Funny" }),
+  ).toBeFocused();
+  await expect(title).toHaveText("Post 4");
+  await expect(count).toHaveText(/^2 \/ 2 · 3 hidden( · loading more)?$/);
+  expect((await savedSettings(page)).hidden).toEqual([
+    "r/Funny",
+    "example.com",
+  ]);
+
+  // The grid agrees.
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__grid .redditp__tile")).toHaveCount(2);
+  for (const name of ["Post 1", "Post 4"]) {
+    await expect(gridTile(page, name)).toHaveCount(1);
+  }
+
+  // Taking the last entries off empties the list.
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await hiddenSection.getByRole("button", { name: "Unhide r/Funny" }).click();
+  await hiddenSection
+    .getByRole("button", { name: "Unhide example.com" })
+    .click();
+  await expect(entries).toHaveCount(0);
+  await expect(hiddenSection).toContainText("Nothing hidden.");
+  await expect(field).toBeFocused();
+  await page
+    .getByRole("button", { name: "Close presentation settings" })
+    .click();
+  await expect(page.locator(".redditp__grid .redditp__tile")).toHaveCount(5);
+  await expect(count).toHaveText(/^5 posts( · loading more)?$/);
+});
+
+test("the Hidden list is remembered, and each open reads it afresh", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  const feedUrl = "https://www.reddit.com/r/hideremember/";
+  await openRoutedPage(page, feedUrl, authoredPosts(6), {});
+  await injectExtension(page);
+  const title = page.locator(".redditp__title");
+  const count = page.locator(".redditp__count");
+  await expect(title).toHaveText("Post 1");
+  await page.keyboard.press("x");
+  await expect(title).toHaveText("Post 2");
+  await expect(count).toHaveText(/^1 \/ 4 · 2 hidden/);
+
+  // Closing and opening again keeps it.
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#redditp-presentation")).toBeHidden();
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(title).toHaveText("Post 2");
+  await expect(count).toHaveText(/^1 \/ 4 · 2 hidden/);
+
+  // Another tab changes the list meanwhile; the next open takes it up.
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    const key = "redditpPresentationSettings";
+    const settings = JSON.parse(localStorage.getItem(key));
+    settings.hidden = ["u/bob"];
+    localStorage.setItem(key, JSON.stringify(settings));
+  });
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(title).toHaveText("Post 1");
+  await expect(count).toHaveText(/^1 \/ 4 · 2 hidden/);
+  await page.keyboard.press("ArrowRight");
+  await expect(title).toHaveText("Post 3");
+
+  // A fresh content script, as on the next page load, reads it back, and
+  // the settings list it.
+  await page.goto(feedUrl);
+  await injectExtension(page);
+  await expect(title).toHaveText("Post 1");
+  await expect(count).toHaveText(/^1 \/ 4 · 2 hidden/);
+  await page
+    .getByRole("button", { name: "Open presentation settings" })
+    .click();
+  await expect(
+    page
+      .getByRole("region", { name: "Hidden" })
+      .locator(".redditp__hidden-entry"),
+  ).toHaveText(["u/bob"]);
+});
+
+test("a page whose every post is hidden searches fifteen batches, then says why", async ({
+  page,
+}) => {
+  // Paused, so only the posts rendered by each scroll drive the load.
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/hideall/",
+    `${authoredPost(1, "spammer")}<div style="height: 4000px"></div>`,
+    { hidden: ["u/spammer"] },
+  );
+  // Every scroll renders one more post by the hidden author.
+  await instrumentScroll(page, {
+    template: authoredPost("{n}", "spammer"),
+    start: 2,
+  });
+  await injectExtension(page);
+
+  await expect(page.locator(".redditp__empty h2")).toHaveText(
+    "Nothing here matches the filter",
+  );
+  await expect(page.locator(".redditp__empty p")).toHaveText(
+    "Your Hidden list hides all 16 posts here. Change it in the settings.",
+  );
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "0 posts · 16 hidden",
+  );
+  expect(await scrollCalls(page)).toBe(15);
+  // The gear stays, so the list can be changed.
+  await expect(
+    page.getByRole("button", { name: "Open presentation settings" }),
+  ).toBeVisible();
+
+  // With the Show filter on as well, the message names both.
+  await page.keyboard.press("o");
+  await expect(page.locator(".redditp__empty p")).toHaveText(
+    /^Only images are shown, and your Hidden list hides \d+ posts here\. Change that in the settings, or press O\.$/,
+  );
+});
+
+test("a grid whose new posts are all hidden stops after fifteen batches", async ({
+  page,
+}) => {
+  const spam = Array.from({ length: 400 }, (_, index) =>
+    gridSlide(index + 5, { author: "u/spammer" }),
+  );
+  await openPooledGridSource(page, gridSlides(1, 4), spam, 4, {
+    hidden: ["u/spammer"],
+  });
+  await expect.poll(() => gridLoadMores(page)).toBe(15);
+  await expect(page.locator(".redditp__grid-status")).toHaveText(
+    "No more posts found outside your Hidden list",
+  );
+  await page.waitForTimeout(500);
+  expect(await gridLoadMores(page)).toBe(15);
+  await expect(page.locator(".redditp__grid .redditp__tile")).toHaveCount(4);
+  await expect(page.locator(".redditp__count")).toHaveText(
+    "4 posts · 60 hidden",
+  );
+});

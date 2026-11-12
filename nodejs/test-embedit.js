@@ -2187,6 +2187,329 @@ suite("browser-extension media filter", () => {
   });
 });
 
+suite("browser-extension hidden list", () => {
+  // The Hidden list lives in the media filter's block, since the filter
+  // applies it.
+  const hidden = loadContentScriptBlock("redditp-media-filter", [
+    "HIDDEN_MAX_ENTRIES",
+    "normalizeHiddenEntry",
+    "normalizedHiddenList",
+    "addToHiddenList",
+    "removeFromHiddenList",
+    "slideIsHidden",
+    "slideMatchesFilter",
+    "mediaFilterActive",
+    "filterSummary",
+  ]);
+  const ALL = { showImages: true, showGifs: true, showVideos: true };
+  const IMAGES_ONLY = { showImages: true, showGifs: false, showVideos: false };
+  // A Reddit image post by u/Alice in r/pics, linking the picture.
+  function post(fields = {}) {
+    return {
+      kind: "image",
+      media: "image",
+      postMedia: true,
+      author: "u/Alice",
+      community: "r/pics",
+      url: "https://i.redd.it/abc.jpg",
+      sourceUrl: "https://i.redd.it/abc.jpg",
+      ...fields,
+    };
+  }
+
+  test("hidden list helpers could be loaded", () => {
+    // Guards the slice above: if the markers move or disappear, this fails
+    // loudly instead of silently skipping the checks below.
+    assert.ok(
+      hidden,
+      "did not find the redditp-media-filter markers in content.js",
+    );
+  });
+
+  test("an entry names a user, a subreddit or a site", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    [
+      ["u/Alice", "u/Alice"],
+      ["/u/Alice", "u/Alice"],
+      ["U/Alice", "u/Alice"],
+      ["user/Alice", "u/Alice"],
+      ["/user/Alice/", "u/Alice"],
+      ["  u/Alice  ", "u/Alice"],
+      // A word without a dot is a user: Reddit's usernames have none.
+      ["Alice", "u/Alice"],
+      ["some_user-42", "u/some_user-42"],
+      ["redgifs", "u/redgifs"],
+      ["a".repeat(20), `u/${"a".repeat(20)}`],
+      ["r/Pics", "r/Pics"],
+      ["/r/pics/", "r/pics"],
+      ["R/pics", "r/pics"],
+      ["r/de", "r/de"],
+      ["r/u_alice", "r/u_alice"],
+      // Anything with a dot is a site, lowercase, without "www.".
+      ["redgifs.com", "redgifs.com"],
+      ["RedGifs.COM", "redgifs.com"],
+      ["www.redgifs.com", "redgifs.com"],
+      ["redgifs.com.", "redgifs.com"],
+      ["v3.redgifs.com", "v3.redgifs.com"],
+      ["https://www.redgifs.com/watch/clip", "redgifs.com"],
+      ["redgifs.com/watch/clip", "redgifs.com"],
+      ["http://i.imgur.com:8080/a.jpg", "i.imgur.com"],
+      ["reddit.com", "reddit.com"],
+      // A Reddit address of a user or a subreddit names them.
+      ["https://www.reddit.com/user/Alice/", "u/Alice"],
+      ["https://old.reddit.com/u/Alice", "u/Alice"],
+      ["www.reddit.com/r/pics/top/", "r/pics"],
+    ].forEach(([input, expected]) => {
+      assert.strictEqual(
+        hidden.normalizeHiddenEntry(input),
+        expected,
+        JSON.stringify(input),
+      );
+    });
+  });
+
+  test("anything else is no entry", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    [
+      "",
+      "   ",
+      "/",
+      "u/",
+      "r/",
+      "user/",
+      "u/[deleted]",
+      "[deleted]",
+      "u/some.name",
+      "r/a",
+      "r/with-dash",
+      `r/${"a".repeat(22)}`,
+      "a".repeat(21),
+      "two words",
+      "u/alice/extra",
+      ".com",
+      "a..b",
+      "-bad.com",
+      "javascript:alert(1)",
+      `${"a".repeat(3000)}.com`,
+      null,
+      undefined,
+      42,
+      ["u/alice"],
+    ].forEach((input) => {
+      assert.strictEqual(
+        hidden.normalizeHiddenEntry(input),
+        "",
+        JSON.stringify(input),
+      );
+    });
+  });
+
+  test("a saved list keeps entries only, each once, up to the cap", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    [null, undefined, "u/alice", { 0: "u/alice" }, 7].forEach((value) => {
+      assert.deepStrictEqual(hidden.normalizedHiddenList(value), []);
+    });
+    assert.deepStrictEqual(
+      hidden.normalizedHiddenList([
+        "u/Alice",
+        "U/alice",
+        "alice",
+        42,
+        null,
+        { entry: "u/bob" },
+        "r/pics",
+        "/r/PICS/",
+        "nonsense entry",
+        "www.RedGifs.com",
+        "redgifs.com",
+      ]),
+      ["u/Alice", "r/pics", "redgifs.com"],
+    );
+    const many = Array.from(
+      { length: hidden.HIDDEN_MAX_ENTRIES + 5 },
+      (_, index) => `u/user${index}`,
+    );
+    const capped = hidden.normalizedHiddenList(many);
+    assert.strictEqual(capped.length, hidden.HIDDEN_MAX_ENTRIES);
+    assert.deepStrictEqual(capped, many.slice(0, hidden.HIDDEN_MAX_ENTRIES));
+  });
+
+  test("adding says what happened and never changes the list it is given", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    const list = Object.freeze(["u/Alice"]);
+    assert.deepStrictEqual(hidden.addToHiddenList(list, "r/pics"), {
+      list: ["u/Alice", "r/pics"],
+      entry: "r/pics",
+      status: "added",
+    });
+    assert.deepStrictEqual(hidden.addToHiddenList(list, "/u/ALICE"), {
+      list,
+      entry: "u/Alice",
+      status: "duplicate",
+    });
+    assert.strictEqual(
+      hidden.addToHiddenList(list, "not valid").status,
+      "invalid",
+    );
+    assert.strictEqual(hidden.addToHiddenList(list, "").status, "invalid");
+    const full = Array.from(
+      { length: hidden.HIDDEN_MAX_ENTRIES },
+      (_, index) => `u/user${index}`,
+    );
+    const result = hidden.addToHiddenList(full, "u/onemore");
+    assert.strictEqual(result.status, "full");
+    assert.strictEqual(result.list, full);
+    assert.deepStrictEqual(list, ["u/Alice"]);
+  });
+
+  test("removing an entry goes by any case", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    const list = ["u/Alice", "r/pics", "redgifs.com"];
+    assert.deepStrictEqual(hidden.removeFromHiddenList(list, "u/alice"), [
+      "r/pics",
+      "redgifs.com",
+    ]);
+    assert.deepStrictEqual(hidden.removeFromHiddenList(list, "R/PICS"), [
+      "u/Alice",
+      "redgifs.com",
+    ]);
+    assert.deepStrictEqual(hidden.removeFromHiddenList(list, "u/nobody"), list);
+    assert.deepStrictEqual(list, ["u/Alice", "r/pics", "redgifs.com"]);
+  });
+
+  test("a user or a subreddit matches in any case", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    assert.strictEqual(hidden.slideIsHidden(post(), ["u/alice"]), true);
+    assert.strictEqual(hidden.slideIsHidden(post(), ["U/ALICE"]), true);
+    assert.strictEqual(hidden.slideIsHidden(post(), ["r/PICS"]), true);
+    assert.strictEqual(hidden.slideIsHidden(post(), ["u/alicex"]), false);
+    assert.strictEqual(hidden.slideIsHidden(post(), ["u/pics"]), false);
+    assert.strictEqual(hidden.slideIsHidden(post(), ["r/alice"]), false);
+    // Another source may leave out the prefix.
+    assert.strictEqual(
+      hidden.slideIsHidden(post({ author: "Alice", community: "" }), [
+        "u/alice",
+      ]),
+      true,
+    );
+    assert.strictEqual(
+      hidden.slideIsHidden(post({ author: "", community: "pics" }), ["r/pics"]),
+      true,
+    );
+    // No list, or an empty one, hides nothing.
+    [undefined, null, []].forEach((list) => {
+      assert.strictEqual(hidden.slideIsHidden(post(), list), false);
+    });
+  });
+
+  test("a site matches its own host and its subdomains, and nothing else", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    const linking = (sourceUrl) => post({ sourceUrl, url: "" });
+    [
+      ["https://redgifs.com/watch/a", true],
+      ["https://www.redgifs.com/watch/a", true],
+      ["https://v3.redgifs.com/watch/a", true],
+      ["https://WWW.RedGifs.com/watch/a", true],
+      ["https://notredgifs.com/watch/a", false],
+      ["https://redgifs.com.example/watch/a", false],
+      ["https://redgifs.co/watch/a", false],
+      ["https://example.com/?u=redgifs.com", false],
+    ].forEach(([url, expected]) => {
+      assert.strictEqual(
+        hidden.slideIsHidden(linking(url), ["redgifs.com"]),
+        expected,
+        url,
+      );
+    });
+    // A subdomain's entry leaves its parent alone.
+    assert.strictEqual(
+      hidden.slideIsHidden(linking("https://redgifs.com/a"), [
+        "v3.redgifs.com",
+      ]),
+      false,
+    );
+    // Without a link of its own, the slide's media counts.
+    assert.strictEqual(
+      hidden.slideIsHidden(
+        post({ sourceUrl: "", url: "https://media.redgifs.com/a.mp4" }),
+        ["redgifs.com"],
+      ),
+      true,
+    );
+    assert.strictEqual(
+      hidden.slideIsHidden(
+        post({ sourceUrl: "not a url", url: "https://i.redd.it/a.jpg" }),
+        ["redd.it"],
+      ),
+      true,
+    );
+    // A search thumbnail does not know its post's link yet, but does know
+    // its author.
+    const thumbnail = post({
+      mediaUnknown: true,
+      sourceUrl: "https://www.redgifs.com/watch/a",
+    });
+    assert.strictEqual(hidden.slideIsHidden(thumbnail, ["redgifs.com"]), false);
+    assert.strictEqual(hidden.slideIsHidden(thumbnail, ["u/alice"]), true);
+  });
+
+  test("a slide's new link is read afresh", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    const slide = post({ sourceUrl: "https://example.com/a" });
+    assert.strictEqual(hidden.slideIsHidden(slide, ["redgifs.com"]), false);
+    slide.sourceUrl = "https://www.redgifs.com/watch/a";
+    assert.strictEqual(hidden.slideIsHidden(slide, ["redgifs.com"]), true);
+  });
+
+  test("the Hidden list leaves posts out whether or not the Show filter is on", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    const video = post({
+      kind: "video",
+      media: "video",
+      url: "https://v.redd.it/a/DASH_480.mp4",
+      sourceUrl: "https://v.redd.it/a",
+      author: "u/Bob",
+    });
+    const bobs = post({ author: "u/Bob" });
+    const withList = (settings) =>
+      Object.assign({}, settings, { hidden: ["u/alice"] });
+    // The list alone is no Show filter.
+    assert.strictEqual(hidden.mediaFilterActive(withList(ALL)), false);
+    assert.strictEqual(hidden.slideMatchesFilter(post(), withList(ALL)), false);
+    assert.strictEqual(hidden.slideMatchesFilter(bobs, withList(ALL)), true);
+    assert.strictEqual(hidden.slideMatchesFilter(video, withList(ALL)), true);
+    assert.strictEqual(
+      hidden.slideMatchesFilter(post(), withList(IMAGES_ONLY)),
+      false,
+    );
+    assert.strictEqual(
+      hidden.slideMatchesFilter(bobs, withList(IMAGES_ONLY)),
+      true,
+    );
+    assert.strictEqual(
+      hidden.slideMatchesFilter(video, withList(IMAGES_ONLY)),
+      false,
+    );
+    // Settings saved before the list existed have none.
+    assert.strictEqual(hidden.slideMatchesFilter(post(), ALL), true);
+    // A link post shows with every type on, unless the list hides it.
+    const link = post({ kind: "link", media: "link", author: "u/Alice" });
+    assert.strictEqual(hidden.slideMatchesFilter(link, ALL), true);
+    assert.strictEqual(hidden.slideMatchesFilter(link, withList(ALL)), false);
+  });
+
+  test("the counter names the Show filter, then how many posts are hidden", () => {
+    assert.ok(hidden, "hidden list helpers not loaded");
+    assert.strictEqual(hidden.filterSummary(ALL, 0), "");
+    assert.strictEqual(hidden.filterSummary(ALL, 1), "1 hidden");
+    assert.strictEqual(hidden.filterSummary(IMAGES_ONLY, 0), "images only");
+    assert.strictEqual(
+      hidden.filterSummary(IMAGES_ONLY, 12),
+      "images only · 12 hidden",
+    );
+  });
+});
+
 suite("browser-extension feed loading", () => {
   const loading = loadContentScriptBlock("redditp-feed-loading", [
     "loadVerdict",

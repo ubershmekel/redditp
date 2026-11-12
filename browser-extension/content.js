@@ -61,6 +61,10 @@
     showImages: true,
     showGifs: true,
     showVideos: true,
+    // The Hidden list: users, subreddits and sites whose posts never show
+    // (see normalizeHiddenEntry). A change replaces the list rather than
+    // changing it in place.
+    hidden: [],
   };
 
   // redditp-grid-layout:start
@@ -166,9 +170,9 @@
   // redditp-grid-rendition:end
 
   // redditp-media-filter:start
-  // Media types for the Show filter. Like the grid layout block, this stays
-  // DOM-free and self-contained, so nodejs/test-embedit.js can evaluate it on
-  // its own.
+  // Media types for the Show filter, and the Hidden list. Like the grid
+  // layout block, this stays DOM-free and self-contained, so
+  // nodejs/test-embedit.js can evaluate it on its own.
   const GIF_URL_RE = /\.gif(?:$|[?#])/i;
   // Each type's setting key and the label the counter and messages use.
   const MEDIA_FILTER_TYPES = [
@@ -199,11 +203,182 @@
     return !(settings.showImages && settings.showGifs && settings.showVideos);
   }
 
-  // A later include/exclude list of domains would test the host of
-  // slide.sourceUrl, falling back to slide.url and slide.commentsUrl, let
-  // mediaUnknown slides through as well, and apply whenever the media filter
-  // is active or a domain list is set.
+  // The Hidden list: users ("u/name"), subreddits ("r/name") and sites
+  // ("redgifs.com", which covers its subdomains too) whose posts the
+  // slideshow and the grid leave out, whatever the Show filter shows.
+  // Entries keep the case they came in, and match in any case. The list is
+  // saved with the other settings, and capped at HIDDEN_MAX_ENTRIES.
+  const HIDDEN_MAX_ENTRIES = 1000;
+  // Longer input is no entry: a site's name is at most 253 characters, and a
+  // URL that names one rarely needs more than this.
+  const HIDDEN_MAX_INPUT = 2048;
+  const HIDDEN_USER_RE = /^[A-Za-z0-9_-]{1,20}$/;
+  const HIDDEN_SUB_RE = /^[A-Za-z0-9_]{2,21}$/;
+  const HIDDEN_SITE_RE =
+    /^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+  const HIDDEN_PREFIX_RE = /^(u|user|r)\/([^/]+)\/?$/i;
+  // A Reddit address that names a user or a subreddit, as pasted from the
+  // address bar, stands for them rather than for all of reddit.com.
+  const HIDDEN_REDDIT_PATH_RE = /^\/(u|user|r)\/([^/]+)/i;
+
+  function hiddenNameEntry(prefix, name) {
+    if (prefix.toLowerCase() === "r") {
+      return HIDDEN_SUB_RE.test(name) ? `r/${name}` : "";
+    }
+    return HIDDEN_USER_RE.test(name) ? `u/${name}` : "";
+  }
+
+  // A site's entry: the host that the text names, lowercase, without "www."
+  // in front. Text without a scheme reads as a host, maybe with a path.
+  function hiddenSiteEntry(text) {
+    let parsed;
+    try {
+      parsed = new URL(
+        /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`,
+      );
+    } catch (_error) {
+      return "";
+    }
+    const host = parsed.hostname
+      .toLowerCase()
+      .replace(/\.$/, "")
+      .replace(/^www\./, "");
+    const named = HIDDEN_REDDIT_PATH_RE.exec(parsed.pathname);
+    if (named && /(?:^|\.)reddit\.com$/.test(host)) {
+      return hiddenNameEntry(named[1], named[2]);
+    }
+    return HIDDEN_SITE_RE.test(host) ? host : "";
+  }
+
+  // An entry for the Hidden list from what someone typed, or from a slide's
+  // author or community, or "" when it names none. A leading "/" is dropped;
+  // "u/", "user/" and "r/" say what follows; a word without a dot is a user,
+  // since Reddit's usernames have none; and anything with a dot is a site.
+  function normalizeHiddenEntry(value) {
+    if (typeof value !== "string") return "";
+    const text = value.trim().replace(/^\/+/, "");
+    if (!text || text.length > HIDDEN_MAX_INPUT) return "";
+    const prefixed = HIDDEN_PREFIX_RE.exec(text);
+    if (prefixed) return hiddenNameEntry(prefixed[1], prefixed[2]);
+    if (!text.includes(".")) return hiddenNameEntry("u", text);
+    return hiddenSiteEntry(text);
+  }
+
+  // What an entry matches by: the same in any case.
+  function hiddenEntryKey(entry) {
+    return String(entry).toLowerCase();
+  }
+
+  // A saved list as the viewer uses it: entries only, each once, at most
+  // HIDDEN_MAX_ENTRIES of them. Anything else reads as an empty list.
+  function normalizedHiddenList(value) {
+    const list = [];
+    const keys = new Set();
+    (Array.isArray(value) ? value : []).forEach((item) => {
+      if (list.length >= HIDDEN_MAX_ENTRIES) return;
+      const entry = normalizeHiddenEntry(item);
+      const key = hiddenEntryKey(entry);
+      if (!entry || keys.has(key)) return;
+      keys.add(key);
+      list.push(entry);
+    });
+    return list;
+  }
+
+  // The list with what someone typed added at its end: { list, entry,
+  // status }, where status is "added", "invalid" when the text names no
+  // entry, "duplicate" when the entry is there already, or "full". Only
+  // "added" gives a new list; the list given is never changed.
+  function addToHiddenList(list, value) {
+    const entry = normalizeHiddenEntry(value);
+    if (!entry) return { list, entry, status: "invalid" };
+    const key = hiddenEntryKey(entry);
+    const existing = list.find((item) => hiddenEntryKey(item) === key);
+    if (existing) return { list, entry: existing, status: "duplicate" };
+    if (list.length >= HIDDEN_MAX_ENTRIES) {
+      return { list, entry, status: "full" };
+    }
+    return { list: list.concat(entry), entry, status: "added" };
+  }
+
+  // The list without the entry, in any case, as a new list.
+  function removeFromHiddenList(list, entry) {
+    const key = hiddenEntryKey(entry);
+    return list.filter((item) => hiddenEntryKey(item) !== key);
+  }
+
+  // The keys of a list, made once per list: a change gives a new list
+  // rather than changing the old one.
+  const hiddenKeySets = new WeakMap();
+
+  function hiddenKeys(list) {
+    if (!Array.isArray(list) || !list.length) return null;
+    let keys = hiddenKeySets.get(list);
+    if (!keys) {
+      keys = new Set(list.map(hiddenEntryKey));
+      hiddenKeySets.set(list, keys);
+    }
+    return keys;
+  }
+
+  // A slide's host, read once per address it has.
+  const slideHosts = new WeakMap();
+
+  function urlHost(url) {
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function slideHost(slide) {
+    const known = slideHosts.get(slide);
+    if (
+      known &&
+      known.sourceUrl === slide.sourceUrl &&
+      known.url === slide.url
+    ) {
+      return known.host;
+    }
+    const host = urlHost(slide.sourceUrl) || urlHost(slide.url);
+    slideHosts.set(slide, { sourceUrl: slide.sourceUrl, url: slide.url, host });
+    return host;
+  }
+
+  // A slide's author or community as a key, with its prefix even where
+  // another source left it out.
+  function prefixedKey(value, prefix) {
+    const key = hiddenEntryKey(value).replace(/^\/+/, "");
+    return key.startsWith(prefix) ? key : prefix + key;
+  }
+
+  // Whether the Hidden list leaves a slide out: by its author, its
+  // subreddit, or the host of the post's link (or else of its media), or
+  // any domain above that host. A search result that shows only a
+  // thumbnail does not know its post's link yet, so only its author and
+  // subreddit count until enrichSlide has read the post.
+  function slideIsHidden(slide, list) {
+    const keys = hiddenKeys(list);
+    if (!keys) return false;
+    if (slide.author && keys.has(prefixedKey(slide.author, "u/"))) {
+      return true;
+    }
+    if (slide.community && keys.has(prefixedKey(slide.community, "r/"))) {
+      return true;
+    }
+    if (slide.mediaUnknown) return false;
+    let host = slideHost(slide);
+    while (host) {
+      if (keys.has(host)) return true;
+      const dot = host.indexOf(".");
+      host = dot < 0 ? "" : host.slice(dot + 1);
+    }
+    return false;
+  }
+
   function slideMatchesFilter(slide, settings) {
+    if (slideIsHidden(slide, settings.hidden)) return false;
     if (!mediaFilterActive(settings)) return true;
     // A search result that shows only a thumbnail stands in for its post
     // until enrichSlide has read the post.
@@ -229,6 +404,18 @@
       return `no ${hidden[1]}`;
     }
     return "";
+  }
+
+  // The counter's whole note on what is left out: the Show filter's, then
+  // how many loaded posts the Hidden list leaves out, as in "images only ·
+  // 3 hidden".
+  function filterSummary(settings, hiddenPosts) {
+    return [
+      mediaFilterSummary(settings),
+      hiddenPosts > 0 ? `${hiddenPosts} hidden` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
 
   // The shown types in words: "images", "images or GIFs", "images and
@@ -2054,8 +2241,8 @@
   // A source's slides take extractSlides' shape (see sourceSlide). A picture
   // that is the post's own media needs postMedia: true; without it, it
   // counts as the preview of a link, which any filter hides. wants(slide)
-  // says whether the Show filter would show a slide, so a source can size
-  // its batches. A player frame's poster is a still of it, which its grid
+  // says whether the Show filter and the Hidden list would show a slide, so
+  // a source can size its batches. A player frame's poster is a still of it, which its grid
   // tile shows, since the grid loads no frame. A slide may name thumb, a
   // smaller copy of its picture (a video's or a frame's poster) that its
   // grid tile loads instead; width and height, the picture's size, which
@@ -2150,7 +2337,8 @@
     return result;
   }
 
-  // Whether the Show filter would show one of a source's slides.
+  // Whether the Show filter and the Hidden list would show one of a source's
+  // slides.
   function sourceWants(slide) {
     return slideMatchesFilter(sourceSlide(slide), state.settings);
   }
@@ -2289,8 +2477,9 @@
   }
 
   function normalizedSettings(value) {
-    const result = Object.assign({}, DEFAULT_SETTINGS);
+    const result = Object.assign({}, DEFAULT_SETTINGS, { hidden: [] });
     if (!value || typeof value !== "object") return result;
+    result.hidden = normalizedHiddenList(value.hidden);
     Object.keys(DEFAULT_SETTINGS).forEach((key) => {
       if (key === "slideDurationSeconds") {
         const seconds = Number(value[key]);
@@ -2317,12 +2506,18 @@
     return result;
   }
 
+  // The first open reads every setting. Later opens read the Hidden list
+  // again, which another tab or the archive page may have changed since;
+  // the other settings stay as this page has them.
   function loadSettings() {
-    if (state.settingsLoaded) return Promise.resolve();
     return new Promise((resolve) => {
       function finish(value) {
-        state.settings = normalizedSettings(value);
-        state.settingsLoaded = true;
+        if (!state.settingsLoaded) {
+          state.settings = normalizedSettings(value);
+          state.settingsLoaded = true;
+        } else if (value && typeof value === "object") {
+          state.settings.hidden = normalizedHiddenList(value.hidden);
+        }
         resolve();
       }
       try {
@@ -2566,6 +2761,54 @@
     element("p", "", "Link and text posts show only when all three are on."),
   );
 
+  // The Hidden list: its entries, each with a button that takes it off, and
+  // a field that adds one. Enter in the field adds too.
+  const hiddenGroup = element("section", "redditp__hidden", "");
+  hiddenGroup.setAttribute("aria-labelledby", "redditp-hidden-title");
+  const hiddenTitle = element("h3", "", "Hidden");
+  hiddenTitle.id = "redditp-hidden-title";
+  const hiddenList = element("ul", "redditp__hidden-list", "");
+  hiddenList.setAttribute("aria-labelledby", "redditp-hidden-title");
+  const hiddenEmpty = element(
+    "p",
+    "redditp__hidden-empty",
+    "Nothing hidden. Press X on a post to hide its author.",
+  );
+  const hiddenAdd = element("div", "redditp__hidden-add", "");
+  const hiddenInput = element("input", "", "");
+  hiddenInput.type = "text";
+  hiddenInput.id = "redditp-hidden-input";
+  hiddenInput.placeholder = "u/name, r/name or site.com";
+  hiddenInput.autocomplete = "off";
+  hiddenInput.setAttribute("autocapitalize", "off");
+  hiddenInput.spellcheck = false;
+  hiddenInput.maxLength = HIDDEN_MAX_INPUT;
+  hiddenInput.setAttribute("aria-label", "User, subreddit or site to hide");
+  hiddenInput.setAttribute("aria-describedby", "redditp-hidden-message");
+  const hiddenAddButton = element(
+    "button",
+    "redditp__hidden-add-button",
+    "Add",
+  );
+  hiddenAddButton.type = "button";
+  hiddenAdd.append(hiddenInput, hiddenAddButton);
+  const hiddenMessage = element("p", "redditp__hidden-message", "");
+  hiddenMessage.id = "redditp-hidden-message";
+  // An alert that stays in the page, empty until there is something to say.
+  hiddenMessage.setAttribute("role", "alert");
+  hiddenGroup.append(
+    hiddenTitle,
+    element(
+      "p",
+      "",
+      "Posts by these users, in these subreddits, or from these sites stay out of the slideshow and the grid. A site covers its subdomains too.",
+    ),
+    hiddenList,
+    hiddenEmpty,
+    hiddenAdd,
+    hiddenMessage,
+  );
+
   const shortcutHelp = element("section", "redditp__shortcuts", "");
   shortcutHelp.setAttribute("aria-labelledby", "redditp-shortcuts-title");
   const shortcutTitle = element("h3", "", "Keyboard shortcuts");
@@ -2577,6 +2820,11 @@
     [["G"], "Skip gallery / next post"],
     [["V"], "Switch between grid and slideshow"],
     [["O"], "Cycle media: all, images, GIFs, videos"],
+    [
+      ["X"],
+      "Hide the post's author (in the grid: the tile under the pointer, or else the focused tile)",
+    ],
+    [["Z"], "Undo hiding, while its message shows"],
     [["H"], "Browse this subreddit's archive (new tab)"],
     [["F"], "Toggle fullscreen (if available)"],
     [["M"], "Toggle video sound"],
@@ -2608,6 +2856,7 @@
     settingsClose,
     durationLabel,
     filterGroup,
+    hiddenGroup,
     checkboxSetting("showDetails", "Show the title panel"),
     checkboxSetting("showArrows", "Show previous and next arrows"),
     checkboxSetting(
@@ -2623,6 +2872,23 @@
     shortcutHelp,
   );
   settingsOverlay.append(settingsPanel);
+
+  // A short message at the foot of the screen, such as "Hid u/name" with
+  // its Undo button. The region stays in the page, empty, so that a screen
+  // reader hears each message as it arrives.
+  const toast = element("div", "redditp__toast", "");
+  toast.setAttribute("role", "status");
+  const toastText = element("span", "redditp__toast-text", "");
+  const toastUndo = element(
+    "button",
+    "redditp__button redditp__toast-undo",
+    "Undo",
+  );
+  toastUndo.type = "button";
+  toastUndo.title = "Show these posts again (Z)";
+  toastUndo.hidden = true;
+  toast.append(toastText, toastUndo);
+
   root.append(
     stage,
     grid,
@@ -2631,6 +2897,7 @@
     details,
     controls,
     closeButton,
+    toast,
     settingsOverlay,
   );
 
@@ -3538,10 +3805,7 @@
     const neighbour =
       oldTile.nextElementSibling || oldTile.previousElementSibling;
     const newTiles = replacements.map(createGridTile);
-    if (gridObserver) gridObserver.unobserve(oldTile);
-    if (gridPictureObserver) gridPictureObserver.unobserve(oldTile);
-    if (gridLoopRangeObserver) gridLoopRangeObserver.unobserve(oldTile);
-    if (gridLoopObserver) gridLoopObserver.unobserve(oldTile);
+    unobserveGridTile(oldTile);
     removeGridLoop(oldTile);
     oldTile.replaceWith(...newTiles);
     replacements.forEach((slide, index) => {
@@ -3562,6 +3826,99 @@
     if (newTiles.length) newTiles[0].focus({ preventScroll: true });
     else if (neighbour) neighbour.focus({ preventScroll: true });
     else focusInitialControl();
+  }
+
+  function unobserveGridTile(tile) {
+    if (gridObserver) gridObserver.unobserve(tile);
+    if (gridPictureObserver) gridPictureObserver.unobserve(tile);
+    if (gridLoopRangeObserver) gridLoopRangeObserver.unobserve(tile);
+    if (gridLoopObserver) gridLoopObserver.unobserve(tile);
+  }
+
+  function gridColumnIndex(column) {
+    return Array.prototype.indexOf.call(gridColumns.children, column);
+  }
+
+  // A tile that the Hidden list took out of the grid waits here, by its
+  // slide, with its place: its column and the tiles beside it then. Hiding
+  // the same posts again and showing them again puts each tile back there,
+  // as it was, without loading its picture again (see updateGridInPlace).
+  // Built afresh, the grid forgets them.
+  const parkedTiles = new Map();
+  // Counts the tiles taken out, so they go back in the reverse order.
+  let parkedCount = 0;
+
+  // Takes a slide's tile out of the grid and keeps it, with its place. Its
+  // column's running height loses it.
+  function parkGridTile(slide) {
+    const tile = state.gridTiles.get(slide);
+    if (!tile) return;
+    state.gridTiles.delete(slide);
+    const info = gridTileInfo.get(tile);
+    unobserveGridTile(tile);
+    removeGridLoop(tile);
+    info.inRange = false;
+    info.visible = false;
+    const column = tile.parentElement;
+    if (column && column.parentElement === gridColumns) {
+      state.gridColumnHeights[gridColumnIndex(column)] -= info.height;
+      parkedCount += 1;
+      parkedTiles.set(slide, {
+        tile,
+        column,
+        previous: tile.previousElementSibling,
+        next: tile.nextElementSibling,
+        order: parkedCount,
+      });
+    }
+    tile.remove();
+  }
+
+  // Puts a kept tile back in its place: before the tile that followed it,
+  // or else after the one before it, or at its column's start or end, as it
+  // was. False when there is no such place any more, as after the column
+  // count changed, or when the slide's tile was never kept.
+  function restoreGridTile(slide) {
+    const spot = parkedTiles.get(slide);
+    if (!spot || spot.column.parentElement !== gridColumns) return false;
+    const { tile, column, previous, next } = spot;
+    if (next && next.parentElement === column) {
+      column.insertBefore(tile, next);
+    } else if (previous && previous.parentElement === column) {
+      previous.after(tile);
+    } else if (!previous) {
+      column.prepend(tile);
+    } else if (!next) {
+      column.append(tile);
+    } else {
+      return false;
+    }
+    parkedTiles.delete(slide);
+    const info = gridTileInfo.get(tile);
+    state.gridColumnHeights[gridColumnIndex(column)] += info.height;
+    state.gridTiles.set(slide, tile);
+    setGridLoopState(tile, restingGridLoopState(info));
+    observeGridTile(tile, slide);
+    return true;
+  }
+
+  // Brings the grid in step with a change of the Hidden list without
+  // building it afresh, so it keeps its place and its pictures: the tiles of
+  // slides that no longer show leave, kept with their places, and those of
+  // slides that show again go back to theirs, the last to leave first.
+  // Returns false when a slide that shows now has no tile to go back, and
+  // the grid needs building afresh.
+  function updateGridInPlace(before) {
+    const now = new Set(state.slides);
+    before.forEach((slide) => {
+      if (!now.has(slide)) parkGridTile(slide);
+    });
+    const was = new Set(before);
+    const order = (slide) => parkedTiles.get(slide)?.order || 0;
+    return state.slides
+      .filter((slide) => !was.has(slide))
+      .sort((a, b) => order(b) - order(a))
+      .every(restoreGridTile);
   }
 
   function resetGrid() {
@@ -3608,6 +3965,7 @@
     state.gridLoadTop = 0;
     gridColumns.replaceChildren();
     state.gridTiles.clear();
+    parkedTiles.clear();
     state.gridColumnHeights = [];
     state.gridBuilt = false;
     state.gridScrollTop = 0;
@@ -4091,18 +4449,38 @@
     );
   }
 
+  // How many of the loaded posts the Hidden list leaves out.
+  function hiddenPostCount() {
+    const list = state.settings.hidden;
+    if (!Array.isArray(list) || !list.length) return 0;
+    const posts = new Set();
+    state.allSlides.forEach((slide) => {
+      if (slideIsHidden(slide, list)) posts.add(postIdentity(slide));
+    });
+    return posts.size;
+  }
+
+  // Whether loaded posts are left out by choice: the Show filter is on, or
+  // the Hidden list leaves out a post here. Either way an empty stage keeps
+  // the controls, and a load searches on past the posts it leaves out.
+  function filtering() {
+    return mediaFilterActive(state.settings) || hiddenPostCount() > 0;
+  }
+
   function syncPresentationUi() {
     const hasSlides = state.slides.length > 0;
     const inGrid = state.view === "grid" && hasSlides;
-    const filtering = mediaFilterActive(state.settings);
+    // The gear's dot and tooltip are the Show filter's alone; the counter
+    // says what the Hidden list leaves out.
+    const mediaFiltering = mediaFilterActive(state.settings);
     root.classList.toggle("redditp--grid", inGrid);
-    root.classList.toggle("redditp--filtered", filtering);
+    root.classList.toggle("redditp--filtered", mediaFiltering);
     empty.hidden = hasSlides;
     syncEmptyState();
     details.hidden = !hasSlides || !state.settings.showDetails;
     // A filter that hides every post keeps the controls, so the gear can
     // still change it; the controls that need a slide go meanwhile.
-    controls.hidden = !hasSlides && !filtering;
+    controls.hidden = !hasSlides && !filtering();
     viewButton.hidden = !hasSlides;
     if (!hasSlides) sourceLink.hidden = commentsLink.hidden = true;
     prevButton.hidden = nextButton.hidden =
@@ -4143,7 +4521,7 @@
       ? "Collapse controls (P)"
       : "Expand controls (P)";
     // A dot on the gear says a filter is on; its tooltip says which.
-    settingsButton.title = filtering
+    settingsButton.title = mediaFiltering
       ? `Presentation settings (${mediaFilterSummary(state.settings)})`
       : "Presentation settings";
     updateCount(loadingSuffixShown());
@@ -4226,11 +4604,12 @@
   // Counts posts rather than slides, so a gallery advances only its own
   // "(2/7)" counter while the post number stays put. The grid shows every
   // post at once, so it shows only the total. An active filter adds what it
-  // shows, such as "images only", and media that failed to load adds how
-  // many did, before "loading more".
+  // shows, such as "images only", the Hidden list how many loaded posts it
+  // leaves out, as "3 hidden", and media that failed to load adds how many
+  // did, before "loading more".
   function updateCount(loading) {
     const suffix = countSuffix(
-      mediaFilterSummary(state.settings),
+      filterSummary(state.settings, hiddenPostCount()),
       state.unavailable,
       loading,
     );
@@ -4254,9 +4633,9 @@
   }
 
   // The empty stage says why it is empty: Reddit's player is still being
-  // prepared, the page has no posts, the Show filter hides them all, or all
-  // their pictures and videos failed to load. Another source can say the
-  // first two in its own words.
+  // prepared, the page has no posts, the Show filter or the Hidden list
+  // leaves them all out, or all their pictures and videos failed to load.
+  // Another source can say the first two in its own words.
   function syncEmptyState() {
     let heading = "No posts found on this page";
     let text =
@@ -4266,14 +4645,17 @@
       heading = "Preparing Reddit video…";
       text = "Waiting for Reddit's full-quality player.";
       ownWords = sourceText("preparing");
-    } else if (mediaFilterActive(state.settings)) {
+    } else if (filtering()) {
+      const mediaFiltering = mediaFilterActive(state.settings);
       if (state.loadingMore) {
-        heading = `No ${shownMediaLabel(state.settings, "or")} here yet`;
+        heading = mediaFiltering
+          ? `No ${shownMediaLabel(state.settings, "or")} here yet`
+          : "Nothing to show here yet";
         text = "Loading more posts…";
         if (state.loadFound) text += ` ${state.loadFound} checked`;
       } else {
         heading = "Nothing here matches the filter";
-        text = `Only ${shownMediaLabel(state.settings, "and")} are shown. Change that in the settings, or press O.`;
+        text = emptyFilterText(mediaFiltering);
       }
     } else if (state.unavailable) {
       heading = "Nothing here could be loaded";
@@ -4286,6 +4668,29 @@
     if (ownWords) [heading, text] = ownWords;
     emptyTitle.textContent = heading;
     emptyText.textContent = text;
+  }
+
+  // Why the filters leave nothing to show. The Hidden list is named when it
+  // leaves out posts that the Show filter alone would show.
+  function emptyFilterText(mediaFiltering) {
+    const showOnly = Object.assign({}, state.settings, { hidden: [] });
+    const posts = new Set();
+    state.allSlides.forEach((slide) => {
+      if (
+        slideIsHidden(slide, state.settings.hidden) &&
+        slideMatchesFilter(slide, showOnly)
+      ) {
+        posts.add(postIdentity(slide));
+      }
+    });
+    const hidden = posts.size;
+    if (!mediaFiltering) {
+      return `Your Hidden list hides ${hidden === 1 ? "the one post" : `all ${hidden} posts`} here. Change it in the settings.`;
+    }
+    const byList = hidden
+      ? `, and your Hidden list hides ${hidden} ${hidden === 1 ? "post" : "posts"} here`
+      : "";
+    return `Only ${shownMediaLabel(state.settings, "and")} are shown${byList}. Change that in the settings, or press O.`;
   }
 
   // A source's own [heading, text] for the empty stage, if it gives one.
@@ -4992,13 +5397,14 @@
   }
 
   // Counts the posts a load has looked at, for a filtered load's progress
-  // text.
+  // text, and the counter's count of hidden posts.
   function noteLoadProgress(scan) {
     if (!scan.found) return;
     state.loadFound += scan.found;
-    if (!scan.shown && mediaFilterActive(state.settings)) {
+    if (!scan.shown && filtering()) {
       syncEmptyState();
       syncGridStatus();
+      updateCount(loadingSuffixShown());
     }
   }
 
@@ -5089,7 +5495,7 @@
       state.slides.length ||
       state.loadingMore ||
       isSinglePostPage() ||
-      (!mediaFilterActive(state.settings) && !state.unavailable)
+      (!filtering() && !state.unavailable)
     )
       return;
     state.advanceAfterLoad = false;
@@ -5097,14 +5503,24 @@
     void loadMorePosts();
   }
 
-  // Shows what the Show filter now lets through. The slides come from the
-  // ones already read rather than from the page, so upgraded thumbnails stay
-  // upgraded. A current slide that still matches stays, and the slideshow
-  // then keeps its image, video and timer; otherwise the next shown slide in
-  // page order takes over.
-  function applyMediaFilter() {
+  // Shows what the Show filter and the Hidden list now let through. The
+  // slides come from the ones already read rather than from the page, so
+  // upgraded thumbnails stay upgraded. A current slide that still matches
+  // stays, and the slideshow then keeps its image, video and timer;
+  // otherwise `preferred` takes over where it shows, as when Undo brings
+  // back the slide that X hid, or else the next shown slide in page order.
+  // A change of the Show filter builds the grid afresh. A change of the
+  // Hidden list (hiddenOnly) leaves the grid where it is: tiles leave and
+  // come back in place (see updateGridInPlace), and a focused tile that
+  // leaves hands focus to the next tile in page order.
+  function applyFilter(hiddenOnly, preferred) {
     if (!state.open || state.preparing) return;
     const current = state.slides[state.index];
+    const before = state.slides;
+    const focusedTile = focusedGridTile();
+    const focusedSlide = focusedTile
+      ? gridTileInfo.get(focusedTile)?.slide
+      : null;
     cancelLoadMore();
     state.gridExhausted = false;
     // Other posts show now, so the feed may well have more of them.
@@ -5112,8 +5528,14 @@
     state.slides = state.allSlides.filter((slide) =>
       slideMatchesFilter(slide, state.settings),
     );
-    state.index = shownIndexFor(current);
-    if (state.gridBuilt) resetGrid();
+    state.index = shownIndexFor(
+      preferred && state.slides.includes(preferred) ? preferred : current,
+    );
+    let inPlace = false;
+    if (state.gridBuilt) {
+      inPlace = Boolean(hiddenOnly) && updateGridInPlace(before);
+      if (!inPlace) resetGrid();
+    }
     if (
       state.view === "slideshow" &&
       current &&
@@ -5124,8 +5546,24 @@
       preloadAhead();
     } else {
       render();
-      if (state.view === "grid") {
+      if (state.view === "grid" && !inPlace) {
         revealGridTile(state.gridTiles.get(state.slides[state.index]));
+      }
+    }
+    if (inPlace) {
+      // The grid's end may have come within reach, and stays watched.
+      state.gridLoads = 0;
+      state.gridLoadTop = grid.scrollTop;
+      rearmGridSentinel();
+      syncGridLoops();
+      if (focusedSlide && !state.gridTiles.has(focusedSlide)) {
+        const next = state.gridTiles.get(
+          state.slides[shownIndexFor(focusedSlide)],
+        );
+        if (next) {
+          revealGridTile(next);
+          next.focus({ preventScroll: true });
+        }
       }
     }
     refocusIfLost();
@@ -5135,20 +5573,28 @@
   function syncGridStatus() {
     let text = "";
     if (!isSinglePostPage()) {
-      const filtering = mediaFilterActive(state.settings);
-      const shownLabel = shownMediaLabel(state.settings, "or");
+      const mediaFiltering = mediaFilterActive(state.settings);
+      // The Hidden list alone looks for any post it does not leave out.
+      const leavingOut = filtering();
+      const shownLabel = mediaFiltering
+        ? shownMediaLabel(state.settings, "or")
+        : "posts";
       if (state.loadingMore) {
-        text = filtering
+        text = leavingOut
           ? `Looking for more ${shownLabel}…`
           : "Loading more posts…";
         const checked = state.loadFound;
-        if (filtering && checked) {
+        if (leavingOut && checked) {
           text += ` ${checked} ${checked === 1 ? "post" : "posts"} checked`;
         }
       } else if (state.gridExhausted) {
-        text = filtering
-          ? `No more ${shownLabel} found`
-          : "No more posts right now";
+        if (mediaFiltering) {
+          text = `No more ${shownLabel} found`;
+        } else if (leavingOut) {
+          text = "No more posts found outside your Hidden list";
+        } else {
+          text = "No more posts right now";
+        }
       }
     }
     gridStatus.textContent = text;
@@ -5194,10 +5640,83 @@
         input.parentElement.removeAttribute("title");
       }
     });
+    syncHiddenList();
+  }
+
+  // Lists the Hidden list's entries, each with a button that takes it off.
+  function syncHiddenList() {
+    const entries = state.settings.hidden;
+    hiddenList.replaceChildren(
+      ...entries.map((entry) => {
+        const item = element("li", "redditp__hidden-item", "");
+        const remove = element("button", "redditp__hidden-remove", "×");
+        remove.type = "button";
+        remove.dataset.entry = entry;
+        remove.setAttribute("aria-label", `Unhide ${entry}`);
+        remove.title = `Unhide ${entry}`;
+        item.append(element("span", "redditp__hidden-entry", entry), remove);
+        return item;
+      }),
+    );
+    hiddenList.hidden = !entries.length;
+    hiddenEmpty.hidden = entries.length > 0;
+  }
+
+  // Says why the field's text was not added, or clears that.
+  function showHiddenMessage(text) {
+    hiddenMessage.textContent = text;
+    if (text) hiddenInput.setAttribute("aria-invalid", "true");
+    else hiddenInput.removeAttribute("aria-invalid");
+  }
+
+  // Adds the field's text to the Hidden list: a user, a subreddit or a
+  // site. Anything else stays in the field, with a message.
+  function addHiddenFromField() {
+    const result = addToHiddenList(state.settings.hidden, hiddenInput.value);
+    if (result.status === "added") {
+      hiddenInput.value = "";
+      showHiddenMessage("");
+      updateSettings({ hidden: result.list });
+      return;
+    }
+    if (result.status === "duplicate") {
+      showHiddenMessage(`${result.entry} is hidden already.`);
+    } else if (result.status === "full") {
+      showHiddenMessage(
+        `The list holds ${HIDDEN_MAX_ENTRIES} entries at most. Remove some first.`,
+      );
+    } else {
+      showHiddenMessage(
+        "Enter a user as u/name, a subreddit as r/name, or a site such as redgifs.com.",
+      );
+    }
+    hiddenInput.focus({ preventScroll: true });
+  }
+
+  // Takes an entry off the Hidden list from its × button. Focus moves to
+  // the entry that takes its place, or the one before, or else the field.
+  function onHiddenListClick(event) {
+    const button = event.target.closest?.(".redditp__hidden-remove");
+    if (!button || !hiddenList.contains(button)) return;
+    const buttons = () =>
+      Array.from(hiddenList.querySelectorAll(".redditp__hidden-remove"));
+    const position = buttons().indexOf(button);
+    showHiddenMessage("");
+    updateSettings({
+      hidden: removeFromHiddenList(
+        state.settings.hidden,
+        button.dataset.entry || "",
+      ),
+    });
+    const left = buttons();
+    (left[Math.min(position, left.length - 1)] || hiddenInput).focus({
+      preventScroll: true,
+    });
   }
 
   function openSettings() {
     state.settingsOpen = true;
+    showHiddenMessage("");
     syncSettingsUi();
     settingsOverlay.hidden = false;
     settingsClose.focus({ preventScroll: true });
@@ -5212,17 +5731,21 @@
     });
   }
 
-  function updateSettings(changes) {
+  // `preferred` is the slide to show when a change of the Hidden list brings
+  // it back (see applyFilter).
+  function updateSettings(changes, preferred) {
     Object.assign(state.settings, changes);
     saveSettings();
     // Display changes must not reload the image, restart playback, or reset
     // the current slide's timer. Only a new duration needs a fresh timer,
-    // and only the Show filter changes which slides there are.
+    // and only the Show filter and the Hidden list change which slides
+    // there are.
     syncPresentationUi();
     if ("slideDurationSeconds" in changes) scheduleAuto();
-    if (MEDIA_FILTER_TYPES.some(([key]) => key in changes)) {
+    const mediaChanged = MEDIA_FILTER_TYPES.some(([key]) => key in changes);
+    if (mediaChanged || "hidden" in changes) {
       syncSettingsUi();
-      applyMediaFilter();
+      applyFilter(!mediaChanged, preferred);
     }
   }
 
@@ -5305,6 +5828,142 @@
         : collapseButton
       : closeButton;
     initialFocus.focus({ preventScroll: true });
+  }
+
+  // How long a message shows. One that is pointed at or focused stays
+  // until it no longer is.
+  const TOAST_MS = 6000;
+  let toastTimer = null;
+  // What the message's Undo button undoes: { entry, current, landed,
+  // target, targetFocused } (see hideAuthorOf), or null.
+  let toastUndoAction = null;
+
+  // Shows a message, with an Undo button when there is something to undo.
+  function showToast(text, undo) {
+    toastText.textContent = text;
+    toastUndoAction = undo || null;
+    toastUndo.hidden = !undo;
+    toast.classList.add("redditp__toast--shown");
+    endToastLater();
+  }
+
+  function endToastLater() {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastTimer = null;
+      if (toast.matches(":hover") || toast.contains(document.activeElement)) {
+        endToastLater();
+      } else {
+        hideToast();
+      }
+    }, TOAST_MS);
+  }
+
+  function hideToast() {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+    const hadFocus = toast.contains(document.activeElement);
+    toastUndoAction = null;
+    toastText.textContent = "";
+    toastUndo.hidden = true;
+    toast.classList.remove("redditp__toast--shown");
+    if (hadFocus && state.open) refocusIfLost();
+  }
+
+  // Where the mouse pointer is over the presentation, while it is there and
+  // the keyboard has not moved focus since; a touch or a pen leaves none.
+  let mousePoint = null;
+
+  // The grid tile under the mouse pointer, if any.
+  function pointedGridTile() {
+    if (!mousePoint) return null;
+    const hit = document.elementFromPoint(mousePoint.x, mousePoint.y);
+    const tile =
+      hit && typeof hit.closest === "function"
+        ? hit.closest(".redditp__tile")
+        : null;
+    return tile && gridColumns.contains(tile) ? tile : null;
+  }
+
+  // Whether a key goes into a field that is being typed in. A field inside
+  // an open shadow root, as on current Reddit, counts too, though the event
+  // names its host as the target.
+  function isTypingTarget(event) {
+    const path =
+      typeof event.composedPath === "function" ? event.composedPath() : [];
+    const target = path[0] || event.target;
+    return Boolean(
+      target &&
+      (target.isContentEditable ||
+        /^(?:INPUT|TEXTAREA|SELECT)$/.test(target.tagName || "")),
+    );
+  }
+
+  // What X hides the author of: in the grid, the tile under the mouse
+  // pointer, or else the focused tile; in the slideshow, the current slide.
+  function hideTarget() {
+    if (state.view !== "grid") {
+      const slide = state.slides[state.index];
+      return slide ? { slide, tile: null } : null;
+    }
+    const tile = pointedGridTile() || focusedGridTile();
+    const slide = tile ? gridTileInfo.get(tile)?.slide : null;
+    return slide ? { slide, tile } : null;
+  }
+
+  // Puts a slide's author on the Hidden list, so that their posts leave the
+  // grid and the slideshow, which moves on to the next post shown. The
+  // message that follows can undo it. A post without an author, such as a
+  // deleted account's, says so instead.
+  function hideAuthorOf(slide, tile) {
+    const result = addToHiddenList(state.settings.hidden, slide.author);
+    if (result.status === "invalid") {
+      showToast("This post has no author to hide.");
+      return;
+    }
+    if (result.status === "duplicate") {
+      showToast(`${result.entry} is hidden already.`);
+      return;
+    }
+    if (result.status === "full") {
+      showToast(
+        `The Hidden list holds ${HIDDEN_MAX_ENTRIES} entries at most. Remove some in the settings first.`,
+      );
+      return;
+    }
+    const undo = {
+      entry: result.entry,
+      current: state.slides[state.index] || null,
+      landed: null,
+      target: slide,
+      targetFocused: Boolean(tile) && document.activeElement === tile,
+    };
+    updateSettings({ hidden: result.list });
+    undo.landed = state.slides[state.index] || null;
+    showToast(`Hid ${result.entry}`, undo);
+  }
+
+  // Takes the last hide back, while its message shows. The posts come back
+  // where they were: in the grid in their places, and in the slideshow at
+  // the hidden post, unless the slideshow has moved on since. A tile that
+  // had focus, or the tile that X hid when Undo had focus, gets it back.
+  function undoHide() {
+    const undo = toastUndoAction;
+    if (!undo) return;
+    const undoHadFocus = toast.contains(document.activeElement);
+    toastUndoAction = null;
+    const list = removeFromHiddenList(state.settings.hidden, undo.entry);
+    if (list.length !== state.settings.hidden.length) {
+      const stayed = (state.slides[state.index] || null) === undo.landed;
+      updateSettings({ hidden: list }, stayed ? undo.current : null);
+    }
+    const tile =
+      state.view === "grid" ? state.gridTiles.get(undo.target) : null;
+    if (tile && (undo.targetFocused || undoHadFocus)) {
+      revealGridTile(tile);
+      tile.focus({ preventScroll: true });
+    }
+    hideToast();
   }
 
   function toggleFullscreen() {
@@ -5564,6 +6223,8 @@
     releaseWarmVideos();
     state.settingsOpen = false;
     settingsOverlay.hidden = true;
+    hideToast();
+    mousePoint = null;
     clearTimeout(state.autoTimer);
     autoButton.textContent = "auto";
     stopMedia();
@@ -5747,6 +6408,9 @@
     // Never swallow browser and OS shortcuts such as Ctrl+F or Cmd+M; every
     // binding below is a bare key.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
+    // Moving focus with the keyboard makes X act on the focused tile again,
+    // rather than on one the mouse pointer rests over.
+    if (event.key === "Tab") mousePoint = null;
     if (state.settingsOpen) {
       if (event.key === "Tab") {
         trapFocus(event);
@@ -5759,6 +6423,25 @@
     }
     if (event.key === "Tab") {
       trapFocus(event);
+      return;
+    }
+    if (event.key.toLowerCase() === "x") {
+      // An x typed into a field stays there; with no post, X passes
+      // through.
+      if (isTypingTarget(event) || !state.slides.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const target = hideTarget();
+      if (target) hideAuthorOf(target.slide, target.tile);
+      else showToast("Point at a post, or focus it, to hide its author.");
+      return;
+    }
+    if (event.key.toLowerCase() === "z") {
+      // Z undoes a hide only while its message shows.
+      if (isTypingTarget(event) || !toastUndoAction) return;
+      event.preventDefault();
+      event.stopPropagation();
+      undoHide();
       return;
     }
     if (event.key.toLowerCase() === "v") {
@@ -5855,6 +6538,14 @@
       updateSetting(key, settingCheckboxes[key].checked);
     });
   });
+  hiddenList.addEventListener("click", onHiddenListClick);
+  hiddenAddButton.addEventListener("click", addHiddenFromField);
+  hiddenInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing) return;
+    event.preventDefault();
+    addHiddenFromField();
+  });
+  toastUndo.addEventListener("click", undoHide);
   collapseButton.addEventListener("click", () => {
     updateSetting("showControls", !state.settings.showControls);
   });
@@ -5893,6 +6584,16 @@
   [mediaBox, grid].forEach((surface) => {
     surface.addEventListener(MIDDLE_CLICK_EVENT, openMediaInNewTab);
     surface.addEventListener("mousedown", preventMiddleButtonScroll);
+  });
+  // X in the grid acts on the tile under the mouse pointer (see
+  // pointedGridTile).
+  root.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "mouse") {
+      mousePoint = { x: event.clientX, y: event.clientY };
+    }
+  });
+  root.addEventListener("pointerleave", (event) => {
+    if (event.pointerType === "mouse") mousePoint = null;
   });
   root.addEventListener("pointerdown", (event) => {
     state.pointerDragged = false;

@@ -1931,8 +1931,9 @@
       return chunk;
     }
 
-    // Slides until the Show filter wants BATCH_WANTED of them, or
-    // BATCH_MAX_POSTS posts have been read, or the view runs out.
+    // Slides until the viewer's Show filter and Hidden list want
+    // BATCH_WANTED of them, or BATCH_MAX_POSTS posts have been read, or the
+    // view runs out.
     async function takeBatch(wants) {
       if (!dead) dead = await getDead(db, sub).catch(() => new Map());
       const slides = [];

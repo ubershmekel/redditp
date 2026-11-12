@@ -70,6 +70,10 @@ https://www.reddit.com/search/?q=formula1&redditp=1.
 - V: switch between the slideshow and a grid of all loaded posts (the same as
   the **grid** button)
 - O: cycle the media shown: everything, images only, GIFs only, videos only
+- X: hide the author of the current slide, or in the grid of the tile under the
+  mouse pointer, or else of the focused tile (see
+  [the Hidden list](#the-hidden-list))
+- Z: undo that, while its message shows
 - H: open this subreddit's archive in a new tab (the same as the **archive**
   button); only on a subreddit's listing pages
 - Escape: close, or return to the grid when the slideshow was opened from it
@@ -234,13 +238,14 @@ stream formats the browser cannot play keep their link card.
 Open the gear button's settings panel for a keyboard shortcut reference. Use the
 gear button in the bottom-left controls to choose the auto-advance duration and
 which media types to show (the images, GIFs, and videos buttons beside it change
-the same setting), hide the title panel, navigation arrows, or close button,
-show or hide the bottom panel, open in grid view, and show or hide the archive
-icon on subreddit pages. The gear is part of the expandable panel, so compact
-mode leaves only a small expand button. If the close button is hidden, press
-Escape from the slideshow to close presentation mode. These preferences are
-saved by your browser and used the next time presentation mode opens. The
-**redditp** link opens this README on GitHub.
+the same setting), keep users, subreddits, and sites out with the Hidden list,
+hide the title panel, navigation arrows, or close button, show or hide the
+bottom panel, open in grid view, and show or hide the archive icon on subreddit
+pages. The gear is part of the expandable panel, so compact mode leaves only a
+small expand button. If the close button is hidden, press Escape from the
+slideshow to close presentation mode. These preferences are saved by your
+browser and used the next time presentation mode opens. The **redditp** link
+opens this README on GitHub.
 
 These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation
@@ -267,20 +272,57 @@ Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 Firefox does it in `about:addons` under the gear menu's **Manage Extension
 Shortcuts**.
 
+## The Hidden list
+
+The **Hidden** list in the settings panel keeps the posts of users, subreddits,
+and sites out of the slideshow and the grid, on every page and in the archive,
+whatever the Show filter shows. Press X to add the author of the current slide,
+or in the grid of the tile under the mouse pointer, or else of the focused tile;
+after Tab moves focus, X goes by the focused tile until the mouse moves again.
+Their posts leave at once: the slideshow moves on to the next post shown, and
+the grid's other tiles stay where they are. A message such as `Hid u/name`
+offers **Undo** for six seconds, and for as long as it is pointed at or focused;
+Undo, or Z, brings the posts back exactly where they were, and the slideshow
+back to the hidden post unless it has moved on since. X on a post without an
+author, such as a deleted account's, says so instead, and X typed into a text
+field stays there.
+
+In the settings, type `u/name`, `r/name`, or a site such as `redgifs.com`, and
+press Enter or **Add**. A leading `/` and `user/` work too, a word without a dot
+is a user (Reddit's usernames have none), and anything with a dot is a site,
+kept without `www.`; a reddit.com address of a user or a subreddit adds that
+user or subreddit. Anything else stays in the field with a message. The × beside
+an entry takes it off, and its posts come back at once. A site covers its
+subdomains: `redgifs.com` hides `www.redgifs.com` and `v3.redgifs.com`, but not
+`notredgifs.com`. Matching ignores case. A post matches by its author, its
+subreddit, or the host of the link it posts, or of its media when it posts no
+link; a search result that shows only a thumbnail matches by site only once its
+post is read.
+
+The list holds up to 1,000 entries and is saved with the other settings. Each
+opening of presentation mode, or of the archive's viewer, reads it again, so a
+change made in another tab applies the next time it opens. The slide counter
+says how many of the loaded posts the list leaves out, as in
+`3 / 12 · 5 hidden`. As with the Show filter, loading more posts searches on
+past hidden posts and gives up after 15 batches without one to show, and when
+nothing is left to show, the empty stage says that the list is why. The archive
+reads on past hidden posts too, so each batch it hands over still holds as many
+posts to show.
+
 ## Archive mode
 
 The archive page, `archive.html`, browses a subreddit's whole history ranked by
 score, which a Reddit listing cannot do past its first thousand or so posts. It
 pulls the posts from the [Arctic Shift](https://arctic-shift.photon-reddit.com)
 archive into the browser's own storage (IndexedDB) and shows them in the same
-slideshow and grid as presentation mode, with the same keys, buttons, and Show
-filter. A GIF post plays as the MP4 that Reddit made of the GIF, which is a
-fraction of its size. Posts stored before the archive kept Reddit's copies of
-RedGIFs and imgur clips have none, so their tiles stay still until the archive
-is deleted and pulled again. A gallery's JPEG and WebP pictures load from
-i.redd.it, which serves them at once, rather than from preview.redd.it's
-full-size copies, which that host makes on demand and which can take seconds to
-start.
+slideshow and grid as presentation mode, with the same keys, buttons, Show
+filter, and Hidden list. A GIF post plays as the MP4 that Reddit made of the
+GIF, which is a fraction of its size. Posts stored before the archive kept
+Reddit's copies of RedGIFs and imgur clips have none, so their tiles stay still
+until the archive is deleted and pulled again. A gallery's JPEG and WebP
+pictures load from i.redd.it, which serves them at once, rather than from
+preview.redd.it's full-size copies, which that host makes on demand and which
+can take seconds to start.
 
 Open it with the **archive** button or H in presentation mode, or with the small
 round icon at the bottom right of a subreddit's listing pages. Either one opens

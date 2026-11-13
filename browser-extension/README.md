@@ -62,7 +62,22 @@ mode when it is already open.
 
 Add `redditp=1` to any Reddit URL to start presentation mode automatically, for
 example https://old.reddit.com/r/pics/?redditp=1 or
-https://www.reddit.com/search/?q=formula1&redditp=1.
+https://www.reddit.com/search/?q=formula1&redditp=1. `redditp=grid` does the
+same and opens in the grid, whatever the "open in grid view" setting says; it
+counts for the first opening on that page only, and a later opening follows the
+setting.
+
+In the grid, a row of sort links at the top switches the Reddit page underneath
+to another order and opens the grid on it: hot, new, top, rising, and
+controversial on a subreddit, multireddit, or domain page (best too on the front
+page); hot, new, top, and controversial on a user's page; relevance, hot, top,
+new, and comments on a search. Top and controversial (and, in a search,
+relevance and comments) add a second row of links for the time range, from the
+past hour to all time. A link reloads the page, so the grid starts over on the
+new order, and carries `redditp=grid` so it opens there; middle-click or
+Ctrl-click opens it in a new tab instead. The link of the order in force is
+marked and does nothing. The links are not shown on a post's page, in the
+slideshow, or when the viewer is hosted by another page.
 
 - Right arrow, Page Down, or Space: next slide
 - Left arrow or Page Up: previous slide
@@ -311,6 +326,23 @@ nothing is left to show, the empty stage says that the list is why. The archive
 reads on past hidden posts too, so each batch it hands over still holds as many
 posts to show.
 
+### Only this post from an author
+
+In the grid, a person icon appears beside the download icon when a tile is
+hovered or focused. It keeps just that post of its author for as long as
+presentation mode stays open: their other posts leave the grid and the slideshow
+at once, and the counter counts them among the hidden (`· 3 hidden`). Unlike X,
+it does not touch the Hidden list or any saved setting, and closing and opening
+presentation mode again brings everything back. A message such as
+`Only this post from u/name · 3 other posts hidden` offers **Undo** (or Z). The
+icon stays marked on the post that is kept; pressing it again shows all of that
+author's posts again. If the kept post later leaves, for example because its
+media failed to load, the author's other posts come back. A post without an
+author, and a post's own page, show no icon.
+
+The download and person icons both work from the keyboard: Tab to one and press
+Enter or Space.
+
 ## Archive mode
 
 The archive page, `archive.html`, browses a subreddit's whole history ranked by
@@ -432,10 +464,10 @@ and shows the result.
 
 - Firefox treats Manifest V3 `host_permissions` as optional, so reddit.com
   access is not granted at install. The extension asks for `activeTab`, which
-  covers the toolbar button and `Alt+P` without any grant. The `redditp=1` URL
-  launch is the one flow that needs the host permission; until the user allows
-  it under the add-on's **Permissions**, that launch fails and the toolbar
-  button flashes a hint instead.
+  covers the toolbar button and `Alt+P` without any grant. The `redditp=1` and
+  `redditp=grid` URL launch is the one flow that needs the host permission;
+  until the user allows it under the add-on's **Permissions**, that launch fails
+  and the toolbar button flashes a hint instead.
 - Firefox's native video controls consume clicks on the video surface before
   page scripts see them, so Firefox toggles playback itself rather than through
   redditp's handler. The visible behavior is the same, and Reddit's own click
@@ -496,8 +528,8 @@ available as the fallback.
 - `manifest.json`: extension metadata, permissions, and shortcut
 - `background.js`: toolbar and keyboard-command launcher; opens the archive page
   in a new tab; relays Save to gallery to the native helper
-- `auto-activate.js`: opt-in `redditp=1` URL launcher, and the archive icon on
-  subreddit pages
+- `auto-activate.js`: opt-in `redditp=1` and `redditp=grid` URL launcher, and
+  the archive icon on subreddit pages
 - `launcher.css`: the archive icon on subreddit pages
 - `content.js`: Reddit DOM extraction and slideshow behavior
 - `presentation.css`: isolated, responsive presentation UI

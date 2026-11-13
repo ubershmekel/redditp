@@ -7117,8 +7117,9 @@ test("X hides the focused tile's author, focus moves on, and Z puts them back", 
   // another.
   await gridTile(page, "Post 7").hover();
   await page.keyboard.press("Tab");
+  // Tab may land on one of the tile's hover icons, which sit inside it.
   const focused = await page.evaluate(() =>
-    document.activeElement.getAttribute("aria-label"),
+    document.activeElement.closest(".redditp__tile").getAttribute("aria-label"),
   );
   const number = Number(/^Post (\d+)$/.exec(focused)[1]);
   const author = HIDE_AUTHORS[(number - 1) % HIDE_AUTHORS.length];
@@ -7612,4 +7613,407 @@ test("without an extension to ask there is no save button and S does nothing", a
   await expect(page.locator(".redditp__save")).toBeHidden();
   await page.keyboard.press("s");
   await expect(page.locator(".redditp__toast-text")).toHaveText("");
+});
+
+// ---------------------------------------------------------------------------
+// Sort links in the grid
+
+// Answers an address with a page of posts, over any answer given earlier.
+function routeListing(page, url, body) {
+  return page.route(url, (route) =>
+    route.fulfill({ contentType: "text/html", body }),
+  );
+}
+
+test("the grid's sort links reload the page in another order and open the grid there", async ({
+  page,
+}) => {
+  const home = "https://www.reddit.com/r/pics/";
+  const top = "https://www.reddit.com/r/pics/top/?redditp=grid";
+  const week = "https://www.reddit.com/r/pics/top/?t=week&redditp=grid";
+  const posts = gridImagePosts(3);
+  await routeGridImages(page);
+  await openRoutedPage(page, home, posts, {});
+  await routeListing(page, top, posts);
+  await routeListing(page, week, posts);
+  await injectExtension(page);
+  const bar = page.locator(".redditp__sort");
+
+  // The slideshow has no bar; V shows the grid and the bar.
+  await expect(page.locator(".redditp__image")).toBeVisible();
+  await expect(bar).toBeHidden();
+  await page.keyboard.press("v");
+  await expect(bar).toBeVisible();
+  await expect(bar.locator("[aria-current='page']")).toHaveText("hot");
+  await expect(bar.locator("a")).toHaveText([
+    "hot",
+    "new",
+    "top",
+    "rising",
+    "controversial",
+  ]);
+  await expect(bar.locator(".redditp__sort-times")).toBeHidden();
+  await expect(bar.getByRole("link", { name: "top" })).toHaveAttribute(
+    "href",
+    top,
+  );
+
+  // The bar clears the first row of tiles and the close button.
+  const barBox = await bar.boundingBox();
+  const firstTile = await page.locator(".redditp__tile").first().boundingBox();
+  const closeBox = await page.locator(".redditp__close").boundingBox();
+  expect(barBox.y + barBox.height).toBeLessThanOrEqual(firstTile.y);
+  expect(barBox.x + barBox.width).toBeLessThanOrEqual(closeBox.x);
+
+  // The current order does nothing.
+  await bar.locator("[aria-current='page']").click();
+  await expect(page).toHaveURL(home);
+  await expect(bar).toBeVisible();
+
+  await bar.getByRole("link", { name: "top" }).click();
+  await expect(page).toHaveURL(top);
+  await expect(page.locator("#redditp-presentation")).toHaveCount(0);
+
+  // On that page the grid opens although the setting asks for the slideshow,
+  // and the time links show.
+  await injectExtension(page);
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await expect(bar).toBeVisible();
+  await expect(bar.locator("[aria-current='page']").first()).toHaveText("top");
+  await expect(bar.locator(".redditp__sort-times a")).toHaveText([
+    "hour",
+    "day",
+    "week",
+    "month",
+    "year",
+    "all",
+  ]);
+  await expect(
+    bar.locator(".redditp__sort-times [aria-current='page']"),
+  ).toHaveText("day");
+  await bar.getByRole("link", { name: "week" }).click();
+  await expect(page).toHaveURL(week);
+  await injectExtension(page);
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await expect(
+    bar.locator(".redditp__sort-times [aria-current='page']"),
+  ).toHaveText("week");
+});
+
+test("redditp=grid opens the grid once, and a later opening follows the setting", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/pics/?redditp=grid",
+    gridImagePosts(3),
+    { openInGrid: false },
+  );
+  await injectExtension(page);
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await expect(page.locator(".redditp__image")).toBeHidden();
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(page.locator(".redditp__grid")).toBeHidden();
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(page.locator(".redditp__image")).toBeVisible();
+  await expect(page.locator(".redditp__grid")).toBeHidden();
+});
+
+test("the sort links stay out of the slideshow and a post's page", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/pics/comments/grid1/post/",
+    gridImagePost(1),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  await expect(page.locator("#redditp-presentation")).toBeVisible();
+  await expect(page.locator(".redditp__sort")).toBeHidden();
+  await page.keyboard.press("v");
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__sort")).toBeHidden();
+});
+
+test("search and profile pages sort with sort= and keep their query", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/search/?q=cats&sort=top&t=year",
+    gridImagePosts(2),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const bar = page.locator(".redditp__sort");
+  await expect(bar).toBeVisible();
+  await expect(
+    bar.locator(".redditp__sort-group").first().locator("a"),
+  ).toHaveText(["relevance", "hot", "top", "new", "comments"]);
+  await expect(bar.getByRole("link", { name: "comments" })).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/search/?q=cats&sort=comments&t=year&redditp=grid",
+  );
+  await expect(bar.getByRole("link", { name: "new" })).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/search/?q=cats&sort=new&redditp=grid",
+  );
+  await expect(
+    bar.locator(".redditp__sort-times [aria-current='page']"),
+  ).toHaveText("year");
+
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/user/photog/submitted/",
+    gridImagePosts(2),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  await expect(bar.locator("[aria-current='page']")).toHaveText("new");
+  await expect(bar.getByRole("link", { name: "hot" })).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/user/photog/submitted/?sort=hot&redditp=grid",
+  );
+  await expect(bar.getByRole("link", { name: "rising" })).toHaveCount(0);
+});
+
+test("a sort link takes keyboard focus and Enter follows it; the current one stays put", async ({
+  page,
+}) => {
+  const home = "https://www.reddit.com/r/pics/";
+  const fresh = "https://www.reddit.com/r/pics/new/?redditp=grid";
+  const posts = gridImagePosts(3);
+  await routeGridImages(page);
+  await openRoutedPage(page, home, posts, { openInGrid: true });
+  await routeListing(page, fresh, posts);
+  await injectExtension(page);
+  const bar = page.locator(".redditp__sort");
+  await expect(bar).toBeVisible();
+
+  const current = bar.locator("[aria-current='page']");
+  await current.focus();
+  await expect(current).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(home);
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+
+  const next = bar.getByRole("link", { name: "new" });
+  await next.focus();
+  await expect(next).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(fresh);
+});
+
+test("redditp=grid asks the extension to activate, with the same message", async ({
+  page,
+}) => {
+  const url = "https://www.reddit.com/r/pics/top/?t=week&redditp=grid";
+  await page.route(url, (route) =>
+    route.fulfill({ contentType: "text/html", body: "<main>Reddit</main>" }),
+  );
+  await page.goto(url);
+  await page.evaluate(() => {
+    window.__redditpMessages = [];
+    window.chrome = {
+      runtime: {
+        sendMessage(message) {
+          window.__redditpMessages.push(message);
+          return Promise.resolve();
+        },
+      },
+    };
+  });
+  await page.addScriptTag({ path: autoActivateScript });
+
+  await expect
+    .poll(() => page.evaluate(() => window.__redditpMessages))
+    .toEqual([{ type: "activate-from-url" }]);
+});
+
+// ---------------------------------------------------------------------------
+// Only this post from an author
+
+test("the person icon keeps one post of its author until presentation mode closes", async ({
+  page,
+}) => {
+  await pauseClock(page);
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/solo/",
+    authoredPosts(12),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const tiles = page.locator(".redditp__grid .redditp__tile");
+  const count = page.locator(".redditp__count");
+  const toast = page.locator(".redditp__toast");
+  await expect(tiles).toHaveCount(12);
+  const bobs = postsBy("bob", 12);
+  const icon = (name) => gridTile(page, name).locator(".redditp__solo");
+
+  await expect(icon("Post 5")).toHaveCSS("opacity", "0");
+  await gridTile(page, "Post 5").hover();
+  await expect(icon("Post 5")).toHaveCSS("opacity", "1");
+  await expect(icon("Post 5")).toHaveAttribute("aria-pressed", "false");
+  await expect(icon("Post 5")).toHaveAttribute(
+    "aria-label",
+    "Only this post from u/bob",
+  );
+  await icon("Post 5").click();
+  await expect(tiles).toHaveCount(9);
+  for (const name of bobs.filter((name) => name !== "Post 5")) {
+    await expect(gridTile(page, name)).toHaveCount(0);
+  }
+  await expect(gridTile(page, "Post 5")).toBeVisible();
+  await expect(icon("Post 5")).toHaveAttribute("aria-pressed", "true");
+  await expect(toast).toContainText(
+    "Only this post from u/bob · 3 other posts hidden",
+  );
+  await expect(count).toHaveText(/^9 posts · 3 hidden( · loading more)?$/);
+  // Nothing is saved: the Hidden list is the same.
+  expect((await savedSettings(page)).hidden ?? []).toEqual([]);
+
+  // The slideshow skips what left: it opens on the kept post and steps back
+  // past the author's others.
+  await page.mouse.move(5, 5);
+  await page.keyboard.press("v");
+  const title = page.locator(".redditp__title");
+  await expect(title).toHaveText("Post 5");
+  await page.keyboard.press("ArrowLeft");
+  await expect(title).toHaveText("Post 4");
+  await page.keyboard.press("ArrowLeft");
+  await expect(title).toHaveText("Post 3");
+  await page.keyboard.press("ArrowLeft");
+  await expect(title).toHaveText("Post 1");
+  await page.keyboard.press("v");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+
+  // A later post by the author stays out; one by someone else shows.
+  await insertPosts(page, authoredPost(13, "bob") + authoredPost(14, "alice"));
+  await page.clock.runFor(2000);
+  await expect(gridTile(page, "Post 14")).toBeVisible();
+  await expect(gridTile(page, "Post 13")).toHaveCount(0);
+  await expect(tiles).toHaveCount(10);
+
+  // Undo brings everything back.
+  await toast.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(icon("Post 5")).toHaveAttribute("aria-pressed", "false");
+  await expect(tiles).toHaveCount(14);
+  for (const name of bobs) await expect(gridTile(page, name)).toBeVisible();
+  await expect(gridTile(page, "Post 13")).toBeVisible();
+
+  // A second press on the kept post lets the author back.
+  await gridTile(page, "Post 5").hover();
+  await icon("Post 5").click();
+  await expect(tiles).toHaveCount(10);
+  await gridTile(page, "Post 5").hover();
+  await icon("Post 5").click();
+  await expect(tiles).toHaveCount(14);
+  await expect(toast).toContainText("Showing all posts from u/bob again");
+  await expect(icon("Post 5")).toHaveAttribute("aria-pressed", "false");
+
+  // Closing and opening presentation mode starts over.
+  await gridTile(page, "Post 8").hover();
+  await icon("Post 8").click();
+  await expect(tiles).toHaveCount(10);
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await page.evaluate(() => window.__redditpPresentation.toggle());
+  await expect(tiles).toHaveCount(14);
+  await expect(icon("Post 8")).toHaveAttribute("aria-pressed", "false");
+  expect((await savedSettings(page)).hidden ?? []).toEqual([]);
+});
+
+test("a post without an author has no person icon", async ({ page }) => {
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/solo/",
+    authoredPost(1, null) + authoredPost(2, "alice"),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  await expect(page.locator(".redditp__tile")).toHaveCount(2);
+  await expect(gridTile(page, "Post 1").locator(".redditp__solo")).toBeHidden();
+  await gridTile(page, "Post 2").hover();
+  await expect(
+    gridTile(page, "Post 2").locator(".redditp__solo"),
+  ).toBeVisible();
+});
+
+test("the hover icons press with Enter and Space from the keyboard, without opening the slideshow", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/solo/",
+    authoredPosts(6),
+    { openInGrid: true },
+  );
+  await stubSaveRelay(page);
+  await injectExtension(page);
+  const tiles = page.locator(".redditp__grid .redditp__tile");
+  await expect(tiles).toHaveCount(6);
+  const requests = () => page.evaluate(() => window.__saveRequests);
+
+  const download = gridTile(page, "Post 2").locator(".redditp__dl");
+  await download.focus();
+  await page.keyboard.press("Enter");
+  await expect(download).toHaveAttribute("data-save", "saved");
+  expect(await requests()).toHaveLength(1);
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+
+  const solo = gridTile(page, "Post 1").locator(".redditp__solo");
+  await solo.focus();
+  await expect(solo).toHaveCSS("opacity", "1");
+  await page.keyboard.press("Enter");
+  await expect(tiles).toHaveCount(5);
+  await expect(solo).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await solo.focus();
+  await page.keyboard.press(" ");
+  await expect(tiles).toHaveCount(6);
+  await expect(solo).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".redditp__grid")).toBeVisible();
+  await expect(page.locator(".redditp__image")).toBeHidden();
+});
+
+test("the sort bar clears the first row of tiles and the close button at every size", async ({
+  page,
+}) => {
+  await routeGridImages(page);
+  await openRoutedPage(
+    page,
+    "https://www.reddit.com/r/pics/top/?t=week",
+    gridImagePosts(6),
+    { openInGrid: true },
+  );
+  await injectExtension(page);
+  const bar = page.locator(".redditp__sort");
+  for (const [width, height] of [
+    [360, 780],
+    [390, 844],
+    [393, 852],
+    [412, 915],
+    [1920, 1080],
+    [2560, 1440],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await expect(bar).toBeVisible();
+    const barBox = await bar.boundingBox();
+    const firstTile = await page
+      .locator(".redditp__tile")
+      .first()
+      .boundingBox();
+    const closeBox = await page.locator(".redditp__close").boundingBox();
+    const label = `${width}x${height}`;
+    expect(barBox.y + barBox.height, label).toBeLessThanOrEqual(firstTile.y);
+    expect(barBox.x + barBox.width, label).toBeLessThanOrEqual(closeBox.x);
+    expect(barBox.x, label).toBeGreaterThanOrEqual(0);
+  }
 });

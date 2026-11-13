@@ -6586,6 +6586,518 @@ suite("browser-extension save relay", () => {
   });
 });
 
+suite("browser-extension listing sort", () => {
+  const sort = loadContentScriptBlock("redditp-listing-sort", [
+    "LISTING_TIMES",
+    "LISTING_SORTS",
+    "listingSortFromUrl",
+    "listingSortTimed",
+    "listingSortUrl",
+    "listingSortLinks",
+    "presentationStartView",
+  ]);
+  const R = "https://www.reddit.com";
+
+  test("listing sort helpers could be loaded", () => {
+    assert.ok(sort, "did not find the redditp-listing-sort markers");
+  });
+
+  test("addresses read as a kind, a base, a rank and a time", () => {
+    assert.ok(sort, "listing sort helpers not loaded");
+    const pick = (href) => {
+      const info = sort.listingSortFromUrl(href);
+      return (
+        info && {
+          kind: info.kind,
+          base: info.base,
+          rank: info.rank,
+          time: info.time,
+          defaultRank: info.defaultRank,
+          defaultTime: info.defaultTime,
+        }
+      );
+    };
+    const cases = [
+      [`${R}/`, "home", "", "", "", "", "day"],
+      [`${R}/top/?t=week`, "home", "", "top", "week", "", "day"],
+      [`${R}/best/`, "home", "", "best", "", "", "day"],
+      [`${R}/r/pics/`, "listing", "/r/pics", "", "", "hot", "day"],
+      [
+        `${R}/r/Pics/top/?t=week`,
+        "listing",
+        "/r/Pics",
+        "top",
+        "week",
+        "hot",
+        "day",
+      ],
+      [`${R}/r/a+b/new`, "listing", "/r/a+b", "new", "", "hot", "day"],
+      [
+        `${R}/r/popular/top/?geo_filter=GLOBAL`,
+        "listing",
+        "/r/popular",
+        "top",
+        "",
+        "hot",
+        "day",
+      ],
+      [
+        `${R}/user/a/m/m1/rising/`,
+        "listing",
+        "/user/a/m/m1",
+        "rising",
+        "",
+        "hot",
+        "day",
+      ],
+      [`${R}/me/m/m1/`, "listing", "/me/m/m1", "", "", "hot", "day"],
+      [
+        `${R}/domain/i.redd.it/top/`,
+        "listing",
+        "/domain/i.redd.it",
+        "top",
+        "",
+        "hot",
+        "day",
+      ],
+      [`${R}/user/x/`, "user", "", "", "", "new", "day"],
+      [
+        `${R}/u/x/submitted/?sort=top&t=all`,
+        "user",
+        "",
+        "top",
+        "all",
+        "new",
+        "day",
+      ],
+      [
+        `${R}/search?q=x&sort=comments&t=year`,
+        "search",
+        "",
+        "comments",
+        "year",
+        "relevance",
+        "all",
+      ],
+      [
+        `${R}/r/pics/search/?q=x&restrict_sr=1`,
+        "search",
+        "",
+        "",
+        "",
+        "relevance",
+        "all",
+      ],
+      [
+        "https://old.reddit.com/r/pics/top/?count=25&after=t3_abc&t=month",
+        "listing",
+        "/r/pics",
+        "top",
+        "month",
+        "hot",
+        "day",
+      ],
+    ];
+    cases.forEach(
+      ([href, kind, base, rank, time, defaultRank, defaultTime]) => {
+        assert.deepStrictEqual(
+          pick(href),
+          { kind, base, rank, time, defaultRank, defaultTime },
+          href,
+        );
+      },
+    );
+  });
+
+  test("anything else is not a listing", () => {
+    assert.ok(sort, "listing sort helpers not loaded");
+    [
+      `${R}/comments/abc/title/`,
+      `${R}/r/x/comments/abc/title/`,
+      `${R}/gallery/x`,
+      `${R}/r/x/wiki/`,
+      `${R}/r/x/about/`,
+      `${R}/user/x/comments/`,
+      `${R}/settings`,
+      `${R}/r/pics/best/`,
+      "https://example.com/r/pics/",
+      "https://notreddit.com/r/pics/",
+      "garbage",
+      "",
+      undefined,
+    ].forEach((href) => {
+      assert.strictEqual(sort.listingSortFromUrl(href), null, String(href));
+      assert.strictEqual(sort.listingSortLinks(href), null, String(href));
+    });
+  });
+
+  test("values Reddit does not offer read as empty", () => {
+    assert.ok(sort, "listing sort helpers not loaded");
+    let info = sort.listingSortFromUrl(`${R}/r/pics/top/?t=forever`);
+    assert.strictEqual(info.time, "");
+    info = sort.listingSortFromUrl(`${R}/user/x/?sort=rising&t=week`);
+    assert.strictEqual(info.rank, "");
+    assert.strictEqual(info.time, "week");
+    info = sort.listingSortFromUrl(`${R}/search/?q=x&sort=best`);
+    assert.strictEqual(info.rank, "");
+    info = sort.listingSortFromUrl(`${R}/r/pics/?sort=top`);
+    assert.strictEqual(info.rank, "");
+  });
+
+  test("which ranks take a time range", () => {
+    assert.ok(sort, "listing sort helpers not loaded");
+    ["home", "listing", "user"].forEach((kind) => {
+      ["top", "controversial"].forEach((rank) => {
+        assert.strictEqual(sort.listingSortTimed(kind, rank), true);
+      });
+      ["hot", "new", "rising", "best"].forEach((rank) => {
+        assert.strictEqual(sort.listingSortTimed(kind, rank), false);
+      });
+    });
+    ["relevance", "top", "comments"].forEach((rank) => {
+      assert.strictEqual(sort.listingSortTimed("search", rank), true);
+    });
+    ["hot", "new"].forEach((rank) => {
+      assert.strictEqual(sort.listingSortTimed("search", rank), false);
+    });
+  });
+
+  test("the address that switches the order and time is built exactly", () => {
+    assert.ok(sort, "listing sort helpers not loaded");
+    const url = sort.listingSortUrl;
+    assert.strictEqual(
+      url(`${R}/r/pics/`, "top", "week"),
+      `${R}/r/pics/top/?t=week&redditp=grid`,
+    );
+    assert.strictEqual(
+      url(`${R}/r/Pics/top/?t=week&after=t3_a&count=25`, "new", "week"),
+      `${R}/r/Pics/new/?redditp=grid`,
+    );
+    assert.strictEqual(
+      url(`${R}/r/pics/?redditp=1&geo_filter=GLOBAL#x`, "hot", ""),
+      `${R}/r/pics/hot/?geo_filter=GLOBAL&redditp=grid`,
+    );
+    assert.strictEqual(
+      url(`${R}/`, "controversial", "year"),
+      `${R}/controversial/?t=year&redditp=grid`,
+    );
+    assert.strictEqual(
+      url("https://old.reddit.com/r/pics/top/?t=day&before=t3_a", "top", "all"),
+      "https://old.reddit.com/r/pics/top/?t=all&redditp=grid",
+    );
+    assert.strictEqual(
+      url(`${R}/user/x/?sort=new`, "top", "month"),
+      `${R}/user/x/?sort=top&t=month&redditp=grid`,
+    );
+    assert.strictEqual(
+      url(`${R}/search/?q=x+y&sort=top&t=week`, "comments", "year"),
+      `${R}/search/?q=x+y&sort=comments&t=year&redditp=grid`,
+    );
+    assert.strictEqual(
+      url(`${R}/r/pics/search/?q=x&restrict_sr=1&t=week`, "new", "week"),
+      `${R}/r/pics/search/?q=x&restrict_sr=1&sort=new&redditp=grid`,
+    );
+    // A time that is not valid is left off.
+    assert.strictEqual(
+      url(`${R}/r/pics/`, "top", "forever"),
+      `${R}/r/pics/top/?redditp=grid`,
+    );
+    // A rank that Reddit does not offer there gives nothing.
+    assert.strictEqual(url(`${R}/r/pics/`, "best", ""), "");
+    assert.strictEqual(url(`${R}/user/x/`, "rising", ""), "");
+    assert.strictEqual(url(`${R}/search/?q=x`, "rising", ""), "");
+    assert.strictEqual(url(`${R}/comments/abc/x/`, "top", "week"), "");
+  });
+
+  test("every kind, rank and time round-trips through its own address", () => {
+    assert.ok(sort, "listing sort helpers not loaded");
+    const bases = {
+      home: `${R}/`,
+      listing: `${R}/r/pics/`,
+      user: `${R}/user/x/`,
+      search: `${R}/search/?q=cats`,
+    };
+    Object.keys(bases).forEach((kind) => {
+      sort.LISTING_SORTS[kind].forEach((rank) => {
+        sort.LISTING_TIMES.forEach((time) => {
+          const href = sort.listingSortUrl(bases[kind], rank, time);
+          assert.ok(href, `${kind} ${rank} ${time}`);
+          const info = sort.listingSortFromUrl(href);
+          assert.strictEqual(info.kind, kind);
+          assert.strictEqual(info.rank, rank);
+          assert.strictEqual(
+            info.time,
+            sort.listingSortTimed(kind, rank) ? time : "",
+            `${kind} ${rank} ${time}`,
+          );
+          assert.strictEqual(sort.presentationStartView(href), "grid");
+        });
+      });
+    });
+  });
+
+  test("the links mark the order in force and offer times only where they apply", () => {
+    assert.ok(sort, "listing sort helpers not loaded");
+    const current = (items) => items.filter((item) => item.current);
+    let links = sort.listingSortLinks(`${R}/r/pics/`);
+    assert.strictEqual(links.kind, "listing");
+    assert.deepStrictEqual(
+      links.ranks.map((item) => item.value),
+      ["hot", "new", "top", "rising", "controversial"],
+    );
+    assert.deepStrictEqual(
+      current(links.ranks).map((item) => item.value),
+      ["hot"],
+    );
+    assert.deepStrictEqual(links.times, []);
+    // Switching to a ranking that takes a time keeps the time the address names.
+    assert.strictEqual(
+      links.ranks.find((item) => item.value === "top").href,
+      `${R}/r/pics/top/?redditp=grid`,
+    );
+    assert.strictEqual(
+      links.ranks.find((item) => item.value === "new").href,
+      `${R}/r/pics/new/?redditp=grid`,
+    );
+
+    links = sort.listingSortLinks(`${R}/r/pics/top/?t=week`);
+    assert.deepStrictEqual(
+      current(links.ranks).map((item) => item.value),
+      ["top"],
+    );
+    assert.deepStrictEqual(
+      links.times.map((item) => item.value),
+      ["hour", "day", "week", "month", "year", "all"],
+    );
+    assert.deepStrictEqual(
+      current(links.times).map((item) => item.value),
+      ["week"],
+    );
+    assert.strictEqual(
+      links.times.find((item) => item.value === "year").href,
+      `${R}/r/pics/top/?t=year&redditp=grid`,
+    );
+    assert.strictEqual(
+      links.ranks.find((item) => item.value === "controversial").href,
+      `${R}/r/pics/controversial/?t=week&redditp=grid`,
+    );
+
+    // With no time named, the day is the one in force.
+    links = sort.listingSortLinks(`${R}/r/pics/top/`);
+    assert.deepStrictEqual(
+      current(links.times).map((item) => item.value),
+      ["day"],
+    );
+
+    // The front page names no order, so none is marked.
+    links = sort.listingSortLinks(`${R}/`);
+    assert.strictEqual(links.kind, "home");
+    assert.deepStrictEqual(current(links.ranks), []);
+    assert.deepStrictEqual(links.times, []);
+
+    // A user's page defaults to new; a search to relevance, with all time.
+    links = sort.listingSortLinks(`${R}/user/x/`);
+    assert.deepStrictEqual(
+      current(links.ranks).map((item) => item.value),
+      ["new"],
+    );
+    links = sort.listingSortLinks(`${R}/search/?q=x`);
+    assert.deepStrictEqual(
+      current(links.ranks).map((item) => item.value),
+      ["relevance"],
+    );
+    assert.deepStrictEqual(
+      current(links.times).map((item) => item.value),
+      ["all"],
+    );
+    links = sort.listingSortLinks(`${R}/search/?q=x&sort=new`);
+    assert.deepStrictEqual(links.times, []);
+  });
+
+  test("redditp=grid asks for the grid and nothing else does", () => {
+    assert.ok(sort, "listing sort helpers not loaded");
+    assert.strictEqual(
+      sort.presentationStartView(`${R}/r/pics/?redditp=grid`),
+      "grid",
+    );
+    ["?redditp=1", "?redditp=Grid", "?redditp=", "", "?x=grid"].forEach(
+      (query) => {
+        assert.strictEqual(
+          sort.presentationStartView(`${R}/r/pics/${query}`),
+          "",
+          query,
+        );
+      },
+    );
+    assert.strictEqual(sort.presentationStartView("garbage"), "");
+  });
+});
+
+suite("browser-extension author focus", () => {
+  const focusBlock = loadContentScriptBlock("redditp-media-filter", [
+    "postIdentity",
+    "focusAuthorEntry",
+    "toggleAuthorFocus",
+    "slideOutOfFocus",
+    "slideIsFocused",
+    "slideMatchesFilter",
+  ]);
+  const settings = {
+    showImages: true,
+    showGifs: true,
+    showVideos: true,
+    hidden: [],
+  };
+  const slide = (fields = {}) => ({
+    kind: "image",
+    media: "image",
+    postMedia: true,
+    author: "u/Alice",
+    community: "r/pics",
+    postKey: "p1",
+    url: "https://i.redd.it/a.jpg",
+    sourceUrl: "https://i.redd.it/a.jpg",
+    ...fields,
+  });
+
+  test("author focus helpers could be loaded", () => {
+    assert.ok(focusBlock, "did not find the redditp-media-filter markers");
+  });
+
+  test("the icon keeps one post of an author and releases it on a second press", () => {
+    assert.ok(focusBlock, "author focus helpers not loaded");
+    const f = focusBlock;
+    const first = slide({ postKey: "p1" });
+    const second = slide({ postKey: "p2" });
+    const other = slide({ postKey: "p3", author: "u/Bob" });
+    const none = new Map();
+    const kept = f.toggleAuthorFocus(none, first);
+    assert.strictEqual(kept.status, "kept");
+    assert.strictEqual(kept.entry, "u/Alice");
+    assert.strictEqual(f.slideOutOfFocus(second, kept.focus), true);
+    assert.strictEqual(f.slideOutOfFocus(first, kept.focus), false);
+    assert.strictEqual(f.slideOutOfFocus(other, kept.focus), false);
+    assert.strictEqual(f.slideIsFocused(first, kept.focus), true);
+    assert.strictEqual(f.slideIsFocused(second, kept.focus), false);
+    assert.strictEqual(f.slideIsFocused(other, kept.focus), false);
+
+    // Pointing at another post of the author switches to it.
+    const switched = f.toggleAuthorFocus(kept.focus, second);
+    assert.strictEqual(switched.status, "kept");
+    assert.strictEqual(f.slideOutOfFocus(first, switched.focus), true);
+    assert.strictEqual(f.slideOutOfFocus(second, switched.focus), false);
+    assert.strictEqual(switched.focus.size, 1);
+
+    // A second press on the kept post releases the author.
+    const released = f.toggleAuthorFocus(kept.focus, first);
+    assert.strictEqual(released.status, "released");
+    assert.strictEqual(released.focus.size, 0);
+    assert.strictEqual(f.slideOutOfFocus(second, released.focus), false);
+
+    // Two authors can be focused at once.
+    const both = f.toggleAuthorFocus(kept.focus, other);
+    assert.strictEqual(both.focus.size, 2);
+    assert.strictEqual(f.slideOutOfFocus(second, both.focus), true);
+  });
+
+  test("a post without a usable author cannot be focused", () => {
+    assert.ok(focusBlock, "author focus helpers not loaded");
+    const none = new Map();
+    ["", "[deleted]", undefined, null, "r/pics", "example.com"].forEach(
+      (author) => {
+        const result = focusBlock.toggleAuthorFocus(none, slide({ author }));
+        assert.strictEqual(result.status, "invalid", String(author));
+        assert.strictEqual(result.focus, none);
+        assert.strictEqual(focusBlock.focusAuthorEntry(slide({ author })), "");
+      },
+    );
+  });
+
+  test("the map given is never changed", () => {
+    assert.ok(focusBlock, "author focus helpers not loaded");
+    const start = new Map();
+    const kept = focusBlock.toggleAuthorFocus(start, slide());
+    assert.strictEqual(start.size, 0);
+    assert.notStrictEqual(kept.focus, start);
+    const snapshot = JSON.stringify([...kept.focus]);
+    focusBlock.toggleAuthorFocus(kept.focus, slide());
+    focusBlock.toggleAuthorFocus(kept.focus, slide({ postKey: "p2" }));
+    assert.strictEqual(JSON.stringify([...kept.focus]), snapshot);
+  });
+
+  test("the slides of a gallery share a post and all stay", () => {
+    assert.ok(focusBlock, "author focus helpers not loaded");
+    const a = slide({ postKey: "g1", galleryItem: 1, galleryTotal: 3 });
+    const b = slide({ postKey: "g1", galleryItem: 2, galleryTotal: 3 });
+    const { focus } = focusBlock.toggleAuthorFocus(new Map(), a);
+    assert.strictEqual(focusBlock.slideOutOfFocus(b, focus), false);
+    assert.strictEqual(focusBlock.slideIsFocused(b, focus), true);
+    assert.strictEqual(
+      focusBlock.slideOutOfFocus(slide({ postKey: "g2" }), focus),
+      true,
+    );
+  });
+
+  test("the author matches by name in any case, with or without its prefix", () => {
+    assert.ok(focusBlock, "author focus helpers not loaded");
+    const { focus } = focusBlock.toggleAuthorFocus(new Map(), slide());
+    ["Alice", "u/alice", "U/ALICE", "/u/Alice", "user/Alice"].forEach(
+      (author) => {
+        assert.strictEqual(
+          focusBlock.slideOutOfFocus(slide({ postKey: "p2", author }), focus),
+          true,
+          author,
+        );
+        assert.strictEqual(
+          focusBlock.slideOutOfFocus(slide({ author }), focus),
+          false,
+          author,
+        );
+      },
+    );
+    assert.strictEqual(
+      focusBlock.slideOutOfFocus(
+        slide({ postKey: "p2", author: "Alicia" }),
+        focus,
+      ),
+      false,
+    );
+  });
+
+  test("the filter takes the focus as an optional third argument", () => {
+    assert.ok(focusBlock, "author focus helpers not loaded");
+    const first = slide({ postKey: "p1" });
+    const second = slide({ postKey: "p2" });
+    const { focus } = focusBlock.toggleAuthorFocus(new Map(), first);
+    assert.strictEqual(focusBlock.slideMatchesFilter(second, settings), true);
+    assert.strictEqual(
+      focusBlock.slideMatchesFilter(second, settings, undefined),
+      true,
+    );
+    assert.strictEqual(
+      focusBlock.slideMatchesFilter(second, settings, new Map()),
+      true,
+    );
+    assert.strictEqual(
+      focusBlock.slideMatchesFilter(second, settings, focus),
+      false,
+    );
+    assert.strictEqual(
+      focusBlock.slideMatchesFilter(first, settings, focus),
+      true,
+    );
+    // The other filters still apply to the post that stays.
+    assert.strictEqual(
+      focusBlock.slideMatchesFilter(
+        first,
+        { ...settings, hidden: ["u/Alice"] },
+        focus,
+      ),
+      false,
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------

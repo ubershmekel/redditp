@@ -377,7 +377,60 @@
     return false;
   }
 
-  function slideMatchesFilter(slide, settings) {
+  // A post's identity: the same for every slide of a gallery.
+  function postIdentity(slide) {
+    if (slide.postKey) return `post:${slide.postKey}`;
+    if (slide.commentsUrl) return `comments:${slide.commentsUrl}`;
+    return `fallback:${slide.title}|${slide.sourceUrl}`;
+  }
+
+  // "Only this post from an author", for one presentation: a Map from an
+  // author's key to { entry, post }, the one post of theirs that stays. The
+  // map is never part of the settings, and nothing here changes it.
+  // A slide's author as "u/Name", or "" when it has none worth naming.
+  function focusAuthorEntry(slide) {
+    const entry = normalizeHiddenEntry(slide && slide.author);
+    return entry.startsWith("u/") ? entry : "";
+  }
+
+  // The focus after pressing the icon on a slide: { focus, entry, status }
+  // with status "invalid" (no author), "kept" (this post is now the one that
+  // stays) or "released" (it was already the one, so the author is back).
+  function toggleAuthorFocus(focus, slide) {
+    const entry = focusAuthorEntry(slide);
+    if (!entry) return { focus, entry, status: "invalid" };
+    const key = hiddenEntryKey(entry);
+    const post = postIdentity(slide);
+    const next = new Map(focus);
+    const current = next.get(key);
+    if (current && current.post === post) {
+      next.delete(key);
+      return { focus: next, entry, status: "released" };
+    }
+    next.set(key, { entry, post });
+    return { focus: next, entry, status: "kept" };
+  }
+
+  // Whether the focus leaves a slide out: its author keeps one other post.
+  function slideOutOfFocus(slide, focus) {
+    if (!focus || !focus.size) return false;
+    const entry = focusAuthorEntry(slide);
+    if (!entry) return false;
+    const kept = focus.get(hiddenEntryKey(entry));
+    return Boolean(kept) && kept.post !== postIdentity(slide);
+  }
+
+  // Whether a slide belongs to the post its author is focused on.
+  function slideIsFocused(slide, focus) {
+    if (!focus || !focus.size) return false;
+    const entry = focusAuthorEntry(slide);
+    if (!entry) return false;
+    const kept = focus.get(hiddenEntryKey(entry));
+    return Boolean(kept) && kept.post === postIdentity(slide);
+  }
+
+  function slideMatchesFilter(slide, settings, focus) {
+    if (slideOutOfFocus(slide, focus)) return false;
     if (slideIsHidden(slide, settings.hidden)) return false;
     if (!mediaFilterActive(settings)) return true;
     // A search result that shows only a thumbnail stands in for its post
@@ -648,6 +701,150 @@
   }
   // redditp-subreddit-path:end
 
+  // redditp-listing-sort:start
+  // The sort links of the grid: the order and time range that Reddit offers
+  // for a listing, a profile or a search, read from the address, and the
+  // addresses that switch them. Like the blocks above, this stays DOM-free,
+  // so nodejs/test-embedit.js can evaluate it on its own.
+  const LISTING_TIMES = ["hour", "day", "week", "month", "year", "all"];
+  const LISTING_SORTS = {
+    home: ["best", "hot", "new", "top", "rising", "controversial"],
+    listing: ["hot", "new", "top", "rising", "controversial"],
+    user: ["hot", "new", "top", "controversial"],
+    search: ["relevance", "hot", "top", "new", "comments"],
+  };
+  const LISTING_TIMED_RANKS = {
+    home: ["top", "controversial"],
+    listing: ["top", "controversial"],
+    user: ["top", "controversial"],
+    search: ["relevance", "top", "comments"],
+  };
+  const LISTING_DEFAULT_RANK = {
+    home: "",
+    listing: "hot",
+    user: "new",
+    search: "relevance",
+  };
+  const LISTING_PATH_RE =
+    /^((?:\/r\/[^/]+|\/(?:user|u)\/[^/]+\/m\/[^/]+|\/me\/m\/[^/]+|\/domain\/[^/]+)?)(?:\/(best|hot|new|top|rising|controversial))?\/?$/i;
+  const LISTING_USER_RE =
+    /^\/(?:user|u)\/[^/]+(?:\/(?:overview|submitted|posts))?\/?$/i;
+  const LISTING_SEARCH_RE = /^(?:\/r\/[^/]+)?\/search\/?$/i;
+
+  // What a listing address names: null for anything that is not a listing, a
+  // profile or a search on reddit.com, else { kind, base, rank, time, sorts,
+  // defaultRank, defaultTime }. kind is "home", "listing", "user" or
+  // "search"; rank and time are "" when the address names none or a value
+  // that Reddit does not offer there.
+  function listingSortFromUrl(href) {
+    let url;
+    try {
+      url = new URL(href);
+    } catch (_error) {
+      return null;
+    }
+    if (!/(^|\.)reddit\.com$/i.test(url.hostname)) return null;
+    let kind = "";
+    let base = "";
+    let rank = "";
+    let match;
+    if (LISTING_SEARCH_RE.test(url.pathname)) {
+      kind = "search";
+    } else if (LISTING_USER_RE.test(url.pathname)) {
+      kind = "user";
+    } else if ((match = LISTING_PATH_RE.exec(url.pathname))) {
+      base = match[1];
+      kind = base ? "listing" : "home";
+      rank = (match[2] || "").toLowerCase();
+      if (rank === "best" && kind !== "home") return null;
+    } else {
+      return null;
+    }
+    if (kind === "user" || kind === "search") {
+      rank = (url.searchParams.get("sort") || "").toLowerCase();
+    }
+    const sorts = LISTING_SORTS[kind];
+    if (!sorts.includes(rank)) rank = "";
+    let time = (url.searchParams.get("t") || "").toLowerCase();
+    if (!LISTING_TIMES.includes(time)) time = "";
+    return {
+      kind,
+      base,
+      rank,
+      time,
+      sorts,
+      defaultRank: LISTING_DEFAULT_RANK[kind],
+      defaultTime: kind === "search" ? "all" : "day",
+    };
+  }
+
+  // Whether the rank takes a time range.
+  function listingSortTimed(kind, rank) {
+    return (LISTING_TIMED_RANKS[kind] || []).includes(rank);
+  }
+
+  // The address that shows the listing in another rank and time range, with
+  // redditp=grid so that the grid opens on it, or "" when Reddit does not
+  // offer the rank there.
+  function listingSortUrl(href, rank, time) {
+    const info = listingSortFromUrl(href);
+    if (!info || !info.sorts.includes(rank)) return "";
+    const url = new URL(href);
+    url.hash = "";
+    ["after", "before", "count", "t", "redditp"].forEach((name) =>
+      url.searchParams.delete(name),
+    );
+    if (info.kind === "home" || info.kind === "listing") {
+      url.searchParams.delete("sort");
+      url.pathname = `${info.base}/${rank}/`;
+    } else {
+      url.searchParams.set("sort", rank);
+    }
+    if (listingSortTimed(info.kind, rank) && LISTING_TIMES.includes(time)) {
+      url.searchParams.set("t", time);
+    }
+    url.searchParams.set("redditp", "grid");
+    return url.href;
+  }
+
+  // The links the grid shows: { kind, ranks, times }, each a list of { value,
+  // href, current }, or null when the address offers none. A rank's link
+  // keeps the time that the address names, if its rank takes one; the times
+  // are empty unless the rank in force takes one.
+  function listingSortLinks(href) {
+    const info = listingSortFromUrl(href);
+    if (!info) return null;
+    const rank = info.rank || info.defaultRank;
+    const time = info.time || info.defaultTime;
+    const ranks = info.sorts.map((value) => ({
+      value,
+      href: listingSortUrl(
+        href,
+        value,
+        listingSortTimed(info.kind, value) ? info.time : "",
+      ),
+      current: value === rank,
+    }));
+    const times = listingSortTimed(info.kind, rank)
+      ? LISTING_TIMES.map((value) => ({
+          value,
+          href: listingSortUrl(href, rank, value),
+          current: value === time,
+        }))
+      : [];
+    return { kind: info.kind, ranks, times };
+  }
+
+  // The view an address asks to open in: "grid" for redditp=grid, else "".
+  function presentationStartView(href) {
+    try {
+      return new URL(href).searchParams.get("redditp") === "grid" ? "grid" : "";
+    } catch (_error) {
+      return "";
+    }
+  }
+  // redditp-listing-sort:end
+
   const state = {
     open: false,
     opening: false,
@@ -656,6 +853,9 @@
     // Every slide extracted this open, in page order; slides is the part of
     // it the Show filter lets through, and the list everything else reads.
     allSlides: [],
+    // "Only this post from an author", for this presentation only (see
+    // toggleAuthorFocus): never saved with the settings.
+    authorFocus: new Map(),
     slides: [],
     index: 0,
     autoTimer: null,
@@ -2598,6 +2798,9 @@
     },
   };
   let activeSource = liveSource;
+  // The view that the address asks for (redditp=grid), until the first open
+  // uses it.
+  let urlStartView = EMBEDDED ? "" : presentationStartView(location.href);
 
   // Whether the source may have more posts. The page always may; a source
   // whose answer throws has none.
@@ -2678,7 +2881,13 @@
   // Whether the Show filter and the Hidden list would show one of a source's
   // slides.
   function sourceWants(slide) {
-    return slideMatchesFilter(sourceSlide(slide), state.settings);
+    return slideShows(sourceSlide(slide));
+  }
+
+  // Whether the Show filter, the Hidden list and the author focus let a
+  // slide show.
+  function slideShows(slide) {
+    return slideMatchesFilter(slide, state.settings, state.authorFocus);
   }
 
   // Adds a batch that another source handed over, the way appendNewPosts
@@ -2773,9 +2982,7 @@
       const slideIndex = state.slides.indexOf(replaced);
       if (slideIndex < 0) return true;
       // Now that the post is known, the filter may keep none of it.
-      const shown = replacements.filter((candidate) =>
-        slideMatchesFilter(candidate, state.settings),
-      );
+      const shown = replacements.filter(slideShows);
       const wasCurrent = state.index === slideIndex;
       if (slideIndex < state.index) {
         state.index += shown.length - 1;
@@ -2916,6 +3123,22 @@
   // The grid view shows every slide as a tile in equal-width columns.
   const grid = element("section", "redditp__grid", "");
   grid.setAttribute("aria-label", "All posts");
+  // The sort links at the top of the grid: the order and time range of the
+  // Reddit page underneath (see syncGridSort).
+  const gridSort = element("nav", "redditp__sort", "");
+  gridSort.setAttribute("aria-label", "Sort posts");
+  gridSort.hidden = true;
+  const gridSortRanks = element("div", "redditp__sort-group", "");
+  gridSortRanks.setAttribute("role", "group");
+  gridSortRanks.setAttribute("aria-label", "Order");
+  const gridSortTimes = element(
+    "div",
+    "redditp__sort-group redditp__sort-times",
+    "",
+  );
+  gridSortTimes.setAttribute("role", "group");
+  gridSortTimes.setAttribute("aria-label", "Time range");
+  gridSort.append(gridSortRanks, gridSortTimes);
   const gridColumns = element("div", "redditp__grid-columns", "");
   const gridStatus = element("p", "redditp__grid-status", "");
   gridStatus.setAttribute("role", "status");
@@ -3249,6 +3472,7 @@
 
   root.append(
     stage,
+    gridSort,
     grid,
     prevButton,
     nextButton,
@@ -3445,7 +3669,12 @@
       '<path d="M12 4v10"/><path d="m7.5 10 4.5 4.5 4.5-4.5"/><path d="M5 19h14"/></g>' +
       '<path class="redditp__dl-check" d="m6 12.5 4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
       "</svg>";
-    // Neither the tile's nor the slide's own handlers see these.
+    return wireHoverIcon(icon, onPress);
+  }
+
+  // Makes a hover icon press with the mouse, Enter and Space, and keeps
+  // those events from the tile's and the slide's own handlers.
+  function wireHoverIcon(icon, onPress) {
     ["mousedown", "pointerdown", "pointerup", "dblclick", "auxclick"].forEach(
       (type) => icon.addEventListener(type, (event) => event.stopPropagation()),
     );
@@ -3461,6 +3690,45 @@
       onPress();
     });
     return icon;
+  }
+
+  // The hover icon that keeps only one post of a tile's author, until
+  // presentation mode closes (see toggleAuthorFocusOf).
+  function createFocusIcon(onPress) {
+    const icon = element("span", "redditp__solo", "");
+    icon.setAttribute("role", "button");
+    icon.tabIndex = 0;
+    icon.setAttribute("aria-pressed", "false");
+    icon.innerHTML =
+      '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">' +
+      '<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6"/></g>' +
+      "</svg>";
+    return wireHoverIcon(icon, onPress);
+  }
+
+  // Shows a focus icon's state for a slide: gone where the post has no
+  // author or is the only post shown, pressed while its author is focused
+  // on this post.
+  function syncFocusIcon(icon, slide) {
+    const entry = slide ? focusAuthorEntry(slide) : "";
+    icon.hidden = !entry || (activeSource === liveSource && isSinglePostPage());
+    if (!entry) return;
+    const pressed = slideIsFocused(slide, state.authorFocus);
+    icon.setAttribute("aria-pressed", String(pressed));
+    icon.setAttribute("aria-label", `Only this post from ${entry}`);
+    icon.title = pressed
+      ? `Show ${entry}'s other posts again`
+      : `Only this post from ${entry}: hide their other posts until presentation mode closes`;
+  }
+
+  function syncGridFocusIcons() {
+    gridColumns
+      .querySelectorAll(".redditp__tile .redditp__solo")
+      .forEach((icon) => {
+        const tile = icon.closest(".redditp__tile");
+        syncFocusIcon(icon, gridTileInfo.get(tile)?.slide);
+      });
   }
 
   // Shows an icon's state for a slide, from the tracker the S key uses.
@@ -3540,6 +3808,9 @@
     const saveIcon = createSaveIcon(() => saveSlide(slide));
     syncSaveIcon(saveIcon, slide);
     tile.append(saveIcon);
+    const focusIcon = createFocusIcon(() => toggleAuthorFocusOf(slide));
+    syncFocusIcon(focusIcon, slide);
+    tile.append(focusIcon);
     const info = {
       slide,
       height,
@@ -4126,13 +4397,14 @@
     return state.slides.findIndex((slide) => postIdentity(slide) === identity);
   }
 
+  // The tile that has focus, or whose hover icon has it.
   function focusedGridTile() {
     const active = document.activeElement;
-    return active &&
-      gridColumns.contains(active) &&
-      active.classList.contains("redditp__tile")
-      ? active
-      : null;
+    const tile =
+      active && typeof active.closest === "function"
+        ? active.closest(".redditp__tile")
+        : null;
+    return tile && gridColumns.contains(tile) ? tile : null;
   }
 
   function makeGridColumns(count) {
@@ -4313,6 +4585,9 @@
     const info = gridTileInfo.get(tile);
     state.gridColumnHeights[gridColumnIndex(column)] += info.height;
     state.gridTiles.set(slide, tile);
+    // The focus may have changed while the tile was parked.
+    const parkedFocusIcon = tile.querySelector(".redditp__solo");
+    if (parkedFocusIcon) syncFocusIcon(parkedFocusIcon, slide);
     setGridLoopState(tile, restingGridLoopState(info));
     observeGridTile(tile, slide);
     return true;
@@ -4801,6 +5076,7 @@
     const slideIndex = state.slides.indexOf(slide);
     if (slideIndex < 0) {
       syncPresentationUi();
+      releaseFocusIfGone(slide);
       return;
     }
     const wasCurrent = state.index === slideIndex;
@@ -4815,6 +5091,25 @@
       syncPresentationUi();
     }
     if (!state.slides.length) loadForEmptyFilter();
+    releaseFocusIfGone(slide);
+  }
+
+  // When the last loaded slide of the post that an author is focused on
+  // leaves, nothing of theirs would show; the focus ends, and their other
+  // posts come back.
+  function releaseFocusIfGone(slide) {
+    const entry = focusAuthorEntry(slide);
+    const key = entry && hiddenEntryKey(entry);
+    const kept = key ? state.authorFocus.get(key) : null;
+    if (!kept || kept.post !== postIdentity(slide)) return;
+    if (state.allSlides.some((other) => postIdentity(other) === kept.post)) {
+      return;
+    }
+    const next = new Map(state.authorFocus);
+    next.delete(key);
+    state.authorFocus = next;
+    applyFilter(true);
+    syncGridFocusIcons();
   }
 
   // A picture or video that failed to load leaves the presentation and
@@ -4868,10 +5163,16 @@
   // How many of the loaded posts the Hidden list leaves out.
   function hiddenPostCount() {
     const list = state.settings.hidden;
-    if (!Array.isArray(list) || !list.length) return 0;
+    const hasList = Array.isArray(list) && list.length > 0;
+    if (!hasList && !state.authorFocus.size) return 0;
     const posts = new Set();
     state.allSlides.forEach((slide) => {
-      if (slideIsHidden(slide, list)) posts.add(postIdentity(slide));
+      if (
+        slideIsHidden(slide, list) ||
+        slideOutOfFocus(slide, state.authorFocus)
+      ) {
+        posts.add(postIdentity(slide));
+      }
     });
     return posts.size;
   }
@@ -4918,6 +5219,7 @@
     syncMediaToggles();
     syncArchiveButton();
     syncSaveButton();
+    syncGridSort(inGrid);
     controls.classList.toggle(
       "redditp__controls--collapsed",
       !state.settings.showControls,
@@ -4947,6 +5249,62 @@
     galleryButton.textContent = slide?.galleryItem
       ? `(${slide.galleryItem}/${slide.galleryTotal})`
       : "";
+  }
+
+  // The sort links of the Reddit page underneath, shown over the grid. They
+  // are made again only when the address has changed.
+  let gridSortCache = { href: null, links: null };
+
+  // A sort link reloads Reddit's page in that order, the way the meta links
+  // do; the link of the order in force stays put.
+  function onSortLinkClick(event) {
+    if (event.currentTarget.getAttribute("aria-current") === "page") {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    navigateToPresentation(event);
+  }
+
+  function syncGridSort(inGrid) {
+    const show =
+      !EMBEDDED && activeSource === liveSource && !isSinglePostPage() && inGrid;
+    if (!show) {
+      gridSort.hidden = true;
+      return;
+    }
+    if (gridSortCache.href !== location.href) {
+      const links = listingSortLinks(location.href);
+      gridSortCache = { href: location.href, links };
+      gridSortRanks.replaceChildren();
+      gridSortTimes.replaceChildren();
+      if (links) {
+        const addLinks = (group, items, titleOf) => {
+          items.forEach((item) => {
+            const link = element(
+              "a",
+              "redditp__button redditp__sort-link",
+              item.value,
+            );
+            link.href = item.href;
+            link.title = titleOf(item.value);
+            if (item.current) link.setAttribute("aria-current", "page");
+            link.addEventListener("click", onSortLinkClick);
+            group.append(link);
+          });
+        };
+        addLinks(gridSortRanks, links.ranks, (value) => `Sort by ${value}`);
+        const rank = links.ranks.find((item) => item.current)?.value || "";
+        addLinks(gridSortTimes, links.times, (value) =>
+          value === "all"
+            ? `${rank} of all time`
+            : `${rank} of the past ${value}`,
+        );
+      }
+    }
+    const links = gridSortCache.links;
+    gridSort.hidden = !links;
+    gridSortTimes.hidden = !links || !links.times.length;
   }
 
   // The media buttons stay in the slideshow, the grid, and the empty state a
@@ -5469,12 +5827,6 @@
     return state.slides.length > 0 && state.index >= lastPostStart();
   }
 
-  function postIdentity(slide) {
-    if (slide.postKey) return `post:${slide.postKey}`;
-    if (slide.commentsUrl) return `comments:${slide.commentsUrl}`;
-    return `fallback:${slide.title}|${slide.sourceUrl}`;
-  }
-
   // Adds the slides of posts not seen before. Every new slide joins
   // allSlides; the ones the filter lets through also join slides. Returns how
   // many new slides were found and how many of them show.
@@ -5483,9 +5835,7 @@
     const additions = slides.filter(
       (slide) => !existingPosts.has(postIdentity(slide)),
     );
-    const shown = additions.filter((slide) =>
-      slideMatchesFilter(slide, state.settings),
-    );
+    const shown = additions.filter(slideShows);
     state.allSlides.push(...additions);
     if (shown.length) {
       state.slides.push(...shown);
@@ -5966,7 +6316,7 @@
     const position = state.allSlides.indexOf(slide);
     let index = 0;
     for (let before = 0; before < position; before += 1) {
-      if (slideMatchesFilter(state.allSlides[before], state.settings)) {
+      if (slideShows(state.allSlides[before])) {
         index += 1;
       }
     }
@@ -6029,9 +6379,7 @@
     state.gridExhausted = false;
     // Other posts show now, so the feed may well have more of them.
     state.feedExhausted = false;
-    state.slides = state.allSlides.filter((slide) =>
-      slideMatchesFilter(slide, state.settings),
-    );
+    state.slides = state.allSlides.filter(slideShows);
     state.index = shownIndexFor(
       preferred && state.slides.includes(preferred) ? preferred : current,
     );
@@ -6338,8 +6686,9 @@
   // until it no longer is.
   const TOAST_MS = 6000;
   let toastTimer = null;
-  // What the message's Undo button undoes: { entry, current, landed,
-  // target, targetFocused } (see hideAuthorOf), or null.
+  // What the message's Undo button undoes: { current, landed, target,
+  // targetFocused, restore(preferred), title? } (see hideAuthorOf and
+  // toggleAuthorFocusOf), or null.
   let toastUndoAction = null;
 
   // Shows a message, with an Undo button when there is something to undo.
@@ -6347,6 +6696,7 @@
     toastText.textContent = text;
     toastUndoAction = undo || null;
     toastUndo.hidden = !undo;
+    toastUndo.title = undo?.title || "Show these posts again (Z)";
     toast.classList.add("redditp__toast--shown");
     endToastLater();
   }
@@ -6441,10 +6791,74 @@
       landed: null,
       target: slide,
       targetFocused: Boolean(tile) && document.activeElement === tile,
+      restore(preferred) {
+        const list = removeFromHiddenList(state.settings.hidden, result.entry);
+        if (list.length !== state.settings.hidden.length) {
+          updateSettings({ hidden: list }, preferred);
+        }
+      },
     };
     updateSettings({ hidden: result.list });
     undo.landed = state.slides[state.index] || null;
     showToast(`Hid ${result.entry}`, undo);
+  }
+
+  // Keeps only one post of a slide's author, or brings their other posts
+  // back when that post is the one kept. Until presentation mode closes, and
+  // never saved. The message that follows can undo it.
+  function toggleAuthorFocusOf(slide) {
+    const result = toggleAuthorFocus(state.authorFocus, slide);
+    if (result.status === "invalid") {
+      showToast("This post has no author.");
+      return;
+    }
+    const key = hiddenEntryKey(result.entry);
+    const previous = state.authorFocus.get(key);
+    const tile = state.gridTiles.get(slide);
+    const kept = result.status === "kept";
+    const undo = {
+      current: state.slides[state.index] || null,
+      landed: null,
+      target: slide,
+      targetFocused: Boolean(tile) && tile.contains(document.activeElement),
+      title: kept
+        ? "Show their other posts again (Z)"
+        : "Hide their other posts again (Z)",
+      restore(preferred) {
+        const copy = new Map(state.authorFocus);
+        if (previous) copy.set(key, previous);
+        else copy.delete(key);
+        state.authorFocus = copy;
+        applyFilter(true, preferred);
+        syncGridFocusIcons();
+      },
+    };
+    state.authorFocus = result.focus;
+    applyFilter(true, slide);
+    syncGridFocusIcons();
+    undo.landed = state.slides[state.index] || null;
+    if (kept) {
+      const others = new Set();
+      state.allSlides.forEach((other) => {
+        if (
+          focusAuthorEntry(other) &&
+          hiddenEntryKey(focusAuthorEntry(other)) === key &&
+          slideOutOfFocus(other, state.authorFocus)
+        ) {
+          others.add(postIdentity(other));
+        }
+      });
+      const count = others.size;
+      showToast(
+        `Only this post from ${result.entry}` +
+          (count
+            ? ` · ${count} other ${count === 1 ? "post" : "posts"} hidden`
+            : ""),
+        undo,
+      );
+    } else {
+      showToast(`Showing all posts from ${result.entry} again`, undo);
+    }
   }
 
   // Takes the last hide back, while its message shows. The posts come back
@@ -6456,11 +6870,8 @@
     if (!undo) return;
     const undoHadFocus = toast.contains(document.activeElement);
     toastUndoAction = null;
-    const list = removeFromHiddenList(state.settings.hidden, undo.entry);
-    if (list.length !== state.settings.hidden.length) {
-      const stayed = (state.slides[state.index] || null) === undo.landed;
-      updateSettings({ hidden: list }, stayed ? undo.current : null);
-    }
+    const stayed = (state.slides[state.index] || null) === undo.landed;
+    undo.restore(stayed ? undo.current : null);
     const tile =
       state.view === "grid" ? state.gridTiles.get(undo.target) : null;
     if (tile && (undo.targetFocused || undoHadFocus)) {
@@ -6728,6 +7139,7 @@
     state.settingsOpen = false;
     settingsOverlay.hidden = true;
     hideToast();
+    state.authorFocus = new Map();
     mousePoint = null;
     clearTimeout(state.autoTimer);
     autoButton.textContent = "auto";
@@ -6779,9 +7191,12 @@
     document.documentElement.style.overflow = "hidden";
     document.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("resize", onWindowResize);
-    // The starting view comes from the setting alone, never from the last
-    // presentation.
-    state.view = state.settings.openInGrid ? "grid" : "slideshow";
+    // The starting view comes from the setting, or from redditp=grid in the
+    // address for the first open only, never from the last presentation.
+    const fromUrl = activeSource === liveSource ? urlStartView : "";
+    urlStartView = "";
+    state.view =
+      fromUrl === "grid" || state.settings.openInGrid ? "grid" : "slideshow";
     state.returnToGrid = false;
     resetGrid();
     // Slides are rebuilt from the live page on every open, so the previous
@@ -6793,6 +7208,7 @@
     state.preloads.clear();
     releaseWarmVideos();
     state.allSlides = [];
+    state.authorFocus = new Map();
     state.slides = [];
     state.unavailable = 0;
     state.preparing = true;
@@ -6807,9 +7223,7 @@
     // Every post is read afresh on each open.
     seenPostNodes = new WeakSet();
     state.allSlides = skipDeadSlides(extractSlides());
-    state.slides = state.allSlides.filter((slide) =>
-      slideMatchesFilter(slide, state.settings),
-    );
+    state.slides = state.allSlides.filter(slideShows);
     state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
     render();
     focusInitialControl();
@@ -6923,6 +7337,14 @@
         event.stopPropagation();
         closeSettings();
       }
+      return;
+    }
+    // A hover icon presses itself on Enter and Space; the keys below would
+    // otherwise take them first.
+    if (
+      (event.key === "Enter" || event.key === " ") &&
+      event.target.closest?.(".redditp__dl, .redditp__solo")
+    ) {
       return;
     }
     if (event.key === "Tab") {

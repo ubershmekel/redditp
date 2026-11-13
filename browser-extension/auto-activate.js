@@ -14,14 +14,16 @@
     }
   }
 
-  // redditp=1 in the address opens presentation mode.
+  // redditp=1 or redditp=grid in the address opens presentation mode. content.js
+  // reads which of the two it was and picks the slideshow or the grid.
   let url = null;
   try {
     url = new URL(location.href);
   } catch (_error) {
-    // An address the parser rejects carries no redditp=1.
+    // An address the parser rejects carries no redditp value.
   }
-  if (url && url.searchParams.get("redditp") === "1") {
+  const redditpParam = url ? url.searchParams.get("redditp") : "";
+  if (redditpParam === "1" || redditpParam === "grid") {
     sendMessage({ type: "activate-from-url" });
   }
 

@@ -1189,3 +1189,111 @@
     animation: none;
   }
 }
+
+/* Sort links over the top of the grid: the order and time range of the
+   Reddit page underneath. The grid's top padding keeps its tiles clear. */
+#redditp-presentation .redditp__sort {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: calc(100% - 64px);
+  background: rgba(0, 0, 0, 0.72);
+}
+
+#redditp-presentation .redditp__sort[hidden] {
+  display: none !important;
+}
+
+#redditp-presentation .redditp__sort-group {
+  display: inline-flex;
+}
+
+#redditp-presentation .redditp__sort-times {
+  margin-left: 4px;
+  padding-left: 4px;
+  border-left: 1px solid #444;
+}
+
+#redditp-presentation .redditp__sort-times[hidden] {
+  display: none;
+}
+
+#redditp-presentation .redditp__sort-link[aria-current="page"] {
+  color: #5dd;
+  cursor: default;
+}
+
+/* On a narrow screen the links stay on one row that scrolls sideways, so
+   they never grow tall enough to cover the first row of tiles. */
+@media (max-width: 600px) {
+  #redditp-presentation .redditp__sort {
+    left: 4px;
+    flex-wrap: nowrap;
+    max-width: calc(100% - 46px);
+    overflow-x: auto;
+  }
+
+  #redditp-presentation .redditp__sort-group {
+    flex: none;
+  }
+}
+
+/* Solo icon: keeps one post of the tile's author, beside the download icon. */
+#redditp-presentation .redditp__solo {
+  position: absolute;
+  top: 6px;
+  left: 42px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+#redditp-presentation .redditp__solo[hidden] {
+  display: none;
+}
+
+/* Without a download icon beside it, it takes that corner. */
+#redditp-presentation .redditp__dl[hidden] + .redditp__solo {
+  left: 6px;
+}
+
+#redditp-presentation .redditp__tile:hover .redditp__solo,
+#redditp-presentation .redditp__solo:focus-visible {
+  opacity: 1;
+}
+
+#redditp-presentation .redditp__solo:focus-visible {
+  outline: 2px solid #5ff;
+}
+
+#redditp-presentation .redditp__solo svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+#redditp-presentation .redditp__solo[aria-pressed="true"] {
+  color: #5dd;
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #redditp-presentation .redditp__solo {
+    transition: none;
+  }
+}

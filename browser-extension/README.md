@@ -54,6 +54,35 @@ bump `version` in `manifest.json` before re-signing. The alternative to signing
 is Firefox Developer Edition, Nightly, or ESR, where setting
 `xpinstall.signatures.required` to `false` in `about:config` does work.
 
+### Safari on iPhone, iPad, and Mac
+
+Safari only installs web extensions that ship inside an app, so the Safari build
+is an Xcode project generated from this folder. It needs a Mac with Xcode:
+
+1. Run `npm run ext:safari`. It stages `build/safari-extension` and runs Apple's
+   `safari-web-extension-converter`, writing the project to
+   `build/safari-xcode`.
+2. Open the project in Xcode, choose the iOS or macOS scheme, set a signing
+   team, and run it on a device or simulator.
+3. On iPhone or iPad, open **Settings → Apps → Safari → Extensions**, turn on
+   **Presentation Mode for Reddit**, and allow it on reddit.com. On a Mac,
+   enable it in Safari's **Settings → Extensions**; if it is not listed, turn on
+   **Develop → Allow Unsigned Extensions**.
+
+The project references the staged files rather than copying them, so after
+changing this folder run `npm run ext:package:safari` and rebuild in Xcode.
+
+On iPhone and iPad, start presentation mode from the extensions menu in Safari's
+address bar (the puzzle-piece or **ᴀA** button). There is no keyboard shortcut
+there unless a hardware keyboard is attached to an iPad, and the `Alt+P` command
+is a Mac and desktop-browser feature. The `redditp=1` URL launch works once the
+extension is allowed on reddit.com. Swipe left or right to change slides.
+
+Distributing it beyond your own devices goes through the App Store.
+`npm run ext:release` tags the version, and pushing the tag builds and submits
+it from GitHub Actions; see [Safari (App Store)](../README.md#safari-app-store)
+for the one-time setup.
+
 ## Use it
 
 On an `old.reddit.com`, `www.reddit.com`, or other `reddit.com` listing page,
@@ -264,6 +293,16 @@ slideshow to close presentation mode. These preferences are saved by your
 browser and used the next time presentation mode opens. The **redditp** link
 opens this README on GitHub.
 
+Two video options are enabled by default: **Let videos play at least once** lets
+a playing video finish its first pass when it exceeds the slide timer; **Loop
+short videos until the timer ends** repeats shorter clips for the rest of that
+time. Turn looping off to advance as soon as a short clip ends. These options
+also cover GIFs served as videos (including Imgur GIFs). Plain animated images
+and embedded players use the timer because their playback timing is not
+available. Failed, paused, or blocked videos also fall back to the timer. A
+video that pauses, stalls, or fails after the timer has run out advances after
+one more slide timer.
+
 These are bare keys only. Any combination holding Ctrl, Cmd, or Alt passes
 through to the browser, so Ctrl+F and friends keep working while presentation
 mode is open.
@@ -281,9 +320,13 @@ for new posts before treating the feed as ended, so a slow feed still gets
 through. The slide counter shows `loading more` only on the last post, while a
 load is still running; pressing next there queues the move. If Reddit then adds
 nothing for 12 seconds, the slideshow wraps to the first slide, and once the
-feed is known to have ended, next on the last slide wraps at once. Single-post
-`/comments/` pages do not trigger this feed-loading scroll. Closing presentation
-mode scrolls the Reddit page back to where it was.
+feed is known to have ended, next on the last slide wraps at once. On old Reddit
+listings and search results, which page with a "next ›" link, it loads the posts
+of the next page instead and keeps following each page's next link; if that page
+fails to load, the slideshow wraps to the first slide and tries it again the
+next time around. Single-post `/comments/` pages do not trigger this
+feed-loading scroll. Closing presentation mode scrolls the Reddit page back to
+where it was.
 
 Chrome lets users change the shortcut at `chrome://extensions/shortcuts`.
 Firefox does it in `about:addons` under the gear menu's **Manage Extension
@@ -474,6 +517,10 @@ and shows the result.
   handler stays out of the way there too.
 - Archive mode is built and tested in Chrome. The Firefox build ships the same
   archive page and icon, but they have not been tested there.
+- Safari on iPhone and iPad has no `commands` API, so `background.js` only
+  registers the `Alt+P` shortcut where it exists. Safari asks the user to allow
+  the extension on reddit.com, like Firefox; until then only the extensions menu
+  launch works.
 - `background.js` and `auto-activate.js` resolve `globalThis.browser || chrome`
   because Firefox's `chrome` alias is callback-based while `browser` returns
   promises. Keep new background code on that `api` handle.
@@ -487,11 +534,11 @@ article/post-container fallbacks. This covers home and popular feeds, subreddit
 listings, search results, post pages, and user pages on both old and current
 Reddit.
 
-Only posts currently rendered in the page can be included. On an infinite scroll
-feed, scroll first to load more posts, then start presentation mode. Images,
-galleries, and video hosted by Reddit are shown, along with the media of the few
-link hosts Reddit posts commonly use. Video starts muted and can be unmuted from
-the compact control bar or with M, which is remembered for later presentations.
+Presentation mode starts with the posts currently rendered in the page and loads
+more as it reaches the end. Images, galleries, and video hosted by Reddit are
+shown, along with the media of the few link hosts Reddit posts commonly use.
+Video starts muted and can be unmuted from the compact control bar or with M,
+which is remembered for later presentations.
 
 Media played inside a host's own player frame is opened autoplaying. The frame
 URL requests the viewer's saved sound preference using the common mute and sound
@@ -502,6 +549,9 @@ not, the sound button's tooltip says the player keeps its own control. We could
 ask for permissions (or optional permissions) to access any URL to control the
 mute of videos inside iframes, but that would be a privacy concern and cause the
 extension publication review time to be much longer.
+
+NSFW and spoiler posts show their media directly. Reddit's blurred cover image
+is never a slide.
 
 Unsupported link types remain useful as title cards with links to the media and
 comments.
@@ -532,6 +582,8 @@ available as the fallback.
   the archive icon on subreddit pages
 - `launcher.css`: the archive icon on subreddit pages
 - `content.js`: Reddit DOM extraction and slideshow behavior
+- `page-bridge.js`: runs in the page's own world to lend old Reddit's dash.js to
+  v.redd.it slides, so they play with sound; injected by `background.js`
 - `presentation.css`: isolated, responsive presentation UI
 - `archive.html`, `archive.js`, `archive.css`: the archive page; opened by the
   extension, not listed in the manifest
@@ -546,7 +598,9 @@ takes a target:
 - `npm run ext:package:firefox` — Firefox zip, with the MV3 event page
   (`background.scripts`), the AMO add-on id, and the data-collection declaration
   patched in
-- `npm run ext:package:all` — both
+- `npm run ext:package:safari` — Safari folder and zip, manifest used as-is; the
+  input for `npm run ext:safari`
+- `npm run ext:package:all` — all three
 
 `npm run ext:firefox:run` and `npm run ext:firefox:sign` build the Firefox
 target first, so they always run against fresh output.

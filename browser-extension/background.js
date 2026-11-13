@@ -48,6 +48,17 @@ async function showPresentation(tab) {
       target: { tabId: tab.id },
       files: ["presentation.css"],
     });
+    // Lends the page's own dash.js to v.redd.it slides. It is optional: without
+    // it those slides play a silent rendition, so never let it block startup.
+    try {
+      await api.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["page-bridge.js"],
+        world: "MAIN",
+      });
+    } catch (error) {
+      console.warn("redditp page bridge unavailable", error);
+    }
     await api.scripting.executeScript({
       target: { tabId: tab.id },
       files: ["content.js"],
@@ -161,11 +172,15 @@ if (api.runtime.onConnect) {
 
 api.action.onClicked.addListener(showPresentation);
 
-api.commands.onCommand.addListener(async (command) => {
-  if (command !== "open-presentation") return;
-  const tabs = await api.tabs.query({ active: true, currentWindow: true });
-  await showPresentation(tabs[0]);
-});
+// Safari on iPhone and iPad has no keyboard commands API. Registering against
+// it there would throw and leave the redditp=1 listener below unregistered.
+if (api.commands && api.commands.onCommand) {
+  api.commands.onCommand.addListener(async (command) => {
+    if (command !== "open-presentation") return;
+    const tabs = await api.tabs.query({ active: true, currentWindow: true });
+    await showPresentation(tabs[0]);
+  });
+}
 
 api.runtime.onMessage.addListener((message, sender) => {
   // From the archive button and H in presentation mode, and from the archive

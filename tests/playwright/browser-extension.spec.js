@@ -10,6 +10,10 @@ const extensionStyles = path.resolve(
   __dirname,
   "../../browser-extension/presentation.css",
 );
+const pageBridgeScript = path.resolve(
+  __dirname,
+  "../../browser-extension/page-bridge.js",
+);
 const autoActivateScript = path.resolve(
   __dirname,
   "../../browser-extension/auto-activate.js",
@@ -65,8 +69,54 @@ function fulfillSilentVideo(route) {
   return route.fulfill({ contentType: "video/webm", body: silentVideo });
 }
 
-async function startPresentation(page, html) {
+// Stands in for the dash.js that old Reddit loads for its own player, and
+// injects the bridge that lends it to the extension.
+async function installRedditDash(page, { failPlayback = false } = {}) {
+  await page.evaluate((fail) => {
+    window.__dashCalls = [];
+    window.__dashResets = 0;
+    const MediaPlayer = () => ({
+      create() {
+        const errorHandlers = [];
+        return {
+          on(type, handler) {
+            if (type === "error") errorHandlers.push(handler);
+          },
+          initialize(video, url, autoPlay) {
+            window.__dashCalls.push({ url, autoPlay });
+            if (fail) {
+              setTimeout(() => {
+                errorHandlers.forEach((handler) =>
+                  handler({ error: "download" }),
+                );
+              }, 50);
+            }
+          },
+          reset() {
+            window.__dashResets += 1;
+          },
+        };
+      },
+    });
+    MediaPlayer.events = { ERROR: "error" };
+    window.dashjs = { MediaPlayer };
+  }, failPlayback);
+  await page.addScriptTag({ path: pageBridgeScript });
+}
+
+async function canPlayHls(page) {
+  return page.evaluate(() =>
+    Boolean(
+      document
+        .createElement("video")
+        .canPlayType("application/vnd.apple.mpegurl"),
+    ),
+  );
+}
+
+async function startPresentation(page, html, setup) {
   await page.setContent(`<base href="https://www.reddit.com/">${html}`);
+  if (setup) await setup(page);
   await page.addStyleTag({ path: extensionStyles });
   await page.addScriptTag({ path: extensionScript });
 }
@@ -190,14 +240,22 @@ test("old Reddit combined-search cards upgrade their outbound media", async ({
 }) => {
   const postUrl =
     "https://old.reddit.com/r/LoveTrash/comments/oldvideo/nature/";
-  const videoUrl = "https://v.redd.it/oldvideo/DASH_96.mp4";
+  const hlsUrl = "https://v.redd.it/oldvideo/HLSPlaylist.m3u8?a=1&v=1&f=sd";
+  const seekPreviewUrl = "https://v.redd.it/oldvideo/DASH_96.mp4";
+  // A fetched old Reddit post page has no <video>: the player is only data
+  // attributes until Reddit's own script builds it.
   await page.route(postUrl, async (route) => {
     await route.fulfill({
       contentType: "text/html",
-      body: `<div class="thing link" data-fullname="t3_oldvideo" data-url="https://v.redd.it/oldvideo" data-permalink="/r/LoveTrash/comments/oldvideo/nature/" data-author="poster" data-subreddit="LoveTrash"><a class="title">Nature...</a><video src="${videoUrl}"></video></div>`,
+      body: `<div class="thing link" data-fullname="t3_oldvideo" data-url="https://v.redd.it/oldvideo" data-permalink="/r/LoveTrash/comments/oldvideo/nature/" data-author="poster" data-subreddit="LoveTrash"><a class="title">Nature...</a><div class="portrait" data-hls-url="${hlsUrl}" data-mpd-url="https://v.redd.it/oldvideo/DASHPlaylist.mpd?a=1&amp;v=1&amp;f=sd" data-seek-preview-url="${seekPreviewUrl}"></div></div>`,
     });
   });
-  await page.route(videoUrl, (route) => fulfillSilentVideo(route));
+  for (const url of [hlsUrl, seekPreviewUrl]) {
+    await page.route(url, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await route.abort();
+    });
+  }
   await startPresentation(
     page,
     `<div class="search-result search-result-link has-thumbnail" data-fullname="t3_oldvideo"><a class="thumbnail" href="${postUrl}"></a><a class="search-title" href="${postUrl}">Nature...</a><a class="search-comments" href="${postUrl}">193 comments</a><a class="author" href="https://old.reddit.com/user/poster">poster</a><a class="search-subreddit-link" href="https://old.reddit.com/r/LoveTrash/">r/LoveTrash</a><a class="search-link" href="https://v.redd.it/oldvideo">https://v.redd.it/oldvideo</a></div>`,
@@ -205,10 +263,145 @@ test("old Reddit combined-search cards upgrade their outbound media", async ({
 
   await expect(page.locator(".redditp__title")).toHaveText("Nature...");
   await expect(page.locator(".redditp__meta")).toContainText("r/LoveTrash");
+  // Without Reddit's dash.js the slide plays what the browser can by itself.
   await expect(page.locator(".redditp__video")).toHaveAttribute(
     "src",
-    videoUrl,
+    (await canPlayHls(page)) ? hlsUrl : seekPreviewUrl,
   );
+  await expect(
+    page.getByRole("link", { name: "media", exact: true }),
+  ).toHaveAttribute("href", "https://v.redd.it/oldvideo");
+});
+
+const oldRedditTextSearchCard = (postUrl) =>
+  `<div class="search-result search-result-link" data-fullname="t3_hills"><a class="search-title" href="${postUrl}">Norwegian method and hills</a><a class="search-comments" href="${postUrl}">12 comments</a><a class="author" href="https://old.reddit.com/user/runner">runner</a><a class="search-subreddit-link" href="https://old.reddit.com/r/NorwegianSinglesRun/">r/NorwegianSinglesRun</a></div>`;
+
+test("old Reddit search text posts show a loading card, then their fetched body", async ({
+  page,
+}) => {
+  const postUrl =
+    "https://old.reddit.com/r/NorwegianSinglesRun/comments/hills/norwegian_method_and_hills/";
+  let releasePost;
+  const postReleased = new Promise((resolve) => {
+    releasePost = resolve;
+  });
+  await page.route(postUrl, async (route) => {
+    await postReleased;
+    await route.fulfill({
+      contentType: "text/html",
+      body: `<div id="siteTable"><div class="thing link self" data-fullname="t3_hills" data-url="${postUrl}" data-permalink="/r/NorwegianSinglesRun/comments/hills/norwegian_method_and_hills/" data-author="runner" data-subreddit="NorwegianSinglesRun"><div class="entry"><a class="title" href="${postUrl}">Norwegian method and hills</a><div class="expando"><form class="usertext"><div class="usertext-body"><div class="md"><p>First paragraph about hills.</p><p>Second paragraph about thresholds.</p><ul><li>Tuesday</li><li>Saturday</li></ul></div></div></form></div></div></div></div><div class="commentarea"><div class="thing comment"><div class="usertext-body"><div class="md"><p>A comment reply.</p></div></div></div></div>`,
+    });
+  });
+  await startPresentation(page, oldRedditTextSearchCard(postUrl));
+
+  const card = page.locator(".redditp__link-card");
+  await expect(page.locator(".redditp__link-icon")).toHaveText("Loading post…");
+  await expect(card).toHaveAttribute("aria-busy", "true");
+
+  releasePost();
+  await expect(page.locator(".redditp__link-icon")).toHaveText("Text post");
+  await expect(card).not.toHaveAttribute("aria-busy", /./);
+  // The fetched page is never rendered, so paragraph breaks are rebuilt.
+  expect(await page.locator(".redditp__post-body").textContent()).toBe(
+    "First paragraph about hills.\n\nSecond paragraph about thresholds.\n\nTuesday\nSaturday",
+  );
+});
+
+test("a failed search enrichment clears the loading card", async ({ page }) => {
+  const postUrl =
+    "https://old.reddit.com/r/NorwegianSinglesRun/comments/hills/norwegian_method_and_hills/";
+  await page.route(postUrl, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.fulfill({ status: 500, body: "" });
+  });
+  await startPresentation(page, oldRedditTextSearchCard(postUrl));
+
+  await expect(page.locator(".redditp__link-icon")).toHaveText(
+    "Open linked post",
+  );
+  await expect(page.locator(".redditp__link-card")).not.toHaveAttribute(
+    "aria-busy",
+    /./,
+  );
+});
+
+const oldRedditVideoPosts = `
+  <div class="thing link" data-fullname="t3_dashvideo" data-url="https://v.redd.it/dashvideo" data-permalink="/r/videos/comments/dashvideo/concert/" data-author="fan" data-subreddit="videos">
+    <a class="title">Concert clip</a>
+    <div class="portrait" data-hls-url="https://v.redd.it/dashvideo/HLSPlaylist.m3u8" data-mpd-url="https://v.redd.it/dashvideo/DASHPlaylist.mpd?a=1&amp;v=1" data-seek-preview-url="https://v.redd.it/dashvideo/DASH_96.mp4"></div>
+  </div>
+  <div class="thing link" data-fullname="t3_story" data-url="https://example.com/story" data-author="bob" data-subreddit="news" data-permalink="/r/news/comments/story/after/">
+    <a class="title">Story after the video</a>
+  </div>
+`;
+
+test("old Reddit v.redd.it slides play their DASH tracks through Reddit's dash.js", async ({
+  page,
+}) => {
+  await startPresentation(page, oldRedditVideoPosts, (setupPage) =>
+    installRedditDash(setupPage),
+  );
+
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveAttribute("data-redditp-dash", "attached");
+  await expect(video).not.toHaveAttribute("src", /./);
+  expect(await page.evaluate(() => window.__dashCalls)).toEqual([
+    {
+      url: "https://v.redd.it/dashvideo/DASHPlaylist.mpd?a=1&v=1",
+      autoPlay: false,
+    },
+  ]);
+
+  // Leaving the slide must stop dash.js from buffering in the background.
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "Story after the video",
+  );
+  expect(await page.evaluate(() => window.__dashResets)).toBe(1);
+});
+
+test("old Reddit v.redd.it slides fall back when Reddit's dash.js fails", async ({
+  page,
+}) => {
+  const seekPreviewUrl = "https://v.redd.it/dashvideo/DASH_96.mp4";
+  // The media hosts answer every other URL with a clip, which would fail the
+  // playlist at once, so hold both fallbacks open for a while first.
+  for (const url of [
+    "https://v.redd.it/dashvideo/HLSPlaylist.m3u8",
+    seekPreviewUrl,
+  ]) {
+    await page.route(url, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await route.abort();
+    });
+  }
+  await startPresentation(page, oldRedditVideoPosts, (setupPage) =>
+    installRedditDash(setupPage, { failPlayback: true }),
+  );
+
+  const video = page.locator(".redditp__video");
+  await expect(video).toHaveAttribute(
+    "src",
+    (await canPlayHls(page))
+      ? "https://v.redd.it/dashvideo/HLSPlaylist.m3u8"
+      : seekPreviewUrl,
+  );
+  await expect(video).not.toHaveAttribute("data-redditp-dash", /./);
+  expect(await page.evaluate(() => window.__dashResets)).toBe(1);
+});
+
+test("a DASH_96 seek preview is not presented as the video", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `<shreddit-post id="t3_seekpreview" post-title="Seek preview only" post-type="video" content-href="https://v.redd.it/seekpreview" permalink="/r/test/comments/seekpreview/post/"><shreddit-player src="https://v.redd.it/seekpreview/HLSPlaylist.m3u8" preview="https://v.redd.it/seekpreview/DASH_96.mp4"></shreddit-player></shreddit-post>`,
+  );
+
+  await expect(page.locator(".redditp__title")).toHaveText("Seek preview only");
+  await expect(
+    page.locator(".redditp__media video[src*='DASH_96']"),
+  ).toHaveCount(0);
 });
 
 test("arrow keys still change slides after clicking native video controls", async ({
@@ -633,6 +826,177 @@ test("a linked watch page becomes that host's player frame", async ({
   );
 });
 
+test("a blurred or spoiler cover is not a slide before the post's media", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `
+      <shreddit-post
+        id="t3_covered"
+        post-title="Covered clip"
+        author="poster"
+        subreddit-prefixed-name="r/clips"
+        content-href="https://videohost.example/watch/covered-clip-id"
+        permalink="/r/clips/comments/covered/covered_clip/"
+        post-type="link"
+        nsfw=""
+      >
+        <div slot="post-media-container">
+          <shreddit-blurred-container mode="slot" reason="nsfw" blurred="">
+            <div slot="blurred">
+              <img alt="" role="presentation" src="https://external-preview.redd.it/cover.jpeg?blur=40&amp;format=pjpg">
+              <img id="post-image" alt="r/clips - Covered clip" loading="eager" src="https://external-preview.redd.it/cover.jpeg?blur=40&amp;format=pjpg">
+            </div>
+            <div slot="revealed">
+              <shreddit-embed html="&lt;iframe src=&quot;https://videohost.example/ifr/covered-clip-id&quot;&gt;&lt;/iframe&gt;"></shreddit-embed>
+            </div>
+          </shreddit-blurred-container>
+        </div>
+      </shreddit-post>
+    `,
+  );
+
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    /^https:\/\/videohost\.example\/ifr\/covered-clip-id\?/,
+  );
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 1( · loading more)?$/,
+  );
+});
+
+for (const reason of ["nsfw", "spoiler"]) {
+  test(`revealed ${reason === "spoiler" ? "spoiler" : "blurred"} embeds work without a source link or loaded component`, async ({
+    page,
+  }) => {
+    await page.route("https://videohost.example/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "Player" }),
+    );
+    await startPresentation(
+      page,
+      `
+      <shreddit-post id="t3_revealed" post-title="Revealed clip" post-type="link" permalink="/r/clips/comments/revealed/clip/">
+        <shreddit-blurred-container reason="${reason}" blurred embed-obscured>
+          <div slot="blurred"><img src="https://external-preview.redd.it/cover.jpeg?blur=40&amp;format=pjpg"></div>
+          <div slot="revealed"><shreddit-async-loader><shreddit-embed html="&lt;script&gt;window.suppliedEmbedRan = true&lt;/script&gt;&lt;iframe src=&quot;https://videohost.example/ifr/revealed&quot;&gt;&lt;/iframe&gt;"></shreddit-embed></shreddit-async-loader></div>
+        </shreddit-blurred-container>
+      </shreddit-post>`,
+    );
+    await expect(page.locator(".redditp__embed")).toHaveAttribute(
+      "src",
+      /^https:\/\/videohost\.example\/ifr\/revealed\?/,
+    );
+    await expect(page.locator(".redditp__image")).toHaveCount(0);
+    await expect(page.locator(".redditp__count")).toHaveText(
+      /^1 \/ 1( · loading more)?$/,
+    );
+    await expect(
+      page.getByRole("link", { name: "media", exact: true }),
+    ).toHaveAttribute("href", "https://videohost.example/ifr/revealed");
+    expect(await page.evaluate(() => window.suppliedEmbedRan)).toBeUndefined();
+  });
+}
+
+test("linked players replace ordinary previews instead of adding a thumbnail slide", async ({
+  page,
+}) => {
+  await startPresentation(
+    page,
+    `<shreddit-post id="t3_linked" post-title="Linked clip" content-href="https://videohost.example/watch/linked" permalink="/r/clips/comments/linked/clip/">
+    <img src="https://external-preview.redd.it/preview.jpg">
+    <iframe src="https://videohost.example/ifr/linked"></iframe>
+  </shreddit-post>`,
+  );
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    /^https:\/\/videohost\.example\/ifr\/linked\?/,
+  );
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 1( · loading more)?$/,
+  );
+});
+
+test("blurred image URLs fall back to links while revealed gallery images keep their order", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"/>',
+    }),
+  );
+  await startPresentation(
+    page,
+    `
+    <shreddit-post id="t3_cover" post-title="Unavailable media" content-href="https://example.com/original" permalink="/r/pics/comments/cover/post/">
+      <img src="https://external-preview.redd.it/cover.jpg?blur=40">
+    </shreddit-post>
+    <shreddit-post id="t3_gallery_revealed" post-title="Revealed gallery" gallery permalink="/r/pics/comments/gallery_revealed/post/">
+      <shreddit-blurred-container reason="spoiler" blurred><div slot="blurred"><img src="https://external-preview.redd.it/cover.jpg?blur=40"></div>
+        <div slot="revealed"><gallery-carousel><figure><img src="https://i.redd.it/first.jpg"></figure><figure><img src="https://i.redd.it/second.jpg"></figure></gallery-carousel></div>
+      </shreddit-blurred-container>
+    </shreddit-post>`,
+  );
+  await expect(page.locator(".redditp__link-card")).toBeVisible();
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__image")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/first.jpg",
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__image")).toHaveAttribute(
+    "src",
+    "https://i.redd.it/second.jpg",
+  );
+});
+
+test("a blurred source URL falls back to comments instead of linking the cover", async ({
+  page,
+}) => {
+  await page.route("https://www.reddit.com/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "No exposed media" }),
+  );
+  await startPresentation(
+    page,
+    `<shreddit-post id="t3_blurred_source" post-title="Unavailable source" content-href="https://preview.redd.it/cover.jpg?blur=40" permalink="https://www.reddit.com/r/pics/comments/blurred_source/post/"><img src="https://preview.redd.it/cover.jpg?blur=40"></shreddit-post>`,
+  );
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await expect(page.locator(".redditp__link-card")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "media", exact: true }),
+  ).toHaveAttribute(
+    "href",
+    "https://www.reddit.com/r/pics/comments/blurred_source/post/",
+  );
+});
+
+test("fetched post details recover a revealed embed without adding its blurred cover", async ({
+  page,
+}) => {
+  await page.route(
+    "https://www.reddit.com/r/clips/comments/detail/post/",
+    (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<shreddit-post id="t3_detail" permalink="/r/clips/comments/detail/post/"><shreddit-blurred-container reason="spoiler" blurred><div slot="blurred"><img src="https://preview.redd.it/cover.jpg?blur=40"></div><div slot="revealed"><shreddit-embed html="&lt;iframe src=&quot;https://videohost.example/ifr/detail&quot;&gt;&lt;/iframe&gt;"></shreddit-embed></div></shreddit-blurred-container></shreddit-post>`,
+      }),
+  );
+  await startPresentation(
+    page,
+    `<div data-testid="search-post-unit" id="t3_detail"><a href="https://www.reddit.com/r/clips/comments/detail/post/">Detail clip</a></div>`,
+  );
+  await expect(page.locator(".redditp__embed")).toHaveAttribute(
+    "src",
+    /^https:\/\/videohost\.example\/ifr\/detail\?/,
+  );
+  await expect(page.locator(".redditp__image")).toHaveCount(0);
+  await expect(page.locator(".redditp__count")).toHaveText(/^1 \/ 1/);
+});
+
 test("a player frame that answers no command says so on the sound button", async ({
   page,
 }) => {
@@ -714,7 +1078,13 @@ test("the sound button commands a player that publishes a message protocol", asy
 
 test("YouTube embeds preserve the requested start time and send a referrer", async ({
   page,
+  context,
 }) => {
+  // The popup's first request belongs to the context. Verify its destination
+  // without depending on YouTube being reachable from the test machine.
+  await context.route("https://www.youtube.com/watch?**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "YouTube destination" }),
+  );
   await startPresentation(
     page,
     `
@@ -892,6 +1262,204 @@ test("the final slide automatically loads newly rendered Reddit posts", async ({
   await page.keyboard.press("ArrowRight");
   await expect(page.locator(".redditp__title")).toHaveText("Newly loaded post");
   await expect(page.locator(".redditp__count")).toHaveText("2 / 3");
+});
+
+test("the final slide loads old Reddit's next listing pages", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill(svgImage(80, 60)),
+  );
+  const listing = "https://www.reddit.com/r/aww+pics/";
+  const pages = [
+    { url: listing, after: "t3_one", title: "First page post" },
+    {
+      url: `${listing}?count=25&after=t3_one`,
+      after: "t3_two",
+      title: "Second page post",
+    },
+    {
+      url: `${listing}?count=50&after=t3_two`,
+      after: "",
+      title: "Third page post",
+    },
+  ];
+  pages.forEach(({ url, after, title }, index) =>
+    page.route(url, (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `
+          <div class="thing link" data-fullname="t3_${index}" data-url="https://i.redd.it/${index}.jpg" data-permalink="/r/aww/comments/${index}/post/">
+            <a class="title">${title}</a>
+          </div>
+          <div class="nav-buttons"><span class="nextprev">view more:
+            ${after ? `<span class="next-button"><a href="${listing}?count=${(index + 1) * 25}&amp;after=${after}" rel="nofollow next">next ›</a></span>` : ""}
+          </span></div>
+        `,
+      }),
+    ),
+  );
+  await page.goto(listing);
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+
+  await expect(page.locator(".redditp__title")).toHaveText("First page post");
+  // The slideshow loads ahead of itself, so both next pages arrive at once.
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 3");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Second page post");
+  await expect(page.locator(".redditp__count")).toHaveText("2 / 3");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Third page post");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("First page post");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 3");
+});
+
+function oldListingPost(id, title) {
+  return `<div class="thing link" data-fullname="t3_${id}" data-url="https://i.redd.it/${id}.jpg" data-permalink="/r/aww/comments/${id}/post/"><a class="title">${title}</a></div>`;
+}
+
+async function openOldListing(page, url) {
+  await page.goto(url);
+  await page.addStyleTag({ path: extensionStyles });
+  await page.addScriptTag({ path: extensionScript });
+}
+
+// Old Reddit search results put the next link straight in .nav-buttons,
+// without the .next-button wrapper that listings use.
+test("the final slide loads old Reddit's next search results page", async ({
+  page,
+}) => {
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill(svgImage(80, 60)),
+  );
+  const search = "https://www.reddit.com/r/aww/search?q=cat&restrict_sr=on";
+  const result = (id, title) =>
+    `<div class="search-result search-result-link" data-fullname="t3_${id}"><a class="search-title" href="https://www.reddit.com/r/aww/comments/${id}/post/">${title}</a><a class="search-comments" href="https://www.reddit.com/r/aww/comments/${id}/post/">3 comments</a><a class="search-link" href="https://i.redd.it/${id}.jpg">https://i.redd.it/${id}.jpg</a></div>`;
+  await page.route(search, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `
+        <div class="search-result-listing">
+          <footer><div class="nav-buttons"><span class="nextprev">view more:
+            <a href="${search}&amp;type=sr&amp;count=3&amp;after=t5_one" rel="nofollow next">next ›</a>
+          </span></div></footer>
+        </div>
+        <div class="search-result-listing">
+          ${result("one", "First results post")}
+          <footer><div class="nav-buttons"><span class="nextprev">view more:
+            <a href="${search}&amp;count=25&amp;after=t3_one" rel="nofollow next">next ›</a>
+          </span></div></footer>
+        </div>
+      `,
+    }),
+  );
+  await page.route(`${search}&count=25&after=t3_one`, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<div class="search-result-listing">${result("two", "Second results post")}</div>`,
+    }),
+  );
+  await openOldListing(page, search);
+
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "First results post",
+  );
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText(
+    "Second results post",
+  );
+});
+
+test("a next listing page that fails to load wraps and is retried", async ({
+  page,
+}) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill(svgImage(80, 60)),
+  );
+  const listing = "https://www.reddit.com/r/aww+pics/";
+  let rateLimited = true;
+  await page.route(listing, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `
+        ${oldListingPost("a", "Post A")}
+        ${oldListingPost("b", "Post B")}
+        <div class="nav-buttons"><span class="nextprev">view more:
+          <span class="next-button"><a href="${listing}?count=25&amp;after=t3_b" rel="nofollow next">next ›</a></span>
+        </span></div>
+      `,
+    }),
+  );
+  await page.route(`${listing}?count=25&after=t3_b`, (route) =>
+    rateLimited
+      ? route.fulfill({ status: 429, body: "slow down" })
+      : route.fulfill({
+          contentType: "text/html",
+          body: oldListingPost("c", "Post C"),
+        }),
+  );
+  await openOldListing(page, listing);
+
+  await expect(page.locator(".redditp__title")).toHaveText("Post A");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Post B");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Post A");
+  await expect(page.locator(".redditp__count")).toHaveText("1 / 2");
+  expect(pageErrors).toEqual([]);
+
+  rateLimited = false;
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Post B");
+  await expect(page.locator(".redditp__count")).toHaveText("2 / 3");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__title")).toHaveText("Post C");
+});
+
+test("a next link that leaves the Reddit origin is not followed", async ({
+  page,
+}) => {
+  const offSiteRequests = [];
+  await page.route("https://i.redd.it/**", (route) =>
+    route.fulfill(svgImage(80, 60)),
+  );
+  await page.route("https://elsewhere.example/**", (route) => {
+    offSiteRequests.push(route.request().url());
+    return route.fulfill({
+      contentType: "text/html",
+      headers: {
+        "access-control-allow-origin": "https://www.reddit.com",
+        "access-control-allow-credentials": "true",
+      },
+      body: oldListingPost("x", "Off-site post"),
+    });
+  });
+  const listing = "https://www.reddit.com/r/aww+pics/";
+  await page.route(listing, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `
+        ${oldListingPost("a", "Only post")}
+        <div class="nav-buttons"><span class="nextprev">view more:
+          <span class="next-button"><a href="https://elsewhere.example/page" rel="nofollow next">next ›</a></span>
+        </span></div>
+      `,
+    }),
+  );
+  await openOldListing(page, listing);
+
+  await expect(page.locator(".redditp__title")).toHaveText("Only post");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".redditp__count")).toHaveText(
+    /^1 \/ 1( · loading more)?$/,
+  );
+  await expect(page.locator(".redditp__title")).toHaveText("Only post");
+  expect(offSiteRequests).toEqual([]);
 });
 
 // Minimal old-Reddit gallery structure from the reported food+scenery DOM.
@@ -1619,6 +2187,8 @@ test("settings persist timing and visibility while compact controls stay reachab
   await page.getByLabel("Seconds per slide").press("Enter");
   await page.getByLabel("Show the title panel").uncheck();
   await page.getByLabel("Show previous and next arrows").uncheck();
+  await page.getByLabel("Let videos play at least once").uncheck();
+  await page.getByLabel("Loop short videos until the timer ends").uncheck();
   await page
     .getByLabel("Show the close button (press Esc instead when hidden)")
     .uncheck();
@@ -1673,6 +2243,8 @@ test("settings persist timing and visibility while compact controls stay reachab
   expect(saved.slideDurationSeconds).toBe(1);
   expect(saved.showControls).toBe(false);
   expect(saved.showClose).toBe(false);
+  expect(saved.finishMediaOnce).toBe(false);
+  expect(saved.loopShortMedia).toBe(false);
 
   await expect(page.locator(".redditp__controls")).toHaveClass(
     /redditp__controls--collapsed/,
@@ -1683,6 +2255,12 @@ test("settings persist timing and visibility while compact controls stay reachab
     .click();
   await expect(page.getByLabel("Seconds per slide")).toHaveValue("1");
   await expect(page.getByLabel("Show the title panel")).not.toBeChecked();
+  await expect(
+    page.getByLabel("Let videos play at least once"),
+  ).not.toBeChecked();
+  await expect(
+    page.getByLabel("Loop short videos until the timer ends"),
+  ).not.toBeChecked();
 
   await page
     .getByRole("button", { name: "Close presentation settings" })
@@ -1944,6 +2522,220 @@ test("P toggles the bottom controls and C opens comments", async ({ page }) => {
   );
   await expect(page.locator("#redditp-presentation")).toBeVisible();
 });
+
+for (const scenario of [
+  { name: "finishes a long first pass", duration: 20, waits: true },
+  {
+    name: "allows clicking next while waiting",
+    duration: 20,
+    waits: true,
+    skip: "mouse",
+  },
+  {
+    name: "allows swiping next while waiting",
+    duration: 20,
+    waits: true,
+    skip: "touch",
+  },
+  { name: "loops a short clip until the timer", duration: 2, short: true },
+  {
+    name: "advances after a short clip when looping is off",
+    duration: 2,
+    short: true,
+    loop: false,
+  },
+  {
+    name: "keeps the slide timer when playback settings change",
+    duration: 2,
+    short: true,
+    toggleMidway: true,
+  },
+  { name: "uses the timer when finishing is off", duration: 20, finish: false },
+  { name: "uses the timer for unknown duration", duration: NaN },
+  { name: "uses the timer for paused media", duration: 20, paused: true },
+  { name: "uses the timer for failed media", duration: 20, error: true },
+  {
+    name: "advances a video paused after the timer",
+    duration: 20,
+    waits: true,
+    stop: "pause",
+  },
+  {
+    name: "advances a video stalled after the timer",
+    duration: 20,
+    waits: true,
+    stop: "stall",
+  },
+  {
+    name: "advances a video that fails after the timer",
+    duration: 20,
+    waits: true,
+    stop: "error",
+  },
+  {
+    name: "keeps waiting when a paused video resumes",
+    duration: 20,
+    waits: true,
+    stop: "resume",
+  },
+  {
+    name: "advances when finishing is turned off while waiting",
+    duration: 20,
+    waits: true,
+    stop: "finish-off",
+  },
+  {
+    name: "counts a pass watched before auto starts",
+    duration: 20,
+    watchedInManual: true,
+  },
+]) {
+  test(`video auto-advance ${scenario.name}`, async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-10-16T12:00:00Z") });
+    await page.clock.pauseAt(new Date("2026-10-16T12:00:01Z"));
+    await startPresentation(
+      page,
+      `<div class="thing link" data-url="https://v.redd.it/adaptive" data-permalink="/r/videos/comments/one/clip/">
+        <a class="title">Clip</a><div id="native-player"><video id="timed-video" muted></video></div>
+      </div><div class="thing link" data-url="https://example.com/story"><a class="title">Next story</a></div>`,
+      async () => {
+        await page.evaluate(({ duration, paused, error }) => {
+          const video = document.querySelector("video");
+          video.src = URL.createObjectURL(
+            new Blob(["test"], { type: "video/mp4" }),
+          );
+          // Scenarios change these mid-slide through setMedia.
+          const media = (window.redditpTestMedia = {
+            paused: Boolean(paused),
+            readyState: 4,
+            error: error ? { code: 2 } : null,
+          });
+          Object.defineProperties(video, {
+            duration: { get: () => duration },
+            paused: { get: () => media.paused },
+            readyState: { get: () => media.readyState },
+            error: { get: () => media.error },
+            currentTime: { writable: true, value: 1 },
+          });
+          video.play = () => Promise.resolve();
+          video.pause = () => {};
+        }, scenario);
+      },
+    );
+    const setMedia = (changes, eventType) =>
+      page.evaluate(
+        ({ changes, eventType }) => {
+          Object.assign(window.redditpTestMedia, changes);
+          document
+            .querySelector(".redditp__video")
+            .dispatchEvent(new Event(eventType));
+        },
+        { changes, eventType },
+      );
+    const title = page.locator(".redditp__title");
+    const video = page.locator(".redditp__video");
+    const openSettings = page.getByRole("button", {
+      name: "Open presentation settings",
+    });
+    const closeSettings = page.getByRole("button", {
+      name: "Close presentation settings",
+    });
+    const finishBox = page.getByLabel("Let videos play at least once");
+    const loopBox = page.getByLabel("Loop short videos until the timer ends");
+    await expect(video).toBeVisible();
+    await openSettings.click();
+    await expect(finishBox).toBeChecked();
+    await expect(loopBox).toBeChecked();
+    if (scenario.finish === false) await finishBox.uncheck();
+    if (scenario.loop === false) await loopBox.uncheck();
+    await closeSettings.click();
+    if (scenario.watchedInManual) {
+      // Manual mode loops the video, so only its wrap to the start shows
+      // that the first pass is done.
+      await expect(video).toHaveJSProperty("loop", true);
+      await page.evaluate(() => {
+        const media = document.querySelector(".redditp__video");
+        media.currentTime = 19.8;
+        media.dispatchEvent(new Event("timeupdate"));
+        media.currentTime = 0.2;
+        media.dispatchEvent(new Event("timeupdate"));
+      });
+    }
+    await page.keyboard.press("a");
+    if (scenario.short) {
+      await page.clock.runFor(2000);
+      await video.dispatchEvent("ended");
+      if (scenario.loop === false) {
+        await expect(title).toHaveText("Next story");
+        return;
+      }
+      await expect(title).toHaveText("Clip");
+      await expect(video).toHaveJSProperty("loop", true);
+      if (scenario.toggleMidway) {
+        await openSettings.click();
+        await loopBox.uncheck();
+        await expect(video).toHaveJSProperty("loop", false);
+        await loopBox.check();
+        await closeSettings.click();
+        await expect(video).toHaveJSProperty("loop", true);
+      }
+      await page.clock.runFor(4100);
+    } else {
+      await page.clock.runFor(6100);
+    }
+    if (scenario.waits) {
+      await expect(title).toHaveText("Clip");
+      if (scenario.stop) {
+        if (scenario.stop === "pause") {
+          await setMedia({ paused: true }, "pause");
+        } else if (scenario.stop === "stall") {
+          await setMedia({ readyState: 2 }, "waiting");
+        } else if (scenario.stop === "error") {
+          await setMedia({ error: { code: 2 } }, "error");
+        } else if (scenario.stop === "resume") {
+          await setMedia({ paused: true }, "pause");
+          await setMedia({ paused: false }, "play");
+        } else {
+          await openSettings.click();
+          await finishBox.uncheck();
+          await closeSettings.click();
+        }
+        // A stop gets one more slide timer, not an immediate jump.
+        await expect(title).toHaveText("Clip");
+        await page.clock.runFor(6100);
+        if (scenario.stop === "resume") {
+          await expect(title).toHaveText("Clip");
+          await video.dispatchEvent("ended");
+        }
+      } else if (scenario.skip === "mouse") {
+        await page.locator(".redditp__next").click();
+      } else if (scenario.skip === "touch") {
+        const root = page.locator("#redditp-presentation");
+        await root.dispatchEvent("pointerdown", {
+          pointerId: 1,
+          pointerType: "touch",
+          clientX: 300,
+          clientY: 200,
+        });
+        await root.dispatchEvent("pointerup", {
+          pointerId: 1,
+          pointerType: "touch",
+          clientX: 100,
+          clientY: 200,
+        });
+      } else {
+        await video.dispatchEvent("ended");
+      }
+    }
+    await expect(title).toHaveText("Next story");
+    await expect(
+      page.locator("#native-player > #timed-video"),
+    ).toHaveJSProperty("loop", false);
+    // A restored video's events must not advance the new slide.
+    await page.locator("#timed-video").dispatchEvent("ended");
+    await expect(title).toHaveText("Next story");
+  });
+}
 
 test("a video that fails to load is dropped, counted, and auto-advance goes on", async ({
   page,

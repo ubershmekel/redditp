@@ -1,0 +1,63 @@
+# Ships the Safari app to the App Store for iPhone/iPad and Mac, so releasing
+# never needs a Mac at hand. `npm run ext:release` tags each version
+# extension-vX.Y.Z; pushing that tag runs the release lanes here. Run it by hand
+# from the Actions tab to push only listing changes (metadata) or to upload a
+# build without submitting it.
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   APP_STORE_KEY_ID APP_STORE_ISSUER_ID  App Store Connect API key
+#   APP_STORE_KEY                         contents of its .p8 file
+#   APPLE_TEAM_ID                         signing team
+
+name: App Store
+
+on:
+  push:
+    tags: ["extension-v*"]
+  workflow_dispatch:
+    inputs:
+      lane:
+        description:
+          "metadata: listing only; upload: build without submitting; release:
+          build and submit"
+        type: choice
+        options: [metadata, upload, release]
+        default: metadata
+
+jobs:
+  safari:
+    # Each platform is its own job, so a failed one is re-run alone from the
+    # run's page without resubmitting the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios, mac]
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Write the API key
+        run: |
+          echo "$APP_STORE_KEY" > "$RUNNER_TEMP/app-store-key.p8"
+          echo "APP_STORE_KEY_PATH=$RUNNER_TEMP/app-store-key.p8" >> "$GITHUB_ENV"
+        env:
+          APP_STORE_KEY: ${{ secrets.APP_STORE_KEY }}
+      - run:
+          bundle exec fastlane ${{ matrix.platform }} ${{ inputs.lane ||
+          'release' }}
+        env:
+          APP_STORE_KEY_ID: ${{ secrets.APP_STORE_KEY_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.APP_STORE_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safari-${{ matrix.platform }}
+          path: |
+            build/safari-release
+            ~/Library/Logs/gym
+          if-no-files-found: ignore

@@ -53,3 +53,11 @@ node_modules
 
 # Store credentials for `npm run release`
 .env
+
+# fastlane run output
+/fastlane/report.xml
+/fastlane/Preview.html
+/fastlane/test_output
+
+# App Store Connect API keys
+*.p8

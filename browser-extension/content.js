@@ -48,6 +48,8 @@
     "https://github.com/ubershmekel/redditp/blob/main/browser-extension/README.md";
   const DEFAULT_SETTINGS = {
     slideDurationSeconds: 6,
+    finishMediaOnce: true,
+    loopShortMedia: true,
     showDetails: true,
     showArrows: true,
     showClose: true,
@@ -599,6 +601,8 @@
     const urls = [];
     slides.slice(index + 1, index + 1 + PRELOAD_AHEAD).forEach((slide) => {
       if (urls.length >= WARM_VIDEOS_AHEAD || slide?.kind !== "video") return;
+      // A video that plays through Reddit's own player has no file to read.
+      if (slide.mpdUrl) return;
       let parsed;
       try {
         parsed = new URL(slide.url);
@@ -860,9 +864,12 @@
     index: 0,
     autoTimer: null,
     autoPlaying: false,
+    mediaPlayback: null,
     loadingMore: false,
     advanceAfterLoad: false,
     loadRequest: 0,
+    nextPageUrl: "",
+    pagedFeed: false,
     openRequest: 0,
     enrichments: new Map(),
     nativeRestores: new WeakMap(),
@@ -1188,7 +1195,14 @@
   }
 
   function usefulImage(image) {
-    if (!image || image.closest("[aria-hidden='true']")) return false;
+    // Blurred or spoiler images are covers, not additional media slides.
+    if (
+      !image ||
+      image.closest(
+        "[aria-hidden='true'], shreddit-blurred-container [slot='blurred']",
+      )
+    )
+      return false;
     const description =
       `${image.getAttribute("alt") || ""} ${image.className || ""}`.toLowerCase();
     if (/avatar|award|emoji|icon|snoo/.test(description)) return false;
@@ -1287,6 +1301,18 @@
     return loop ? { thumbVideo: loop } : null;
   }
 
+  function isBlurredImageUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return (
+        /(^|\.)redd\.it$/i.test(parsed.hostname) &&
+        Number(parsed.searchParams.get("blur")) > 0
+      );
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function firstHref(node, selectors) {
     for (const selector of selectors) {
       const link = node.querySelector(selector);
@@ -1330,13 +1356,27 @@
     );
   }
 
+  // innerText only lays out paragraphs for rendered elements. A post fetched
+  // with DOMParser is never rendered, so mark the block breaks by hand.
+  function readableText(element) {
+    if (element.isConnected && element.ownerDocument === document) {
+      return element.innerText || element.textContent || "";
+    }
+    const copy = element.cloneNode(true);
+    copy.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+    copy.querySelectorAll("li, tr").forEach((block) => block.append("\n"));
+    copy
+      .querySelectorAll("p, h1, h2, h3, h4, h5, h6, blockquote, pre")
+      .forEach((block) => block.append("\n\n"));
+    return copy.textContent || "";
+  }
+
   function postBodyText(node) {
     const body = node.querySelector(
       "[slot='text-body'] .md, .usertext-body .md, [data-click-id='text'] .md, [data-post-click-location='text-body']",
     );
     if (!body) return "";
-    const text = body.innerText || body.textContent || "";
-    return text
+    return readableText(body)
       .replace(/\r\n?/g, "\n")
       .split("\n")
       .map((line) => line.trim())
@@ -1394,6 +1434,20 @@
     } catch (_error) {
       return false;
     }
+  }
+
+  // Safari and Android browsers play HLS in a plain <video>. Most desktop
+  // browsers need a script player for it.
+  let hlsSupport = null;
+  function canPlayHls() {
+    if (hlsSupport === null) {
+      hlsSupport = Boolean(
+        document
+          .createElement("video")
+          .canPlayType("application/vnd.apple.mpegurl"),
+      );
+    }
+    return hlsSupport;
   }
 
   function canonicalMediaKey(url) {
@@ -2309,7 +2363,12 @@
     const attributeNames = ["content-href", "data-url", "url", "data-href-url"];
     for (const name of attributeNames) {
       const result = absoluteUrl(node.getAttribute(name));
-      if (result && result !== fallbackCommentsUrl) return result;
+      if (
+        result &&
+        result !== fallbackCommentsUrl &&
+        !isBlurredImageUrl(result)
+      )
+        return result;
     }
     const result = firstHref(node, [
       "a.search-link",
@@ -2320,7 +2379,7 @@
       "a[href*='i.redd.it']",
       "a[href*='v.redd.it']",
     ]);
-    return result || fallbackCommentsUrl;
+    return result && !isBlurredImageUrl(result) ? result : fallbackCommentsUrl;
   }
 
   function elementsIncludingOpenShadows(root, selector) {
@@ -2431,6 +2490,7 @@
       const normalized = absoluteUrl(url);
       const key = canonicalMediaKey(normalized);
       if (!normalized || seen.has(key)) return;
+      if (kind === "image" && isBlurredImageUrl(normalized)) return;
       seen.add(key);
       const thumb = absoluteUrl(picture?.thumb);
       const gifMp4 = kind === "video" && isRedditGifMp4(normalized);
@@ -2509,7 +2569,8 @@
 
     node.querySelectorAll("shreddit-player").forEach((player) => {
       const preview = player.getAttribute("preview") || "";
-      const isSeekPreview = /\/CMAF_96\.mp4(?:$|[?#])/i.test(preview);
+      // A 96p, silent clip for the seek bar's thumbnails, not the video.
+      const isSeekPreview = /\/(?:CMAF|DASH)_96\.mp4(?:$|[?#])/i.test(preview);
       const packagedUrl = packagedVideoUrl(player);
       // What says where the player's video is on v.redd.it, whose tile then
       // loops a small rendition of it (see redditPlayerLoop).
@@ -2524,11 +2585,14 @@
         });
         return;
       }
-      const playablePreview = isSeekPreview ? "" : preview;
+      const hlsUrl = absoluteUrl(player.getAttribute("src"));
+      // Fall back to the seek preview only where this browser cannot play
+      // the HLS source by itself; a silent clip still beats a failed slide.
       const playerUrl =
         packagedUrl ||
-        absoluteUrl(playablePreview) ||
-        absoluteUrl(player.getAttribute("src")) ||
+        (isSeekPreview
+          ? (canPlayHls() && hlsUrl) || absoluteUrl(preview) || hlsUrl
+          : absoluteUrl(preview) || hlsUrl) ||
         firstHref(player, ["source"]);
       // Reddit marks the player of a GIF, whether uploaded as one or posted
       // as a video; its tile loops the smallest adequate MP4 it names (see
@@ -2581,6 +2645,55 @@
     // Reddit has exposed any playable source in the listing card.
     if (media.some((item) => item.kind === "video")) return media;
 
+    // Old Reddit leaves its v.redd.it player as data attributes for its own
+    // script to build, so a fetched post page has these URLs but no <video>.
+    const oldRedditPlayer = node.querySelector(
+      "[data-mpd-url], [data-hls-url]",
+    );
+    if (oldRedditPlayer) {
+      const mpdUrl = absoluteUrl(oldRedditPlayer.getAttribute("data-mpd-url"));
+      const hlsUrl = absoluteUrl(oldRedditPlayer.getAttribute("data-hls-url"));
+      const seekPreviewUrl = absoluteUrl(
+        oldRedditPlayer.getAttribute("data-seek-preview-url"),
+      );
+      // The MPD (with sound) needs the page's dash.js; see page-bridge.js.
+      // url is what plays without it: native HLS keeps the sound, otherwise
+      // the silent seek preview still beats a link card.
+      const url =
+        (canPlayHls() && hlsUrl) || seekPreviewUrl || hlsUrl || mpdUrl;
+      const before = media.length;
+      add("video", url, "", true);
+      if (media.length > before && mpdUrl && mpdUrl !== url) {
+        media[before].mpdUrl = mpdUrl;
+      }
+      if (media.length) return media;
+    }
+
+    // Prefer actual linked media to a listing thumbnail. Revealed embeds may
+    // still be escaped markup when Reddit has not loaded its player component.
+    if (isVideoUrl(sourceUrl)) add("video", sourceUrl, "", true);
+    const external = externalMedia(sourceUrl);
+    if (external) add(external.kind, external.url, "", true, external.fromGif);
+    function addFrame(iframe) {
+      const url = absoluteUrl(iframe.getAttribute("src"));
+      if (!/^https?:\/\//i.test(url)) return;
+      const iframeMedia = externalMedia(url);
+      if (iframeMedia) {
+        add(iframeMedia.kind, iframeMedia.url, "", true, iframeMedia.fromGif);
+      }
+    }
+    node.querySelectorAll("iframe[src]").forEach(addFrame);
+    node.querySelectorAll("shreddit-embed[html]").forEach((embed) => {
+      // Read URLs only. Never mount Reddit's supplied HTML or run its scripts.
+      const template = document.createElement("template");
+      template.innerHTML = embed.getAttribute("html") || "";
+      template.content.querySelectorAll("iframe[src]").forEach(addFrame);
+    });
+    if (media.length) {
+      lendCardStill(media, node);
+      return media;
+    }
+
     if (IMAGE_URL_RE.test(sourceUrl)) {
       // Prefer the post's original image over a second, lower-resolution
       // preview of the same image found inside the listing card. That
@@ -2594,19 +2707,21 @@
       });
     }
 
-    if (isVideoUrl(sourceUrl)) add("video", sourceUrl);
-    const external = externalMedia(sourceUrl);
-    if (external) {
-      add(external.kind, external.url, "", true, external.fromGif);
-    }
-    node.querySelectorAll("iframe[src]").forEach((iframe) => {
-      const iframeMedia = externalMedia(iframe.getAttribute("src"));
-      if (iframeMedia) {
-        add(iframeMedia.kind, iframeMedia.url, "", false, iframeMedia.fromGif);
-      }
-    });
-    lendCardStill(media);
     return media;
+  }
+
+  // The listing card's own preview picture of its post, as the grid needs it
+  // (see cardPicture), without making it a slide; null when the card has
+  // none.
+  function cardStill(node) {
+    const images = node.querySelectorAll(CARD_IMAGE_SELECTOR);
+    for (const image of images) {
+      if (!usefulImage(image)) continue;
+      const url = imageUrl(image);
+      if (!url || isBlurredImageUrl(url)) continue;
+      return Object.assign({ url }, cardPicture(node, image, url));
+    }
+    return null;
   }
 
   // The grid never loads a player frame, so a frame's tile shows a still of
@@ -2616,8 +2731,11 @@
   // alone, so that the slideshow's player stays as it was. No slide is
   // added or taken away. A tile left without a picture asks Reddit's data
   // for one later (see wantsGridStill).
-  function lendCardStill(media) {
-    const card = media.find((item) => item.kind === "image" && !item.postMedia);
+  function lendCardStill(media, node) {
+    if (!media.some((item) => item.kind === "embed" || item.kind === "video")) {
+      return;
+    }
+    const card = cardStill(node);
     media.forEach((item) => {
       if (item.kind === "embed") {
         item.poster = card ? card.url : embedStill(item.url);
@@ -2632,26 +2750,29 @@
     });
   }
 
-  function selectPostNodes() {
-    const candidates = Array.from(
-      document.querySelectorAll(POST_SELECTOR),
-    ).filter((node) => {
-      // Current Reddit wraps shreddit-post in a generic article. Prefer the
-      // element that carries the actual post identity and metadata. In the
-      // inverse shape (a specific search container wrapping an article), keep
-      // the specific outer container.
-      if (node.matches("article") && node.querySelector(SPECIFIC_POST_SELECTOR))
-        return false;
-      const specificParent = node.parentElement?.closest(
-        SPECIFIC_POST_SELECTOR,
-      );
-      return !specificParent;
-    });
+  function selectPostNodes(root) {
+    const candidates = Array.from(root.querySelectorAll(POST_SELECTOR)).filter(
+      (node) => {
+        // Current Reddit wraps shreddit-post in a generic article. Prefer the
+        // element that carries the actual post identity and metadata. In the
+        // inverse shape (a specific search container wrapping an article), keep
+        // the specific outer container.
+        if (
+          node.matches("article") &&
+          node.querySelector(SPECIFIC_POST_SELECTOR)
+        )
+          return false;
+        const specificParent = node.parentElement?.closest(
+          SPECIFIC_POST_SELECTOR,
+        );
+        return !specificParent;
+      },
+    );
     if (candidates.length) return candidates;
 
     const nodes = [];
     const seen = new Set();
-    document.querySelectorAll("a[href*='/comments/']").forEach((link) => {
+    root.querySelectorAll("a[href*='/comments/']").forEach((link) => {
       const node = link.closest("div, li");
       if (node && !seen.has(node)) {
         seen.add(node);
@@ -2661,11 +2782,11 @@
     return nodes;
   }
 
-  function extractSlides() {
+  function extractSlides(root) {
     const slides = [];
     const seenPostMedia = new Set();
     const seenPosts = new Set();
-    selectPostNodes().forEach((node) => {
+    selectPostNodes(root).forEach((node) => {
       if (seenPostNodes.has(node)) return;
       if (node.closest("#redditp-presentation")) return;
       const comments = commentsUrl(node);
@@ -2905,6 +3026,29 @@
     );
   }
 
+  async function fetchRedditDocument(url) {
+    const response = await fetch(url, {
+      credentials: "include",
+      headers: { Accept: "text/html" },
+    });
+    if (!response.ok) throw new Error(`Reddit returned ${response.status}`);
+    return new DOMParser().parseFromString(await response.text(), "text/html");
+  }
+
+  // Old Reddit listings and search results page with a "next ›" link instead
+  // of infinite scroll. Listings wrap the link in .next-button and search
+  // results do not, so match on rel. A search page can list communities above
+  // the posts, so the posts' link is the last one.
+  function nextPageUrl(root) {
+    const links = root.querySelectorAll(".nav-buttons a[rel~='next'][href]");
+    const link = links[links.length - 1];
+    if (!link) return "";
+    // The page is fetched with the user's session, so never follow it off the
+    // Reddit origin being presented.
+    const url = absoluteUrl(link.getAttribute("href"));
+    return url && new URL(url).origin === location.origin ? url : "";
+  }
+
   // Resolves to true when the slide was upgraded, false when the fetch failed,
   // and undefined when there was nothing to do or another request owns it.
   async function enrichSlide(slide) {
@@ -2916,13 +3060,7 @@
     state.enrichments.set(key, "pending");
 
     try {
-      const response = await fetch(slide.commentsUrl, {
-        credentials: "include",
-        headers: { Accept: "text/html" },
-      });
-      if (!response.ok) throw new Error(`Reddit returned ${response.status}`);
-      const html = await response.text();
-      const doc = new DOMParser().parseFromString(html, "text/html");
+      const doc = await fetchRedditDocument(slide.commentsUrl);
       const safePostKey = /^[\w-]+$/.test(slide.postKey || "")
         ? slide.postKey
         : "";
@@ -2935,17 +3073,34 @@
 
       const detailSource = contentUrl(detailNode, slide.commentsUrl);
       const detailMedia = mediaFromNode(detailNode, detailSource);
+      const detailBody = postBodyText(detailNode);
       if (!detailMedia.length) {
         // A thumbnail stays as it is. A result that showed no media is now
         // known to be a link or text post, which the Show filter can judge.
-        if (slide.kind !== "link") {
+        // Search cards carry only a title, so a text post's body is worth
+        // the fetch even when the post has no media.
+        if (slide.kind !== "link" && !detailBody) {
           throw new Error("Post had no supported media");
         }
-        detailMedia.push({
-          kind: "link",
-          url: detailSource || slide.commentsUrl,
-          poster: "",
-        });
+        detailMedia.push(
+          slide.kind === "link"
+            ? {
+                kind: "link",
+                url: detailSource || slide.commentsUrl,
+                poster: "",
+              }
+            : {
+                kind: slide.kind,
+                url: slide.url,
+                poster: slide.poster,
+                thumb: slide.thumb,
+                thumbVideo: slide.thumbVideo,
+                width: slide.width,
+                height: slide.height,
+                postMedia: slide.postMedia,
+                fromGif: slide.fromGif,
+              },
+        );
       }
       const isGallery = isGalleryPost(detailNode);
       // The thumbnail's own smaller copy and size say nothing about the
@@ -2957,6 +3112,7 @@
           { thumb: "", thumbVideo: "", width: 0, height: 0 },
           item,
           {
+            body: detailBody || slide.body,
             sourceUrl: detailSource || slide.sourceUrl,
             galleryItem: isGallery ? index + 1 : 0,
             galleryTotal: isGallery ? detailMedia.length : 0,
@@ -3010,6 +3166,19 @@
       // Keep the visible thumbnail/link card and allow another attempt if the
       // user revisits this slide. Reddit may return a challenge or gated page.
       state.enrichments.delete(key);
+      // Swap the card in place: a render() would start another fetch at once.
+      const current = state.slides[state.index];
+      const loadingCard = mediaBox.querySelector(
+        ".redditp__link-card--loading",
+      );
+      if (
+        state.open &&
+        loadingCard &&
+        current &&
+        (current.postKey || current.commentsUrl) === key
+      ) {
+        loadingCard.replaceWith(linkCard(current, false, false));
+      }
       return false;
     }
   }
@@ -3438,6 +3607,13 @@
     durationLabel,
     filterGroup,
     hiddenGroup,
+    checkboxSetting("finishMediaOnce", "Let videos play at least once"),
+    checkboxSetting("loopShortMedia", "Loop short videos until the timer ends"),
+    element(
+      "p",
+      "redditp__setting-hint",
+      "Includes GIFs played as videos. Animated images and embedded players use the slide timer.",
+    ),
     checkboxSetting("showDetails", "Show the title panel"),
     checkboxSetting("showArrows", "Show previous and next arrows"),
     checkboxSetting(
@@ -3484,11 +3660,12 @@
   );
 
   function stopMedia() {
+    untrackMedia();
     mediaBox.querySelectorAll("video").forEach((video) => {
+      releaseRedditDash(video);
       video.pause();
       const restore = state.nativeRestores.get(video);
       if (!restore) return;
-      video.removeEventListener("ended", restore.endedHandler);
       if (restore.className === null) video.removeAttribute("class");
       else video.setAttribute("class", restore.className);
       if (restore.style === null) video.removeAttribute("style");
@@ -3506,20 +3683,30 @@
     mediaBox.replaceChildren();
   }
 
-  function linkCard(slide, failed) {
+  // loading: the post page is being fetched for this card's real media or
+  // text, so say so instead of looking like a dead end.
+  function linkCard(slide, failed, loading) {
     const card = element("a", "redditp__link-card", "");
     card.href = slide.sourceUrl || slide.commentsUrl;
     card.target = "_blank";
     card.rel = "noopener noreferrer";
+    if (loading) {
+      card.classList.add("redditp__link-card--loading");
+      card.setAttribute("aria-busy", "true");
+    }
     card.append(
       element(
         "span",
         "redditp__link-icon",
         failed
           ? "Image unavailable"
-          : slide.body
-            ? "Text post"
-            : "Open linked post",
+          : loading
+            ? /^https:\/\/v\.redd\.it\//i.test(slide.sourceUrl || "")
+              ? "Loading video…"
+              : "Loading post…"
+            : slide.body
+              ? "Text post"
+              : "Open linked post",
       ),
       element("strong", "", slide.title),
     );
@@ -5127,6 +5314,43 @@
     removeSlide(slide);
   }
 
+  // v.redd.it serves video and audio as separate DASH tracks. Old Reddit
+  // already loads dash.js to join them, and page-bridge.js (running in the
+  // page's world) attaches it to our element. DOM events reach the bridge
+  // synchronously, so its answer is on the element when dispatchEvent returns.
+  function attachRedditDash(video, slide) {
+    video.setAttribute("data-redditp-mpd", slide.mpdUrl);
+    video.dispatchEvent(new Event("redditp:dash-attach", { bubbles: true }));
+    if (video.getAttribute("data-redditp-dash") !== "attached") return false;
+    video.addEventListener(
+      "redditp:dash-failed",
+      () => playVideoFallback(video, slide),
+      { once: true },
+    );
+    video.addEventListener("loadedmetadata", () => playVideo(video), {
+      once: true,
+    });
+    return true;
+  }
+
+  function releaseRedditDash(video) {
+    if (video.getAttribute("data-redditp-dash") !== "attached") return;
+    video.dispatchEvent(new Event("redditp:dash-reset", { bubbles: true }));
+    video.removeAttribute("data-redditp-dash");
+  }
+
+  function playVideoFallback(video, slide) {
+    if (video.parentNode !== mediaBox) return;
+    if (video.redditpPlayingFallback) {
+      showMediaFailure(video, slide);
+      return;
+    }
+    video.redditpPlayingFallback = true;
+    releaseRedditDash(video);
+    video.src = slide.url;
+    playVideo(video);
+  }
+
   // Media that failed while it showed. A slide's own picture or video takes
   // the slide with it; anything else leaves a link card.
   function showMediaFailure(mediaElement, slide) {
@@ -5654,22 +5878,24 @@
       const warm = takeWarmVideo(slide.url);
       const video = warm || element("video", "redditp__video", "");
       if (warm) video.className = "redditp__video";
-      else video.src = slide.url;
       video.poster = slide.poster || "";
       video.controls = true;
       video.playsInline = true;
       video.autoplay = true;
       video.muted = !state.settings.sound;
-      video.loop = !state.autoPlaying;
       if (!warm) video.preload = "metadata";
-      video.addEventListener("ended", () => {
-        if (state.autoPlaying) move(1);
-      });
-      video.addEventListener("error", () => showMediaFailure(video, slide), {
-        once: true,
+      trackMedia(video);
+      video.addEventListener("error", () => {
+        // Changing src resets video.error, so an error queued by the attempt
+        // being replaced must not fail the fallback.
+        if (video.error) playVideoFallback(video, slide);
       });
       mediaBox.append(video);
-      playVideo(video);
+      if (!slide.mpdUrl || !attachRedditDash(video, slide)) {
+        video.redditpPlayingFallback = true;
+        if (!warm) video.src = slide.url;
+        playVideo(video);
+      }
     } else if (slide.kind === "pending-native-video") {
       if (slide.poster) {
         const poster = element("img", "redditp__image", "");
@@ -5686,15 +5912,6 @@
     ) {
       const video = slide.nativeElement;
       const placeholder = document.createComment("redditp native video");
-      const endedHandler = () => {
-        if (
-          state.open &&
-          state.autoPlaying &&
-          state.slides[state.index]?.nativeElement === video
-        ) {
-          move(1);
-        }
-      };
       video.parentNode.insertBefore(placeholder, video);
       state.nativeRestores.set(video, {
         placeholder,
@@ -5704,7 +5921,6 @@
         muted: video.muted,
         loop: video.loop,
         autoplay: video.autoplay,
-        endedHandler,
       });
       video.className = "redditp__video";
       video.removeAttribute("style");
@@ -5712,8 +5928,7 @@
       video.playsInline = true;
       video.autoplay = true;
       video.muted = !state.settings.sound;
-      video.loop = !state.autoPlaying;
-      video.addEventListener("ended", endedHandler);
+      trackMedia(video);
       mediaBox.append(video);
       playVideo(video);
     } else if (slide.kind === "embed") {
@@ -5730,7 +5945,13 @@
       state.embedKeepsOwnSound = !commandableEmbed();
       syncPresentationUi();
     } else {
-      mediaBox.append(linkCard(slide, false));
+      mediaBox.append(
+        linkCard(
+          slide,
+          false,
+          Boolean(slide.needsEnrichment && slide.commentsUrl),
+        ),
+      );
     }
     scheduleAuto();
     void enrichSlide(slide);
@@ -5847,9 +6068,9 @@
 
   // Adds the posts Reddit has rendered since the last look. Another source
   // hands its posts to loadMorePosts itself.
-  function appendNewPosts() {
+  function appendNewPosts(root) {
     return activeSource === liveSource
-      ? appendSlides(skipDeadSlides(extractSlides()))
+      ? appendSlides(skipDeadSlides(extractSlides(root || document)))
       : { found: 0, shown: 0 };
   }
 
@@ -5991,7 +6212,49 @@
     let verdict = added ? "matched" : "wait";
     noteLoadProgress(scan);
     try {
-      if (!added && activeSource === liveSource) {
+      if (!added && activeSource === liveSource && state.pagedFeed) {
+        // Old Reddit listings and search results page with a "next" link
+        // instead of infinite scroll, so the next page's posts are read
+        // instead, and the feed has ended once a page has no next link. A
+        // page that fails to load ends the load as at the end of the
+        // listing, and is tried again the next time around.
+        let rounds = 0;
+        while (verdict === "wait") {
+          if (!state.nextPageUrl) {
+            verdict = "idle";
+            break;
+          }
+          let doc = null;
+          try {
+            doc = await fetchRedditDocument(state.nextPageUrl);
+          } catch (_error) {
+            // Reddit may rate-limit or return a challenge page.
+          }
+          if (!state.open || openRequest !== state.openRequest) return null;
+          if (!doc) {
+            verdict = "idle";
+            break;
+          }
+          state.nextPageUrl = nextPageUrl(doc);
+          // The page has been passed, so its posts join even when a newer
+          // load took over, as after a filter change.
+          scan = appendNewPosts(doc);
+          if (request !== state.loadRequest) {
+            showLateSlides(scan);
+            return null;
+          }
+          added = scan.shown;
+          found += scan.found;
+          noteLoadProgress(scan);
+          if (scan.found && !added) rounds += 1;
+          verdict = sourceVerdict(
+            added,
+            scan.found,
+            rounds,
+            Boolean(state.nextPageUrl),
+          );
+        }
+      } else if (!added && activeSource === liveSource) {
         document.documentElement.style.overflow = state.oldOverflow;
         const watch = startFeedWatch();
         let rounds = 0;
@@ -6453,7 +6716,114 @@
     gridStatus.hidden = !text;
   }
 
-  function scheduleAuto() {
+  function syncMediaLoop() {
+    const playback = state.mediaPlayback;
+    if (!playback) return;
+    // Keep the first pass non-looping so its ended event can release a timer
+    // that expired during playback. Later loops may be cut off by the timer.
+    playback.video.loop =
+      !state.autoPlaying ||
+      (state.settings.loopShortMedia &&
+        (!state.settings.finishMediaOnce || playback.completed));
+  }
+
+  // The slide's video drives auto-advance through these listeners, so they
+  // are registered here, together with the playback they report on, and
+  // removed again by untrackMedia when the slide changes.
+  function trackMedia(video) {
+    const playback = {
+      video,
+      completed: false,
+      timerExpired: false,
+      lastTime: 0,
+      handlers: null,
+    };
+    const isCurrent = () => state.open && state.mediaPlayback === playback;
+    // Once the timer has run out, only ended would advance the slide. A video
+    // that stops short of its end gets one more slide timer instead.
+    const stopped = () => {
+      if (isCurrent() && playback.timerExpired && !state.autoTimer) {
+        armAutoTimer();
+      }
+    };
+    playback.handlers = {
+      ended: () => {
+        if (!isCurrent()) return;
+        playback.completed = true;
+        if (!state.autoPlaying) return;
+        if (playback.timerExpired || !state.settings.loopShortMedia) {
+          move(1);
+        } else {
+          syncMediaLoop();
+          video.currentTime = 0;
+          playVideo(video);
+        }
+      },
+      // A looping video never fires ended. Its wrap from the end back to the
+      // start still means the first pass has been watched.
+      timeupdate: () => {
+        if (!isCurrent()) return;
+        if (
+          video.loop &&
+          video.currentTime < playback.lastTime &&
+          video.duration - playback.lastTime < 1
+        ) {
+          playback.completed = true;
+        }
+        playback.lastTime = video.currentTime;
+      },
+      pause: stopped,
+      waiting: stopped,
+      stalled: stopped,
+      error: stopped,
+    };
+    Object.keys(playback.handlers).forEach((type) => {
+      video.addEventListener(type, playback.handlers[type]);
+    });
+    state.mediaPlayback = playback;
+  }
+
+  function untrackMedia() {
+    const playback = state.mediaPlayback;
+    state.mediaPlayback = null;
+    if (!playback) return;
+    Object.keys(playback.handlers).forEach((type) => {
+      playback.video.removeEventListener(type, playback.handlers[type]);
+    });
+  }
+
+  function autoTimerFired() {
+    state.autoTimer = null;
+    const playback = state.mediaPlayback;
+    const video = playback?.video;
+    // Unknown, failed, blocked, or paused media must not trap auto-advance.
+    // Buffering gets the benefit of the doubt once, when the timer first runs
+    // out; a video still buffering a full slide timer later moves on.
+    if (
+      state.settings.finishMediaOnce &&
+      playback &&
+      !playback.completed &&
+      !state.slides[state.index]?.mediaFailed &&
+      Number.isFinite(video.duration) &&
+      video.duration > 0 &&
+      video.currentTime > 0 &&
+      !video.paused &&
+      !video.ended &&
+      !video.error &&
+      (!playback.timerExpired ||
+        video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA)
+    ) {
+      playback.timerExpired = true;
+      // A video already buffering fires no new waiting event, so check back.
+      if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+        armAutoTimer();
+      }
+      return;
+    }
+    move(1);
+  }
+
+  function armAutoTimer() {
     clearTimeout(state.autoTimer);
     state.autoTimer = null;
     if (
@@ -6463,16 +6833,47 @@
       state.slides.length > 1
     ) {
       state.autoTimer = setTimeout(
-        () => move(1),
+        autoTimerFired,
         state.settings.slideDurationSeconds * 1000,
       );
+    }
+  }
+
+  function scheduleAuto() {
+    if (state.mediaPlayback) state.mediaPlayback.timerExpired = false;
+    syncMediaLoop();
+    armAutoTimer();
+  }
+
+  // Playback preferences apply to the current video without restarting its
+  // slide timer.
+  function syncMediaPreferences() {
+    syncMediaLoop();
+    const playback = state.mediaPlayback;
+    // With finishing turned off, a timer that already ran out no longer
+    // holds the slide; give it one more slide timer rather than jumping away
+    // from the settings panel.
+    if (
+      playback?.timerExpired &&
+      !state.settings.finishMediaOnce &&
+      !state.autoTimer
+    ) {
+      armAutoTimer();
     }
   }
 
   // Embeds point at a player page (youtube.com/embed/…), so prefer the post's
   // own link (youtube.com/watch?…) for them. Other kinds link the media file.
   function mediaHref(slide) {
-    if (slide.kind === "embed" && slide.sourceUrl) return slide.sourceUrl;
+    if (
+      slide.kind === "embed" &&
+      slide.sourceUrl &&
+      slide.sourceUrl !== slide.commentsUrl
+    )
+      return slide.sourceUrl;
+    // A DASH video's url is only its fallback rendition; the post's
+    // v.redd.it link opens the whole video.
+    if (slide.mpdUrl && slide.sourceUrl) return slide.sourceUrl;
     return slide.url || slide.sourceUrl || slide.commentsUrl;
   }
 
@@ -6594,6 +6995,9 @@
     // there are.
     syncPresentationUi();
     if ("slideDurationSeconds" in changes) scheduleAuto();
+    else if ("finishMediaOnce" in changes || "loopShortMedia" in changes) {
+      syncMediaPreferences();
+    }
     const mediaChanged = MEDIA_FILTER_TYPES.some(([key]) => key in changes);
     if (mediaChanged || "hidden" in changes) {
       syncSettingsUi();
@@ -6609,8 +7013,6 @@
     state.autoPlaying = playing;
     autoButton.textContent = playing ? "pause" : "auto";
     autoButton.setAttribute("aria-pressed", String(playing));
-    const video = mediaBox.querySelector("video");
-    if (video) video.loop = !playing;
     scheduleAuto();
   }
 
@@ -7222,7 +7624,9 @@
     state.preparing = false;
     // Every post is read afresh on each open.
     seenPostNodes = new WeakSet();
-    state.allSlides = skipDeadSlides(extractSlides());
+    state.allSlides = skipDeadSlides(extractSlides(document));
+    state.nextPageUrl = nextPageUrl(document);
+    state.pagedFeed = Boolean(state.nextPageUrl);
     state.slides = state.allSlides.filter(slideShows);
     state.index = Math.min(state.index, Math.max(0, state.slides.length - 1));
     render();
